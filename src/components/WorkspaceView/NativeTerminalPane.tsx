@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { invoke, listen } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
 import { CanvasRenderer } from './renderers/CanvasRenderer'
+import { WebGLRenderer } from './renderers/WebGLRenderer'
 import type { TerminalSnapshot, SnapshotCell, CursorState, SearchMatch } from './renderers/types'
 import { useKeybindingHandler } from '../../hooks/useGlobalKeybindings'
 
@@ -61,7 +62,7 @@ export function NativeTerminalPane({
   const containerRef = useRef<HTMLDivElement>(null)
 
   // ── Renderer + snapshot state (refs to avoid re-render on every frame) ────
-  const rendererRef = useRef<CanvasRenderer | null>(null)
+  const rendererRef = useRef<CanvasRenderer | WebGLRenderer | null>(null)
   const cellsRef = useRef<SnapshotCell[]>([])
   const colsRef = useRef(80)
   const rowsRef = useRef(24)
@@ -116,8 +117,25 @@ export function NativeTerminalPane({
     cellWRef.current = ctx.measureText('M').width
     cellHRef.current = fontSize * 1.4
     // Replace renderer so it uses the new font metrics on the next frame.
+    // Re-use WebGL if the existing renderer is already a WebGLRenderer;
+    // otherwise fall back to Canvas 2D (mirrors the mount logic below).
     rendererRef.current?.dispose()
-    rendererRef.current = new CanvasRenderer(fontSize, fontFamily)
+    if (canvasRef.current?.getContext('webgl2')) {
+      try {
+        rendererRef.current = new WebGLRenderer(
+          canvasRef.current,
+          cellWRef.current,
+          cellHRef.current,
+          fontSize,
+          fontFamily,
+        )
+      } catch (e) {
+        console.warn('WebGL2 re-init failed on font change, falling back to Canvas 2D:', e)
+        rendererRef.current = new CanvasRenderer(fontSize, fontFamily)
+      }
+    } else {
+      rendererRef.current = new CanvasRenderer(fontSize, fontFamily)
+    }
   }, [fontSize, fontFamily])
 
   // ── Render scheduling ──────────────────────────────────────────────────────
@@ -143,7 +161,23 @@ export function NativeTerminalPane({
 
   // ── Tauri event subscriptions ──────────────────────────────────────────────
   useEffect(() => {
-    rendererRef.current = new CanvasRenderer(fontSize, fontFamily)
+    // Auto-select WebGL2 when available; fall back to Canvas 2D otherwise.
+    if (canvasRef.current?.getContext('webgl2')) {
+      try {
+        rendererRef.current = new WebGLRenderer(
+          canvasRef.current,
+          cellWRef.current,
+          cellHRef.current,
+          fontSize,
+          fontFamily,
+        )
+      } catch (e) {
+        console.warn('WebGL2 init failed, falling back to Canvas 2D:', e)
+        rendererRef.current = new CanvasRenderer(fontSize, fontFamily)
+      }
+    } else {
+      rendererRef.current = new CanvasRenderer(fontSize, fontFamily)
+    }
 
     // Snapshot updates — primary paint source.
     const ul1 = listen<TerminalSnapshot>(`native-terminal-update-${terminalId}`, (e) => {
