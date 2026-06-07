@@ -40,6 +40,8 @@ export interface EditorPane {
   fileTreeWidth: number
   position: number
   createdAt: number
+  activeSidebarTab?: 'explorer' | 'git'
+  diffViewEnabled?: boolean
 }
 
 export interface Keybindings {
@@ -48,6 +50,12 @@ export interface Keybindings {
   nextTerminal: string
   prevTerminal: string
   commandPalette: string
+  toggleSidebar: string
+  searchFiles: string
+  closeTab: string
+  switchTab: string
+  splitEditor: string
+  openSettings: string
 }
 
 export interface Settings {
@@ -59,6 +67,8 @@ export interface Settings {
   keybindings: Keybindings
   autosave: boolean
   adblockEnabled?: boolean
+  showTabBar?: boolean
+  iconTheme?: 'plain' | 'colorful' | 'filled'
 }
 
 export type LayoutDirection = 'horizontal' | 'vertical'
@@ -71,5 +81,17 @@ export type LayoutNode =
 
 export interface GitStatus {
   [filePath: string]: string
+}
+
+export interface DetectedTask {
+  name: string
+  command: string
+}
+
+export interface DetectedProject {
+  name: string
+  path: string
+  projectType: string
+  tasks: DetectedTask[]
 }
 

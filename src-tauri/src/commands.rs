@@ -9,6 +9,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 pub struct DbState(pub Mutex<Connection>);
 pub struct SysInfoState(pub Mutex<(sysinfo::System, sysinfo::Networks)>);
 
+// macOS concurrent fork/posix_spawn workaround
+static SPAWN_LOCK: Mutex<()> = Mutex::new(());
+
 #[derive(serde::Serialize)]
 pub struct SystemStats {
     pub cpu: f32,
@@ -23,10 +26,13 @@ pub struct SystemStats {
 fn get_mac_gpu_utilization() -> f32 {
     #[cfg(target_os = "macos")]
     {
-        if let Ok(output) = std::process::Command::new("ioreg")
-            .args(&["-c", "AGXAccelerator", "-r", "-l"])
-            .output()
-        {
+        let output_res = {
+            let _lock = SPAWN_LOCK.lock().unwrap();
+            std::process::Command::new("ioreg")
+                .args(&["-c", "AGXAccelerator", "-r", "-l"])
+                .output()
+        };
+        if let Ok(output) = output_res {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
                 if let Some(idx) = line.find("\"Device Utilization %\"=") {
@@ -39,10 +45,13 @@ fn get_mac_gpu_utilization() -> f32 {
                 }
             }
         }
-        if let Ok(output) = std::process::Command::new("ioreg")
-            .args(&["-c", "IGAccel", "-r", "-l"])
-            .output()
-        {
+        let output_res2 = {
+            let _lock = SPAWN_LOCK.lock().unwrap();
+            std::process::Command::new("ioreg")
+                .args(&["-c", "IGAccel", "-r", "-l"])
+                .output()
+        };
+        if let Ok(output) = output_res2 {
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
                 if let Some(idx) = line.find("\"Device Utilization %\"=") {
@@ -199,7 +208,10 @@ pub fn spawn_terminal(
     // Output is NOT streamed yet; the frontend calls `start_terminal` after
     // attaching its listener (see start_terminal below).
     let temp_id = uuid::Uuid::new_v4().to_string();
-    pty.spawn(temp_id.clone(), &resolved_shell, &resolved_cwd, 80, 24)?;
+    {
+        let _lock = SPAWN_LOCK.lock().unwrap();
+        pty.spawn(temp_id.clone(), &resolved_shell, &resolved_cwd, 80, 24)?;
+    }
 
     let terminal = {
         let conn = db.0.lock().unwrap();
@@ -243,7 +255,11 @@ pub fn respawn_terminal(
         shell.clone()
     };
 
-    pty.spawn(id, &resolved_shell, &resolved_cwd, 80, 24)?;
+    {
+        let _lock = SPAWN_LOCK.lock().unwrap();
+        pty.spawn(id.clone(), &resolved_shell, &resolved_cwd, 80, 24)?;
+    }
+    println!(">>> RUST: respawn_terminal finished for term {}", id);
     Ok(())
 }
 
@@ -270,6 +286,37 @@ pub fn rename_terminal(db: State<DbState>, id: String, title: String) -> Result<
 #[tauri::command]
 pub fn update_terminal_cwd(db: State<DbState>, id: String, cwd: String) -> Result<(), String> {
     db::update_terminal_cwd(&db.0.lock().unwrap(), &id, &cwd).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn is_terminal_busy(
+    pty: State<PtyManager>,
+    state: State<SysInfoState>,
+    id: String,
+) -> Result<bool, String> {
+    let shell_pid = match pty.get_pid(&id) {
+        Some(pid) => pid,
+        None => return Ok(false),
+    };
+
+    let mut state_lock = state.0.lock().unwrap();
+    let sys = &mut state_lock.0;
+    
+    // Specifically refresh processes without grabbing all detailed attributes if possible
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+
+    let mut is_busy = false;
+    for (_pid, process) in sys.processes() {
+        if let Some(parent) = process.parent() {
+            if parent.as_u32() == shell_pid {
+                // If it's a child process of the shell, the terminal is busy
+                is_busy = true;
+                break;
+            }
+        }
+    }
+
+    Ok(is_busy)
 }
 
 #[tauri::command]
@@ -501,13 +548,16 @@ pub fn get_git_branch(cwd: String) -> Result<String, String> {
     if cwd.is_empty() {
         return Err("Empty cwd".to_string());
     }
-    let output = std::process::Command::new("git")
-        .arg("rev-parse")
-        .arg("--abbrev-ref")
-        .arg("HEAD")
-        .current_dir(&cwd)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let output = {
+        let _lock = SPAWN_LOCK.lock().unwrap();
+        std::process::Command::new("git")
+            .arg("rev-parse")
+            .arg("--abbrev-ref")
+            .arg("HEAD")
+            .current_dir(&cwd)
+            .output()
+            .map_err(|e| e.to_string())?
+    };
 
     if output.status.success() {
         let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -519,17 +569,20 @@ pub fn get_git_branch(cwd: String) -> Result<String, String> {
 
 #[tauri::command]
 pub fn get_git_status(path: String) -> Result<HashMap<String, String>, String> {
-    let output = std::process::Command::new("git")
-        .args(["status", "--porcelain"])
-        .current_dir(path)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let output = {
+        let _lock = SPAWN_LOCK.lock().unwrap();
+        std::process::Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(path)
+            .output()
+            .map_err(|e| e.to_string())?
+    };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut status_map = HashMap::new();
 
     for line in stdout.lines() {
-        if line.len() > 3 {
+        if line.len() > 3 && line.is_char_boundary(2) && line.is_char_boundary(3) {
             let status = line[..2].trim().to_string();
             let file_path = line[3..].to_string();
             status_map.insert(file_path, status);
@@ -569,4 +622,221 @@ pub fn search_in_files(paths: Vec<String>, query: String) -> Result<Vec<SearchMa
         }
     }
     Ok(results)
+}
+
+#[tauri::command]
+pub fn search_files_by_name(path: String, query: String) -> Result<Vec<String>, String> {
+    let mut files = Vec::new();
+    let query_lower = query.to_lowercase();
+    
+    // Try git ls-files first
+    let output_res = {
+        let _lock = SPAWN_LOCK.lock().unwrap();
+        std::process::Command::new("git")
+            .args(["ls-files"])
+            .current_dir(&path)
+            .output()
+    };
+    
+    if let Ok(output) = output_res {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                if query.is_empty() || line.to_lowercase().contains(&query_lower) {
+                    files.push(line.to_string());
+                }
+                if files.len() > 100 {
+                    break;
+                }
+            }
+            return Ok(files);
+        }
+    }
+    
+    // Fallback to naive recursive search
+    fn walk_dir(dir: &std::path::Path, query: &str, results: &mut Vec<String>, base: &std::path::Path) {
+        if results.len() > 100 { return; }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let is_dir = path.is_dir();
+                
+                if let Ok(rel_path) = path.strip_prefix(base) {
+                    let rel_str = rel_path.to_string_lossy();
+                    // skip hidden
+                    if rel_str.starts_with('.') || rel_str.contains("/.") {
+                        continue;
+                    }
+                    if !is_dir {
+                        if query.is_empty() || rel_str.to_lowercase().contains(query) {
+                            results.push(rel_str.into_owned());
+                        }
+                    }
+                }
+                
+                if is_dir {
+                    walk_dir(&path, query, results, base);
+                }
+            }
+        }
+    }
+    
+    walk_dir(std::path::Path::new(&path), &query_lower, &mut files, std::path::Path::new(&path));
+    Ok(files)
+}
+
+#[tauri::command]
+pub fn clear_database(db: State<DbState>) -> Result<(), String> {
+    db::clear_all_data(&db.0.lock().unwrap()).map_err(|e| e.to_string())
+}
+#[tauri::command]
+pub fn get_username(db: State<DbState>) -> Result<Option<String>, String> {
+    let conn = db.0.lock().unwrap();
+    db::get_setting(&conn, "username").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_username(db: State<DbState>, username: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::set_setting(&conn, "username", &username).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedTask {
+    pub name: String,
+    pub command: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedProject {
+    pub name: String,
+    pub path: String,
+    pub project_type: String,
+    pub tasks: Vec<DetectedTask>,
+}
+
+#[tauri::command]
+pub fn get_detected_projects(cwd: String) -> Result<Vec<DetectedProject>, String> {
+    let mut projects = Vec::new();
+    let base_path = std::path::Path::new(&cwd);
+    
+    if !base_path.exists() || !base_path.is_dir() {
+        return Ok(projects);
+    }
+    
+    let mut paths_to_check = vec![base_path.to_path_buf()];
+    if let Ok(entries) = std::fs::read_dir(base_path) {
+        for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type() {
+                if file_type.is_dir() {
+                    // Skip hidden dirs like .git, .next, node_modules
+                    if let Some(name) = entry.file_name().to_str() {
+                        if !name.starts_with('.') && name != "node_modules" && name != "target" {
+                            paths_to_check.push(entry.path());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    for path in paths_to_check {
+        let mut added = false;
+        
+        let pkg_json = path.join("package.json");
+        if pkg_json.exists() {
+            if let Ok(content) = std::fs::read_to_string(&pkg_json) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    let mut tasks = Vec::new();
+                    if let Some(scripts) = json.get("scripts").and_then(|s| s.as_object()) {
+                        for (key, _val) in scripts {
+                            tasks.push(DetectedTask {
+                                name: key.to_string(),
+                                command: format!("npm run {}", key),
+                            });
+                        }
+                    }
+                    if !tasks.is_empty() {
+                        let proj_name = json.get("name").and_then(|n| n.as_str()).unwrap_or_else(|| {
+                            path.file_name().and_then(|n| n.to_str()).unwrap_or("Unknown")
+                        });
+                        projects.push(DetectedProject {
+                            name: proj_name.to_string(),
+                            path: path.to_string_lossy().to_string(),
+                            project_type: "node".to_string(),
+                            tasks,
+                        });
+                        added = true;
+                    }
+                }
+            }
+        }
+        
+        if !added {
+            let cargo_toml = path.join("Cargo.toml");
+            if cargo_toml.exists() {
+                let proj_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("Rust Project");
+                projects.push(DetectedProject {
+                    name: proj_name.to_string(),
+                    path: path.to_string_lossy().to_string(),
+                    project_type: "rust".to_string(),
+                    tasks: vec![
+                        DetectedTask { name: "build".into(), command: "cargo build".into() },
+                        DetectedTask { name: "run".into(), command: "cargo run".into() },
+                        DetectedTask { name: "test".into(), command: "cargo test".into() },
+                        DetectedTask { name: "check".into(), command: "cargo check".into() },
+                    ]
+                });
+            }
+        }
+    }
+    
+    Ok(projects)
+}
+
+#[tauri::command]
+pub fn get_git_file_content(path: String, file_path: String) -> Result<String, String> {
+    let output = {
+        let _lock = SPAWN_LOCK.lock().unwrap();
+        std::process::Command::new("git")
+            .args(["show", &format!("HEAD:./{}", file_path)])
+            .current_dir(path)
+            .output()
+            .map_err(|e| e.to_string())?
+    };
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[tauri::command]
+pub fn git_commit(path: String, message: String) -> Result<(), String> {
+    let _lock = SPAWN_LOCK.lock().unwrap();
+    // First stage all changes
+    let add_output = std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| e.to_string())?;
+        
+    if !add_output.status.success() {
+        return Err(String::from_utf8_lossy(&add_output.stderr).to_string());
+    }
+
+    // Then commit
+    let commit_output = std::process::Command::new("git")
+        .args(["commit", "-m", &message])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| e.to_string())?;
+        
+    if !commit_output.status.success() {
+        return Err(String::from_utf8_lossy(&commit_output.stderr).to_string());
+    }
+
+    Ok(())
 }

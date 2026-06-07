@@ -1,3 +1,4 @@
+#![allow(unexpected_cfgs)]
 mod browser_pane_manager;
 mod commands;
 mod db;
@@ -46,6 +47,8 @@ pub fn run() {
             commands::get_system_stats,
             commands::get_git_branch,
             commands::get_git_status,
+            commands::get_git_file_content,
+            commands::git_commit,
             commands::get_workspaces,
             commands::create_workspace,
             commands::update_workspace,
@@ -56,8 +59,10 @@ pub fn run() {
             commands::start_terminal,
             commands::rename_terminal,
             commands::update_terminal_cwd,
+            commands::is_terminal_busy,
             commands::close_terminal,
             commands::write_pty,
+            commands::get_detected_projects,
             commands::resize_pty,
             commands::load_scrollback,
             commands::save_scrollback,
@@ -78,6 +83,10 @@ pub fn run() {
             commands::spawn_ephemeral_browser_pane,
             commands::destroy_ephemeral_browser_pane,
             commands::search_in_files,
+            commands::search_files_by_name,
+            commands::get_username,
+            commands::set_username,
+            commands::clear_database,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

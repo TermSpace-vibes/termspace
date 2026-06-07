@@ -43,7 +43,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       return undefined as unknown as T;
     case 'create_browser_pane':
     case 'respawn_browser_pane':
-      return { id: `mock-bp-${Date.now()}`, workspaceId: args?.workspaceId || '', url: args?.url || 'https://google.com' } as unknown as T;
+      return { id: `mock-bp-${Date.now()}`, workspaceId: args?.workspaceId || '', url: args?.url || 'termspace://newtab' } as unknown as T;
     case 'get_browser_panes':
       return [] as unknown as T;
     case 'resize_browser_pane':

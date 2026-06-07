@@ -2,11 +2,11 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
 import { Workspace, Terminal, BrowserPane, EditorPane, LayoutNode, LayoutDirection, Settings, GitStatus } from '../types'
-import { 
-  addTerminalToLayout, removeTerminalFromLayout, swapTerminalsInLayout, 
-  updateSplitSizes, 
+import {
+  addTerminalToLayout, removeTerminalFromLayout, swapTerminalsInLayout,
+  updateSplitSizes,
   addBrowserPaneToLayout, removeBrowserPaneFromLayout,
-  addEditorPaneToLayout, removeEditorPaneFromLayout
+  addEditorPaneToLayout, removeEditorPaneFromLayout,
 } from '../utils/layout'
 
 interface AppState {
@@ -75,6 +75,9 @@ interface AppState {
 
   activatingWorkspaces: Record<string, boolean>
   setActivatingWorkspace: (id: string, activating: boolean) => void
+
+  terminalToCloseId: { workspaceId: string, terminalId: string } | null
+  setTerminalToCloseId: (data: { workspaceId: string, terminalId: string } | null) => void
 }
 
 export const useAppStore = create<AppState>()(
@@ -96,6 +99,8 @@ export const useAppStore = create<AppState>()(
       showCommandPalette: false,
       isModalOpen: false,
       activatingWorkspaces: {},
+      terminalToCloseId: null,
+      setTerminalToCloseId: (data) => set({ terminalToCloseId: data }),
       username: null,
       setUsername: (name) => set({ username: name }),
       settings: {
@@ -106,12 +111,20 @@ export const useAppStore = create<AppState>()(
         timeFormat: '24h',
         autosave: false,
         adblockEnabled: true,
+        showTabBar: true,
+        iconTheme: 'colorful',
         keybindings: {
           newTerminal: 'CmdOrCtrl+T',
           closeTerminal: 'CmdOrCtrl+W',
           nextTerminal: 'CmdOrCtrl+Shift+]',
           prevTerminal: 'CmdOrCtrl+Shift+[',
           commandPalette: 'CmdOrCtrl+K',
+          toggleSidebar: 'CmdOrCtrl+B',
+          searchFiles: 'CmdOrCtrl+Shift+F',
+          closeTab: 'CmdOrCtrl+W',
+          switchTab: 'Ctrl+Tab',
+          splitEditor: 'CmdOrCtrl+\\',
+          openSettings: 'CmdOrCtrl+,',
         }
       },
 
@@ -450,14 +463,17 @@ export const useAppStore = create<AppState>()(
         }),
 
       updateEditorPaneLayout: (workspaceId: string, editorPaneId: string, layout) =>
-        set((s) => ({
-          editorPanesByWorkspace: {
-            ...s.editorPanesByWorkspace,
-            [workspaceId]: (s.editorPanesByWorkspace[workspaceId] ?? []).map((p) => 
-              p.id === editorPaneId ? { ...p, ...layout } : p
-            )
+        set((s) => {
+          fetch('http://localhost:1420/__log_error', { method: 'POST', body: 'updateEditorPaneLayout: ' + JSON.stringify(layout) })
+          return {
+            editorPanesByWorkspace: {
+              ...s.editorPanesByWorkspace,
+              [workspaceId]: (s.editorPanesByWorkspace[workspaceId] ?? []).map((p) => 
+                p.id === editorPaneId ? { ...p, ...layout } : p
+              )
+            }
           }
-        })),
+        }),
 
       splitEditor: (workspaceId, editorPaneId, direction) =>
         set((s) => {

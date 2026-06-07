@@ -6,9 +6,12 @@ import {
 import { LayoutNode } from '../types'
 
 describe('addBrowserPaneToLayout', () => {
-  it('creates a single browser node when root is null', () => {
+  it('creates a single browser node wrapped in split when root is null', () => {
     const result = addBrowserPaneToLayout(null, 'bp-1')
-    expect(result).toEqual({ type: 'browser', id: expect.any(String), browserPaneId: 'bp-1' })
+    expect(result).toEqual({
+      type: 'split', id: 'root', direction: 'horizontal', sizes: [100],
+      children: [{ type: 'browser', id: 'browser-bp-1', browserPaneId: 'bp-1' }]
+    })
   })
 
   it('splits an existing pane node with a browser node', () => {
@@ -27,7 +30,7 @@ describe('removeBrowserPaneFromLayout', () => {
     expect(removeBrowserPaneFromLayout(root, 'bp-1')).toBeNull()
   })
 
-  it('collapses split when browser pane is removed', () => {
+  it('keeps split with 1 child when browser pane is removed (no collapse)', () => {
     const root: LayoutNode = {
       type: 'split', id: 's1', direction: 'horizontal', sizes: [50, 50],
       children: [
@@ -36,7 +39,10 @@ describe('removeBrowserPaneFromLayout', () => {
       ]
     }
     const result = removeBrowserPaneFromLayout(root, 'bp-1')
-    expect(result).toEqual({ type: 'pane', id: 'p1', terminalId: 't-1' })
+    expect(result).toEqual({
+      type: 'split', id: 's1', direction: 'horizontal', sizes: [100],
+      children: [{ type: 'pane', id: 'p1', terminalId: 't-1' }]
+    })
   })
 
   it('returns root unchanged when browserPaneId is not found', () => {

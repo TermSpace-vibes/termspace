@@ -11,6 +11,7 @@ export function useKeybindingHandler() {
   const terminalsByWorkspace = useAppStore((s) => s.terminalsByWorkspace)
   const addTerminal = useAppStore((s) => s.addTerminal)
   const removeTerminal = useAppStore((s) => s.removeTerminal)
+  const setTerminalToCloseId = useAppStore((s) => s.setTerminalToCloseId)
   const setActiveTerminalId = useAppStore((s) => s.setActiveTerminalId)
 
   const terminals = activeWorkspaceId ? (terminalsByWorkspace[activeWorkspaceId] ?? []) : []
@@ -41,15 +42,93 @@ export function useKeybindingHandler() {
       return true
     }
 
+    const isTerminalFocused = !!document.activeElement?.closest('.terminal-wrapper, .xterm, .terminal-pane, .xterm-helper-textarea')
+
     if (matchShortcut(e, keybindings.closeTerminal)) {
+      if (isTerminalFocused || keybindings.closeTerminal !== (keybindings.closeTab || 'CmdOrCtrl+W')) {
+        e.preventDefault()
+        if (activeTerminalId) {
+          invoke<boolean>('is_terminal_busy', { id: activeTerminalId })
+            .then(isBusy => {
+              if (isBusy) {
+                setTerminalToCloseId({ workspaceId: activeWorkspaceId, terminalId: activeTerminalId })
+              } else {
+                invoke('close_terminal', { id: activeTerminalId, scrollback: [] }).catch(console.error)
+                removeTerminal(activeWorkspaceId, activeTerminalId)
+                const remaining = terminals.filter((t) => t.id !== activeTerminalId)
+                if (remaining.length > 0) {
+                  setActiveTerminalId(remaining[remaining.length - 1].id)
+                } else {
+                  setActiveTerminalId(null)
+                }
+              }
+            })
+            .catch(err => {
+              console.error(err)
+              setTerminalToCloseId({ workspaceId: activeWorkspaceId, terminalId: activeTerminalId })
+            })
+        }
+        return true
+      }
+    }
+
+    if (matchShortcut(e, keybindings.closeTab || 'CmdOrCtrl+W')) {
       e.preventDefault()
-      if (activeTerminalId) {
-        removeTerminal(activeWorkspaceId, activeTerminalId)
-        const remaining = terminals.filter((t) => t.id !== activeTerminalId)
-        if (remaining.length > 0) {
-          setActiveTerminalId(remaining[remaining.length - 1].id)
-        } else {
-          setActiveTerminalId(null)
+      const store = useAppStore.getState()
+      const editorPanes = store.editorPanesByWorkspace[activeWorkspaceId] || []
+      const activeFile = store.activeFileByWorkspace[activeWorkspaceId]
+      if (activeFile) {
+        const pane = editorPanes.find(p => p.openFiles.includes(activeFile))
+        if (pane) {
+          store.closeEditorFile(activeWorkspaceId, pane.id, activeFile)
+        }
+      }
+      return true
+    }
+
+    if (matchShortcut(e, keybindings.toggleSidebar || 'CmdOrCtrl+B')) {
+      e.preventDefault()
+      window.dispatchEvent(new CustomEvent('termspace:toggle-sidebar'))
+      return true
+    }
+
+    if (matchShortcut(e, keybindings.searchFiles || 'CmdOrCtrl+Shift+F')) {
+      e.preventDefault()
+      useAppStore.getState().setShowCommandPalette(true)
+      return true
+    }
+
+    if (matchShortcut(e, keybindings.openSettings || 'CmdOrCtrl+,')) {
+      e.preventDefault()
+      window.dispatchEvent(new CustomEvent('termspace:open-settings'))
+      return true
+    }
+
+    if (matchShortcut(e, keybindings.switchTab || 'Ctrl+Tab')) {
+      e.preventDefault()
+      const store = useAppStore.getState()
+      const editorPanes = store.editorPanesByWorkspace[activeWorkspaceId] || []
+      const activeFile = store.activeFileByWorkspace[activeWorkspaceId]
+      if (activeFile && editorPanes.length > 0) {
+        const pane = editorPanes.find(p => p.openFiles.includes(activeFile)) || editorPanes[0]
+        if (pane && pane.openFiles.length > 1) {
+          const idx = pane.openFiles.indexOf(activeFile)
+          const nextIdx = (idx + 1) % pane.openFiles.length
+          store.updateEditorPaneFile(activeWorkspaceId, pane.id, pane.openFiles[nextIdx])
+        }
+      }
+      return true
+    }
+
+    if (matchShortcut(e, keybindings.splitEditor || 'CmdOrCtrl+\\')) {
+      e.preventDefault()
+      const store = useAppStore.getState()
+      const editorPanes = store.editorPanesByWorkspace[activeWorkspaceId] || []
+      const activeFile = store.activeFileByWorkspace[activeWorkspaceId]
+      if (activeFile && editorPanes.length > 0) {
+        const pane = editorPanes.find(p => p.openFiles.includes(activeFile)) || editorPanes[0]
+        if (pane) {
+          store.splitEditor(activeWorkspaceId, pane.id, 'horizontal')
         }
       }
       return true
@@ -80,7 +159,7 @@ export function useKeybindingHandler() {
     }
 
     return false
-  }, [activeWorkspaceId, activeTerminalId, settings, terminals, addTerminal, removeTerminal, setActiveTerminalId])
+  }, [activeWorkspaceId, activeTerminalId, settings, terminals, addTerminal, removeTerminal, setTerminalToCloseId, setActiveTerminalId])
 
   return handleKeydown
 }
