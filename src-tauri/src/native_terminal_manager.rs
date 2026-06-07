@@ -21,6 +21,7 @@
 
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::test::TermSize;
@@ -328,6 +329,17 @@ impl NativeTerminalManager {
     pub fn get_pid(&self, terminal_id: &str) -> Option<u32> {
         self.handles.lock().unwrap().get(terminal_id).and_then(|h| h.child.process_id())
     }
+
+    /// Find all matches of `query` in the terminal's visible grid, returning one
+    /// `SearchMatch` per contiguous run on each row.
+    pub fn search(&self, terminal_id: &str, query: &str) -> Result<Vec<SearchMatch>, String> {
+        let handles = self.handles.lock().unwrap();
+        let h = handles
+            .get(terminal_id)
+            .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
+        let term = h.term.lock().unwrap();
+        Ok(search_term(&*term, query))
+    }
 }
 
 /// Scan a freshly-read PTY chunk for OSC sequences we act on: OSC 7 (working
@@ -506,6 +518,52 @@ fn resolve_color(color: Color, colors: &Colors, default: u32) -> u32 {
     0xFF00_0000 | ((rgb.r as u32) << 16) | ((rgb.g as u32) << 8) | (rgb.b as u32)
 }
 
+/// Scan the visible terminal grid for `query`, returning one `SearchMatch` per
+/// contiguous occurrence on each row.
+///
+/// Complexity: O(rows * cols) to reconstruct the visible text plus O(rows * cols)
+/// for the per-row substring search (linear via `str::find`), so O(rows * cols)
+/// time overall. Space is O(cols) — a single reusable row buffer, never the whole
+/// screen — and the result vector, bounded by the number of matches. Only the
+/// visible viewport is scanned, not scrollback, keeping cost window-bounded.
+pub fn search_term(term: &Term<impl EventListener>, query: &str) -> Vec<SearchMatch> {
+    if query.is_empty() {
+        return vec![];
+    }
+    let cols = term.columns();
+    let rows = term.screen_lines();
+    let grid = term.grid();
+    let mut results = Vec::new();
+    let mut row_str = String::with_capacity(cols);
+
+    for row in 0..rows as i32 {
+        row_str.clear();
+        for col in 0..cols {
+            let ch = grid[Line(row)][Column(col)].c;
+            // Treat NUL placeholders as spaces so column offsets stay aligned
+            // with the on-screen layout.
+            row_str.push(if ch == '\0' { ' ' } else { ch });
+        }
+
+        // Multibyte-safe: walk byte offsets returned by `find`, but emit column
+        // indices, which here equal char indices (cell glyphs are single chars).
+        let mut start = 0;
+        while let Some(pos) = row_str[start..].find(query) {
+            let byte_start = start + pos;
+            let col_start = row_str[..byte_start].chars().count();
+            let col_end = col_start + query.chars().count();
+            results.push(SearchMatch {
+                row: row as u16,
+                col_start: col_start as u16,
+                col_end: col_end as u16,
+            });
+            // Advance past this match's first char to find overlapping matches.
+            start = byte_start + row_str[byte_start..].chars().next().map_or(1, |c| c.len_utf8());
+        }
+    }
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -564,4 +622,30 @@ mod tests {
     #[test]
     #[ignore = "requires shell — run manually"]
     fn resize_changes_pty_size() {}
+
+    #[test]
+    fn search_finds_known_text() {
+        let config = Config { scrolling_history: 100, ..Default::default() };
+        let size = TermSize::new(80, 24);
+        let mut term = Term::new(config, &size, NullListener);
+        let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
+        for &b in b"Hello World" {
+            parser.advance(&mut term, b);
+        }
+        let matches = search_term(&term, "World");
+        assert!(!matches.is_empty(), "should find 'World'");
+        let m = &matches[0];
+        assert_eq!(m.row, 0);
+        assert_eq!(m.col_start, 6);
+        assert_eq!(m.col_end, 11);
+    }
+
+    #[test]
+    fn search_no_match_returns_empty() {
+        let config = Config { scrolling_history: 100, ..Default::default() };
+        let size = TermSize::new(80, 24);
+        let term = Term::new(config, &size, NullListener);
+        let matches = search_term(&term, "nothing");
+        assert!(matches.is_empty());
+    }
 }
