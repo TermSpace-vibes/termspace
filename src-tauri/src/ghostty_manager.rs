@@ -28,14 +28,41 @@ const K_CG_NULL_WINDOW_ID: CGWindowID = 0;
 const K_CF_NUMBER_SI32_TYPE: i32 = 3;
 const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 
-// All #[link] blocks must be at module scope — never inside a function body.
+// CGWindowListCopyWindowInfo, CGSSetWindowParent, CGSMoveWindow are publicly
+// exported by CoreGraphics.framework and safe to link statically.
+// CGSDefaultConnection and CGSSetWindowGeometry are private SPI — they exist at
+// runtime but are not in the SDK headers, so the linker can't find them. Load
+// them dynamically via dlsym instead.
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGWindowListCopyWindowInfo(option: u32, relative_to: CGWindowID) -> CFArrayRef;
-    fn CGSDefaultConnection() -> i32;
     fn CGSSetWindowParent(conn: i32, child: CGWindowID, parent: CGWindowID) -> i32;
     fn CGSMoveWindow(conn: i32, wid: CGWindowID, point: *const NSPoint) -> i32;
-    fn CGSSetWindowGeometry(conn: i32, wid: CGWindowID, origin: NSPoint, size: NSSize) -> i32;
+}
+
+// RTLD_DEFAULT on macOS = (void *)-2
+const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
+
+extern "C" {
+    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+}
+
+fn cgs_default_connection() -> i32 {
+    unsafe {
+        let sym = dlsym(RTLD_DEFAULT, b"CGSDefaultConnection\0".as_ptr() as *const c_char);
+        if sym.is_null() { return -1; }
+        let f: unsafe extern "C" fn() -> i32 = std::mem::transmute(sym);
+        f()
+    }
+}
+
+fn cgs_set_window_geometry(conn: i32, wid: CGWindowID, origin: NSPoint, size: NSSize) -> i32 {
+    unsafe {
+        let sym = dlsym(RTLD_DEFAULT, b"CGSSetWindowGeometry\0".as_ptr() as *const c_char);
+        if sym.is_null() { return -1; }
+        let f: unsafe extern "C" fn(i32, CGWindowID, NSPoint, NSSize) -> i32 = std::mem::transmute(sym);
+        f(conn, wid, origin, size)
+    }
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -151,10 +178,10 @@ fn set_ghostty_frame(window_id: CGWindowID, x: f64, y: f64, w: f64, h: f64) -> R
     let quartz_y = screen_height() - y - h;
 
     unsafe {
-        let conn = CGSDefaultConnection();
+        let conn = cgs_default_connection();
         let origin = NSPoint { x, y: quartz_y };
         let size = NSSize { width: w, height: h };
-        let r = CGSSetWindowGeometry(conn, window_id, origin, size);
+        let r = cgs_set_window_geometry(conn, window_id, origin, size);
         if r != 0 {
             CGSMoveWindow(conn, window_id, &origin);
         }
@@ -231,7 +258,7 @@ impl GhosttyManager {
 
         // Reparent Ghostty's window to Termspace's window
         unsafe {
-            let conn = CGSDefaultConnection();
+            let conn = cgs_default_connection();
             let result = CGSSetWindowParent(conn, window_id, parent_window_number as u32);
             if result != 0 {
                 return Err(format!("CGSSetWindowParent failed with code {result}"));
