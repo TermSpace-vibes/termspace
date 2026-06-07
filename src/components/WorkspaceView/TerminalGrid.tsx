@@ -1,11 +1,14 @@
 import React, { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Terminal as TerminalType, BrowserPane as BrowserPaneType, LayoutNode } from '../../types'
+import { Terminal as TerminalType, BrowserPane as BrowserPaneType, LayoutNode, GhosttyPane as GhosttyPaneType } from '../../types'
 
 const EMPTY_BROWSER_PANES: BrowserPaneType[] = []
+const EMPTY_EDITOR_PANES: any[] = []
+const EMPTY_GHOSTTY_PANES: GhosttyPaneType[] = []
 import { TerminalPane } from './TerminalPane'
 import { BrowserPane } from './BrowserPane'
 import { EditorPaneComponent } from '../EditorPane'
+import { GhosttyPane } from './GhosttyPane'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import { useAppStore } from '../../store/useAppStore'
 
@@ -18,6 +21,7 @@ interface Props {
   onSplit: (terminalId: string, direction: 'horizontal' | 'vertical') => void
   onCloseBrowserPane: (browserPaneId: string) => void
   onSplitBrowserPane: (browserPaneId: string, direction: 'horizontal' | 'vertical', initialUrl?: string) => void
+  onCloseGhosttyPane: (ghosttyPaneId: string) => void
 }
 
 const CustomResizeHandle = ({ id, direction }: { id: string, direction: 'horizontal' | 'vertical' }) => {
@@ -34,7 +38,7 @@ const CustomResizeHandle = ({ id, direction }: { id: string, direction: 'horizon
   )
 }
 
-export function TerminalGrid({ workspaceId, terminals, activeTerminalId, onFocus, onClose, onSplit, onCloseBrowserPane, onSplitBrowserPane }: Props) {
+export function TerminalGrid({ workspaceId, terminals, activeTerminalId, onFocus, onClose, onSplit, onCloseBrowserPane, onSplitBrowserPane, onCloseGhosttyPane: _onCloseGhosttyPane }: Props) {
   const [maximizedTerminalId, setMaximizedTerminalId] = useState<string | null>(null)
   const [dragOverTerminalId, setDragOverTerminalId] = useState<string | null>(null)
   const reorderTerminals = useAppStore((s) => s.reorderTerminals)
@@ -43,7 +47,10 @@ export function TerminalGrid({ workspaceId, terminals, activeTerminalId, onFocus
   const browserPanes = useAppStore((s) => s.browserPanesByWorkspace[workspaceId] ?? EMPTY_BROWSER_PANES)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
 
-  if ((terminals.length === 0 && browserPanes.length === 0) || !layout) return null
+  const editorPanes = useAppStore((s) => s.editorPanesByWorkspace[workspaceId] ?? EMPTY_EDITOR_PANES)
+  const ghosttyPanes = useAppStore((s) => s.ghosttyPanesByWorkspace[workspaceId] ?? EMPTY_GHOSTTY_PANES)
+
+  if ((terminals.length === 0 && browserPanes.length === 0 && editorPanes.length === 0 && ghosttyPanes.length === 0) || !layout) return null
 
   const isMaximized = maximizedTerminalId !== null
 
@@ -166,6 +173,24 @@ export function TerminalGrid({ workspaceId, terminals, activeTerminalId, onFocus
     )
   }
 
+  const renderGhosttyPane = (ghosttyPaneId: string) => {
+    const pane = ghosttyPanes.find((p) => p.id === ghosttyPaneId)
+    if (!pane) return null
+    return (
+      <div
+        key={ghosttyPaneId}
+        style={{ display: 'flex', width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}
+      >
+        <GhosttyPane
+          ghosttyPaneId={ghosttyPaneId}
+          cwd={pane.cwd}
+          isActive={ghosttyPaneId === activeTerminalId}
+          isHidden={workspaceId !== activeWorkspaceId}
+        />
+      </div>
+    )
+  }
+
   const renderLayoutNode = (node: LayoutNode): React.ReactNode => {
     if (node.type === 'pane') {
       return renderTerminal(node.terminalId)
@@ -179,16 +204,25 @@ export function TerminalGrid({ workspaceId, terminals, activeTerminalId, onFocus
       return renderEditorPane(node.editorPaneId)
     }
 
+    if (node.type === 'ghostty') {
+      return renderGhosttyPane(node.ghosttyPaneId)
+    }
+
     if (node.type === 'split') {
       return (
         <Group 
           orientation={node.direction} 
-          id={node.id}
-          autoSave={node.id}
-          // @ts-ignore: onLayout takes number[]
+          id={`${node.id}-${node.children.length}`}
+          autoSave={`${node.id}-${node.children.length}`}
+          // @ts-ignore: onLayout is valid but missing in type
           onLayout={(sizes: number[]) => {
             if (!isMaximized) {
-              updateLayoutSizes(workspaceId, node.id, sizes)
+              const currentSizesStr = JSON.stringify((node.sizes || []).map(s => Math.round(s * 10)))
+              const newSizesStr = JSON.stringify(sizes.map(s => Math.round(s * 10)))
+              if (currentSizesStr !== newSizesStr) {
+                // fetch('http://localhost:1420/__log_error', { method: 'POST', body: 'Layout Update: ' + currentSizesStr + ' -> ' + newSizesStr })
+                updateLayoutSizes(workspaceId, node.id, sizes)
+              }
             }
           }}
           style={{ width: '100%', height: '100%' }}

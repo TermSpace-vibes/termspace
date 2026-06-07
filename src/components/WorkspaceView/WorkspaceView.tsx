@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { invoke } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
-import { Workspace, Terminal, BrowserPane as BrowserPaneType, EditorPane as EditorPaneType } from '../../types'
+import { Workspace, Terminal, BrowserPane as BrowserPaneType, EditorPane as EditorPaneType, GhosttyPane as GhosttyPaneType } from '../../types'
 import { TerminalGrid } from './TerminalGrid'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { open } from '@tauri-apps/plugin-dialog'
+import { writeTextFileContent } from '../../utils/fs'
 
 interface Props {
   workspace: Workspace
@@ -15,6 +16,7 @@ interface Props {
 const EMPTY_TERMINALS: Terminal[] = []
 const EMPTY_BROWSER_PANES: BrowserPaneType[] = []
 const EMPTY_EDITOR_PANES: EditorPaneType[] = []
+const EMPTY_GHOSTTY_PANES: GhosttyPaneType[] = []
 
 export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
   const [stats, setStats] = useState({ cpu: 0, ram_used: 0, ram_total: 0, latency_ms: 0, network_up: 0, network_down: 0, gpu: 0 })
@@ -40,18 +42,44 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
   const rawTerminals = useAppStore((s) => s.terminalsByWorkspace[workspace.id])
   const terminals = rawTerminals ?? EMPTY_TERMINALS
   const isLoaded = rawTerminals !== undefined
+  const isLoading = useAppStore((s) => s.activatingWorkspaces[workspace.id] === true)
   const activeTerminalId = useAppStore((s) => s.activeTerminalId)
   const addTerminal = useAppStore((s) => s.addTerminal)
   const setActiveTerminalId = useAppStore((s) => s.setActiveTerminalId)
   const removeTerminal = useAppStore((s) => s.removeTerminal)
+  const terminalToCloseId = useAppStore((s) => s.terminalToCloseId)
+  const setTerminalToCloseId = useAppStore((s) => s.setTerminalToCloseId)
   const settings = useAppStore((s) => s.settings)
   const browserPanes = useAppStore((s) => s.browserPanesByWorkspace[workspace.id] ?? EMPTY_BROWSER_PANES)
   const addBrowserPane = useAppStore((s) => s.addBrowserPane)
   const removeBrowserPane = useAppStore((s) => s.removeBrowserPane)
   const editorPanes = useAppStore((s) => s.editorPanesByWorkspace[workspace.id] ?? EMPTY_EDITOR_PANES)
   const addEditorPane = useAppStore((s) => s.addEditorPane)
+  const ghosttyPanes = useAppStore((s) => s.ghosttyPanesByWorkspace[workspace.id] ?? EMPTY_GHOSTTY_PANES)
+  const addGhosttyPane = useAppStore((s) => s.addGhosttyPane)
+  const removeGhosttyPane = useAppStore((s) => s.removeGhosttyPane)
+
+  const handleAddGhosttyPane = (targetId?: string, direction?: 'horizontal' | 'vertical') => {
+    const activeTerminal = activeTerminalId
+      ? useAppStore.getState().terminalsByWorkspace[workspace.id]?.find((t) => t.id === activeTerminalId)
+      : null
+    const pane: GhosttyPaneType = {
+      id: crypto.randomUUID(),
+      workspaceId: workspace.id,
+      cwd: activeTerminal?.cwd || '',
+      createdAt: Date.now(),
+    }
+    addGhosttyPane(workspace.id, pane, targetId, direction)
+  }
+
+  const handleCloseGhosttyPane = (ghosttyPaneId: string) => {
+    removeGhosttyPane(workspace.id, ghosttyPaneId)
+  }
 
   const handleAddTerminal = async (targetId?: string, direction?: 'horizontal' | 'vertical') => {
+    if (settings.defaultTerminalType === 'ghostty') {
+      return handleAddGhosttyPane(targetId, direction)
+    }
     try {
       const activeTerminal = activeTerminalId ? useAppStore.getState().terminalsByWorkspace[workspace.id]?.find(t => t.id === activeTerminalId) : null;
       const terminal = await invoke<Terminal>('spawn_terminal', {
@@ -70,13 +98,56 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
 
   const handleCloseTerminal = async (terminalId: string) => {
     try {
+      const isBusy = await invoke<boolean>('is_terminal_busy', { id: terminalId })
+      if (isBusy) {
+        setTerminalToCloseId({ workspaceId: workspace.id, terminalId })
+      } else {
+        await executeCloseTerminal(terminalId, 'leave')
+      }
+    } catch (err) {
+      console.error(err)
+      setTerminalToCloseId({ workspaceId: workspace.id, terminalId })
+    }
+  }
+
+  const performCloseTerminal = async (action: 'save-editor' | 'save-ai' | 'leave') => {
+    if (!terminalToCloseId) return
+    const { terminalId, workspaceId: closeWorkspaceId } = terminalToCloseId
+    if (closeWorkspaceId !== workspace.id) return
+    
+    await executeCloseTerminal(terminalId, action)
+    setTerminalToCloseId(null)
+  }
+
+  const executeCloseTerminal = async (terminalId: string, action: 'save-editor' | 'save-ai' | 'leave') => {
+
+    if (action === 'save-editor') {
+       window.dispatchEvent(new CustomEvent('save-all-editors'))
+       useAppStore.getState().addToast('Saved active editor files', 'success')
+    } else if (action === 'save-ai') {
+       try {
+         const terminal = terminals.find(t => t.id === terminalId)
+         const cwd = terminal?.cwd || workspace.id
+         const scrollback = await invoke<string[]>('load_scrollback', { terminalId })
+         const content = scrollback.join('\n')
+         const filename = `AI_Chat_${Date.now()}.txt`
+         await writeTextFileContent(`${cwd}/${filename}`, content)
+         useAppStore.getState().addToast(`Saved AI chat to ${filename}`, 'success')
+       } catch (err) {
+         console.error(err)
+         useAppStore.getState().addToast('Failed to save AI chat', 'error')
+       }
+    }
+
+    try {
       await invoke('close_terminal', { id: terminalId, scrollback: [] })
     } catch (err) {
       console.error('Failed to close terminal backend:', err)
     }
+    
     removeTerminal(workspace.id, terminalId)
     useAppStore.getState().addToast('Terminal closed', 'info')
-    // If the active terminal is closed, switch focus to another one in this workspace
+    
     if (activeTerminalId === terminalId) {
       const remaining = terminals.filter((t) => t.id !== terminalId)
       if (remaining.length > 0) {
@@ -93,7 +164,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
 
       const pane = await invoke<BrowserPaneType>('create_browser_pane', {
         workspaceId: workspace.id,
-        url: initialUrl || 'https://google.com',
+        url: initialUrl || 'termspace://newtab',
         x: -10000, y: -10000, w: 800, h: 600,
         adblockEnabled,
       })
@@ -154,6 +225,13 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
     }
   }
 
+  useEffect(() => {
+    const handler = () => handleAddGhosttyPane()
+    window.addEventListener('termspace:new-ghostty-terminal', handler)
+    return () => window.removeEventListener('termspace:new-ghostty-terminal', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <WorkspaceHeader
@@ -163,12 +241,14 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
         onAddTerminal={() => handleAddTerminal()}
         onAddBrowserPane={() => handleAddBrowserPane()}
         onAddEditorPane={() => handleAddEditorPane()}
+        onAddGhosttyPane={() => handleAddGhosttyPane()}
         onEditWorkspace={() => onEditWorkspace(workspace)}
         onSelectTerminal={setActiveTerminalId}
         onCloseTerminal={handleCloseTerminal}
+        showTabBar={settings.showTabBar !== false}
       />
-      {terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 ? (
-        <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column' }}>
+      {terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || ghosttyPanes.length > 0 ? (
+        <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
           <TerminalGrid
             workspaceId={workspace.id}
             terminals={terminals}
@@ -178,6 +258,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
             onSplit={(terminalId, direction) => handleAddTerminal(terminalId, direction)}
             onCloseBrowserPane={handleCloseBrowserPane}
             onSplitBrowserPane={(browserPaneId, direction, initialUrl) => handleAddBrowserPane(browserPaneId, direction, initialUrl)}
+            onCloseGhosttyPane={handleCloseGhosttyPane}
           />
           <div className="no-scrollbar" style={{ height: 26, background: 'var(--bg-main)', borderTop: '1px solid var(--border-inactive)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', fontSize: 9, fontFamily: 'SF Mono, Menlo, monospace', color: 'var(--text-dim)', letterSpacing: 0.5, flexShrink: 0, overflowX: 'auto', overflowY: 'hidden', whiteSpace: 'nowrap' }}>
              <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexShrink: 0 }}>
@@ -194,8 +275,31 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
              </div>
           </div>
         </div>
-      ) : !isLoaded ? (
-        <div style={{ flex: 1, background: 'var(--bg-main)' }} />
+      ) : !isLoaded || isLoading ? (
+        <div style={{
+          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexDirection: 'column', gap: 16, background: 'var(--bg-main)'
+        }}>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)',
+              animation: 'loadingPulse 1.2s ease-in-out infinite'
+            }} />
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)',
+              animation: 'loadingPulse 1.2s ease-in-out infinite',
+              animationDelay: '0.2s'
+            }} />
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)',
+              animation: 'loadingPulse 1.2s ease-in-out infinite',
+              animationDelay: '0.4s'
+            }} />
+          </div>
+          <div style={{ color: 'var(--text-dim)', fontSize: 13, fontFamily: 'SF Mono, Menlo, monospace' }}>
+            Activating workspace&hellip;
+          </div>
+        </div>
       ) : (
         <div style={{
           flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -247,7 +351,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
             >
               🌐 New Browser
             </button>
-            <button 
+            <button
               onClick={() => handleAddEditorPane()}
               style={{
                 marginTop: 8, padding: '10px 20px', background: 'transparent',
@@ -267,6 +371,79 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
             >
               &lt;/&gt; New Editor
             </button>
+            <button
+              onClick={() => handleAddGhosttyPane()}
+              style={{
+                marginTop: 8, padding: '10px 20px', background: 'transparent',
+                border: '1px dashed var(--border-inactive)', borderRadius: 8, color: 'var(--text-inactive)',
+                fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--text-active)'
+                e.currentTarget.style.borderColor = 'var(--text-inactive)'
+                e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--text-inactive)'
+                e.currentTarget.style.borderColor = 'var(--border-inactive)'
+                e.currentTarget.style.background = 'transparent'
+              }}
+            >
+              👻 Ghostty Terminal
+            </button>
+          </div>
+        </div>
+      )}
+
+      {terminalToCloseId && terminalToCloseId.workspaceId === workspace.id && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999
+        }}>
+          <div style={{
+            background: 'var(--bg-main)', border: '1px solid var(--border-inactive)',
+            borderRadius: 12, padding: 24, width: 400, display: 'flex', flexDirection: 'column', gap: 16,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)'
+          }}>
+            <h2 style={{ margin: 0, fontSize: 18, color: 'var(--text-active)', fontWeight: 600 }}>Close Terminal?</h2>
+            <p style={{ margin: 0, fontSize: 14, color: 'var(--text-inactive)', lineHeight: 1.5 }}>
+              You may lose unsaved progress or AI chat context in this terminal. What would you like to do before closing?
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+              <button 
+                onClick={() => performCloseTerminal('save-editor')} 
+                style={{ padding: '10px', borderRadius: 6, background: 'var(--bg-sidebar)', border: '1px solid var(--border-inactive)', color: 'var(--text-active)', cursor: 'pointer', fontWeight: 500 }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-inactive)'}
+              >
+                Save Editor Changes
+              </button>
+              <button 
+                onClick={() => performCloseTerminal('save-ai')} 
+                style={{ padding: '10px', borderRadius: 6, background: 'var(--bg-sidebar)', border: '1px solid var(--border-inactive)', color: 'var(--text-active)', cursor: 'pointer', fontWeight: 500 }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-inactive)'}
+              >
+                Save AI Chats
+              </button>
+              <button 
+                onClick={() => performCloseTerminal('leave')} 
+                style={{ padding: '10px', borderRadius: 6, background: '#D32F2F', border: 'none', color: '#FFF', cursor: 'pointer', fontWeight: 500 }}
+                onMouseEnter={e => e.currentTarget.style.background = '#F44336'}
+                onMouseLeave={e => e.currentTarget.style.background = '#D32F2F'}
+              >
+                Leave It
+              </button>
+              <button 
+                onClick={() => setTerminalToCloseId(null)} 
+                style={{ padding: '10px', borderRadius: 6, background: 'transparent', border: '1px solid transparent', color: 'var(--text-dim)', cursor: 'pointer', fontWeight: 500, marginTop: 4 }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--text-inactive)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--text-dim)'}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
