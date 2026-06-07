@@ -2,6 +2,7 @@
 mod browser_pane_manager;
 mod commands;
 mod db;
+mod native_terminal_manager;
 mod pty_manager;
 
 use browser_pane_manager::BrowserPaneManager;
