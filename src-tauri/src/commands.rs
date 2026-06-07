@@ -1,10 +1,10 @@
 use crate::browser_pane_manager::BrowserPaneManager;
 use crate::db::{self, Terminal, Workspace};
-use crate::pty_manager::PtyManager;
+use crate::native_terminal_manager::NativeTerminalManager;
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 pub struct DbState(pub Mutex<Connection>);
 pub struct SysInfoState(pub Mutex<(sysinfo::System, sysinfo::Networks)>);
@@ -149,7 +149,7 @@ pub fn update_workspace(
 #[tauri::command]
 pub fn delete_workspace(
     db: State<DbState>,
-    pty: State<PtyManager>,
+    ntm: State<NativeTerminalManager>,
     browser: State<BrowserPaneManager>,
     id: String,
 ) -> Result<(), String> {
@@ -158,7 +158,7 @@ pub fn delete_workspace(
         // Kill terminal processes
         if let Ok(terminals) = db::get_terminals(&conn, &id) {
             for t in terminals {
-                pty.kill(&t.id);
+                ntm.kill(&t.id);
             }
         }
         // Destroy browser pane webviews
@@ -180,8 +180,9 @@ pub fn get_terminals(db: State<DbState>, workspace_id: String) -> Result<Vec<Ter
 
 #[tauri::command]
 pub fn spawn_terminal(
+    app: AppHandle,
     db: State<DbState>,
-    pty: State<PtyManager>,
+    ntm: State<NativeTerminalManager>,
     workspace_id: String,
     shell: String,
     cwd: String,
@@ -204,13 +205,20 @@ pub fn spawn_terminal(
         shell.clone()
     };
 
-    // spawn PTY first — if it fails, no DB record is created (no orphan).
-    // Output is NOT streamed yet; the frontend calls `start_terminal` after
-    // attaching its listener (see start_terminal below).
+    // Spawn the native terminal first — if it fails, no DB record is created
+    // (no orphan). The native manager spawns its own reader thread, so there is
+    // no separate `start_terminal` step; output streams immediately.
     let temp_id = uuid::Uuid::new_v4().to_string();
     {
         let _lock = SPAWN_LOCK.lock().unwrap();
-        pty.spawn(temp_id.clone(), &resolved_shell, &resolved_cwd, 80, 24)?;
+        ntm.spawn(
+            temp_id.clone(),
+            app.clone(),
+            &resolved_shell,
+            &resolved_cwd,
+            80,
+            24,
+        )?;
     }
 
     let terminal = {
@@ -223,7 +231,7 @@ pub fn spawn_terminal(
             &resolved_cwd,
         )
         .map_err(|e| {
-            pty.kill(&temp_id); // rollback PTY if DB insert fails
+            ntm.kill(&temp_id); // rollback terminal if DB insert fails
             e.to_string()
         })?
     };
@@ -233,15 +241,16 @@ pub fn spawn_terminal(
 
 #[tauri::command]
 pub fn respawn_terminal(
-    pty: State<PtyManager>,
+    app: AppHandle,
+    ntm: State<NativeTerminalManager>,
     id: String,
     shell: String,
     cwd: String,
 ) -> Result<(), String> {
     println!(">>> RUST: respawn_terminal called for term {}", id);
     // If the backend is still running (e.g., from a Vite HMR or frontend reload),
-    // kill the old PTY process so we can cleanly respawn and attach new listeners.
-    pty.kill(&id);
+    // kill the old terminal process so we can cleanly respawn and attach new listeners.
+    ntm.kill(&id);
 
     let resolved_cwd = if cwd.is_empty() {
         std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
@@ -257,25 +266,25 @@ pub fn respawn_terminal(
 
     {
         let _lock = SPAWN_LOCK.lock().unwrap();
-        pty.spawn(id.clone(), &resolved_shell, &resolved_cwd, 80, 24)?;
+        ntm.spawn(
+            id.clone(),
+            app.clone(),
+            &resolved_shell,
+            &resolved_cwd,
+            80,
+            24,
+        )?;
     }
     println!(">>> RUST: respawn_terminal finished for term {}", id);
     Ok(())
 }
 
-/// Starts streaming PTY output for a terminal. The frontend calls this once,
-/// immediately after attaching its `pty-output-<id>` event listener, so the
-/// shell's initial prompt is not lost to a race.
+/// No-op retained for frontend compatibility. The native terminal manager
+/// starts its reader thread inside `spawn`, so there is no separate
+/// start-streaming step. Kept registered so existing frontend calls succeed.
 #[tauri::command]
-pub fn start_terminal(
-    app: AppHandle,
-    pty: State<PtyManager>,
-    terminal_id: String,
-) -> Result<(), String> {
-    let event_name = format!("pty-output-{terminal_id}");
-    pty.start_reading(&terminal_id, move |data| {
-        let _ = app.emit(&event_name, data);
-    })
+pub fn start_terminal(_terminal_id: String) -> Result<(), String> {
+    Ok(())
 }
 
 #[tauri::command]
@@ -290,11 +299,11 @@ pub fn update_terminal_cwd(db: State<DbState>, id: String, cwd: String) -> Resul
 
 #[tauri::command]
 pub fn is_terminal_busy(
-    pty: State<PtyManager>,
+    ntm: State<NativeTerminalManager>,
     state: State<SysInfoState>,
     id: String,
 ) -> Result<bool, String> {
-    let shell_pid = match pty.get_pid(&id) {
+    let shell_pid = match ntm.get_pid(&id) {
         Some(pid) => pid,
         None => return Ok(false),
     };
@@ -322,27 +331,24 @@ pub fn is_terminal_busy(
 #[tauri::command]
 pub fn close_terminal(
     db: State<DbState>,
-    pty: State<PtyManager>,
+    ntm: State<NativeTerminalManager>,
     id: String,
-    scrollback: Vec<String>,
 ) -> Result<(), String> {
     {
         let conn = db.0.lock().unwrap();
-        db::save_scrollback(&conn, &id, &scrollback).map_err(|e| e.to_string())?;
+        // Scrollback now lives in the native terminal's in-memory grid; no
+        // persistence step is needed here.
         db::delete_terminal(&conn, &id).map_err(|e| e.to_string())?;
-    } // lock released here before pty.kill
-    pty.kill(&id);
+    } // lock released here before kill
+    ntm.kill(&id);
     Ok(())
 }
 
+/// No-op retained for frontend compatibility. Scrollback is now owned by the
+/// native terminal's in-memory grid and is not persisted to the DB.
 #[tauri::command]
-pub fn save_scrollback(
-    db: State<DbState>,
-    id: String,
-    scrollback: Vec<String>,
-) -> Result<(), String> {
-    let conn = db.0.lock().unwrap();
-    db::save_scrollback(&conn, &id, &scrollback).map_err(|e| e.to_string())
+pub fn save_scrollback(_id: String, _scrollback: Vec<String>) -> Result<(), String> {
+    Ok(())
 }
 
 #[tauri::command]
@@ -524,23 +530,47 @@ pub fn get_browser_panes(
 }
 
 #[tauri::command]
-pub fn write_pty(pty: State<PtyManager>, terminal_id: String, data: String) -> Result<(), String> {
-    pty.write(&terminal_id, &data)
+pub fn write_terminal(
+    ntm: State<NativeTerminalManager>,
+    terminal_id: String,
+    data: String,
+) -> Result<(), String> {
+    ntm.write(&terminal_id, &data)
 }
 
 #[tauri::command]
-pub fn resize_pty(
-    pty: State<PtyManager>,
+pub fn resize_terminal(
+    ntm: State<NativeTerminalManager>,
     terminal_id: String,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    pty.resize(&terminal_id, cols, rows)
+    ntm.resize(&terminal_id, cols, rows)
 }
 
 #[tauri::command]
-pub fn load_scrollback(db: State<DbState>, terminal_id: String) -> Result<Vec<String>, String> {
-    db::load_scrollback(&db.0.lock().unwrap(), &terminal_id).map_err(|e| e.to_string())
+pub fn search_terminal(
+    ntm: State<NativeTerminalManager>,
+    terminal_id: String,
+    query: String,
+) -> Result<Vec<crate::native_terminal_manager::SearchMatch>, String> {
+    ntm.search(&terminal_id, &query)
+}
+
+#[tauri::command]
+pub fn scroll_terminal(
+    ntm: State<NativeTerminalManager>,
+    terminal_id: String,
+    delta: i32,
+) -> Result<(), String> {
+    ntm.scroll(&terminal_id, delta)
+}
+
+/// No-op retained for frontend compatibility. Scrollback is owned by the native
+/// terminal's in-memory grid and is not persisted, so there is nothing to load.
+#[tauri::command]
+pub fn load_scrollback(_terminal_id: String) -> Result<Vec<String>, String> {
+    Ok(vec![])
 }
 
 #[tauri::command]
@@ -838,5 +868,13 @@ pub fn git_commit(path: String, message: String) -> Result<(), String> {
         return Err(String::from_utf8_lossy(&commit_output.stderr).to_string());
     }
 
+    Ok(())
+}
+
+#[tauri::command]
+pub fn play_notification_sound(player: State<'_, crate::audio::AudioPlayer>) -> Result<(), String> {
+    // We can include a small beep.mp3 or wav here later.
+    // For now we just log it or pass a tiny hardcoded beep.
+    println!(">>> RUST: play_notification_sound called");
     Ok(())
 }

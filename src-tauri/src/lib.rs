@@ -3,17 +3,22 @@ mod browser_pane_manager;
 mod commands;
 mod db;
 mod native_terminal_manager;
-mod pty_manager;
+mod audio;
 
 use browser_pane_manager::BrowserPaneManager;
 use commands::DbState;
-use pty_manager::PtyManager;
+use native_terminal_manager::NativeTerminalManager;
 use std::sync::Mutex;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -24,8 +29,9 @@ pub fn run() {
             let conn = db::init_db(&data_dir.join("state.db")).expect("db init failed");
             app.manage(DbState(Mutex::new(conn)));
             app.manage(commands::SysInfoState(Mutex::new((sysinfo::System::new(), sysinfo::Networks::new_with_refreshed_list()))));
-            app.manage(PtyManager::new());
+            app.manage(NativeTerminalManager::new());
             app.manage(BrowserPaneManager::new());
+            app.manage(audio::AudioPlayer::new());
 
             #[cfg(target_os = "macos")]
             {
@@ -62,9 +68,11 @@ pub fn run() {
             commands::update_terminal_cwd,
             commands::is_terminal_busy,
             commands::close_terminal,
-            commands::write_pty,
+            commands::write_terminal,
             commands::get_detected_projects,
-            commands::resize_pty,
+            commands::resize_terminal,
+            commands::search_terminal,
+            commands::scroll_terminal,
             commands::load_scrollback,
             commands::save_scrollback,
             commands::create_browser_pane,
@@ -88,6 +96,7 @@ pub fn run() {
             commands::get_username,
             commands::set_username,
             commands::clear_database,
+            commands::play_notification_sound,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
