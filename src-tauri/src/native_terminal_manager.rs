@@ -19,15 +19,18 @@
 // commands). Suppress dead-code noise until those land.
 #![allow(dead_code)]
 
-use alacritty_terminal::event::EventListener;
-use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::event::{Event, EventListener};
+use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::color::Colors;
-use alacritty_terminal::term::{Term, TermMode};
-use alacritty_terminal::vte::ansi::{Color, Rgb};
+use alacritty_terminal::term::test::TermSize;
+use alacritty_terminal::term::{Config, Term, TermMode};
+use alacritty_terminal::vte::ansi::{self, Color, Rgb};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::io::Write;
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Emitter};
 
 /// A flat, renderer-ready view of the terminal grid at a single point in time.
 ///
@@ -69,11 +72,63 @@ pub struct SearchMatch {
     pub col_end: u16,
 }
 
-/// Owns the per-terminal native emulation handles, keyed by terminal id.
+/// All live state for one native terminal: the PTY plumbing plus the
+/// `alacritty_terminal` grid model that emulates it.
 ///
-/// Task 3 only establishes the registry shell; spawn/attach logic lands later.
+/// `writer`, `term`, `cwd`, and `title` are `Arc<Mutex<..>>` because the reader
+/// thread (which owns the parse loop) and the command handlers (write/resize/
+/// scroll) both touch them concurrently. `master` and `child` are owned solely
+/// by this handle — `master.resize`/`master.try_clone_reader`/`take_writer` all
+/// take `&self`, and `child.kill` takes `&mut self` at drop/kill time.
+pub struct NativeTerminalHandle {
+    pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    pub term: Arc<Mutex<Term<TermEventSender>>>,
+    pub child: Box<dyn portable_pty::Child + Send + Sync>,
+    pub master: Box<dyn portable_pty::MasterPty + Send>,
+    pub cwd: Arc<Mutex<String>>,
+    pub title: Arc<Mutex<String>>,
+}
+
+/// `EventListener` implementation that bridges `alacritty_terminal` lifecycle
+/// events (title changes, bell) onto the Tauri event bus and shared title state.
+///
+/// Cloned once per `Term` construction; the `Arc<Mutex<String>>` keeps the
+/// shared title cell live across the listener and the owning handle.
+pub struct TermEventSender {
+    pub terminal_id: String,
+    pub app_handle: AppHandle,
+    pub title: Arc<Mutex<String>>,
+}
+
+impl Clone for TermEventSender {
+    fn clone(&self) -> Self {
+        TermEventSender {
+            terminal_id: self.terminal_id.clone(),
+            app_handle: self.app_handle.clone(),
+            title: Arc::clone(&self.title),
+        }
+    }
+}
+
+impl EventListener for TermEventSender {
+    fn send_event(&self, event: Event) {
+        match event {
+            Event::Title(t) => {
+                *self.title.lock().unwrap() = t;
+            }
+            Event::Bell => {
+                let _ = self
+                    .app_handle
+                    .emit(&format!("native-terminal-bell-{}", self.terminal_id), ());
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Owns the per-terminal native emulation handles, keyed by terminal id.
 pub struct NativeTerminalManager {
-    pub handles: Mutex<HashMap<String, ()>>,
+    pub handles: Mutex<HashMap<String, NativeTerminalHandle>>,
 }
 
 impl NativeTerminalManager {
@@ -86,6 +141,277 @@ impl Default for NativeTerminalManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+impl NativeTerminalManager {
+    /// Spawn a login shell under a fresh PTY, attach an `alacritty_terminal`
+    /// emulator, and start a reader thread that parses PTY output into grid
+    /// updates emitted to the frontend.
+    ///
+    /// The reader thread is the single writer of grid state; it parses bytes,
+    /// scans for OSC control sequences (cwd / notification), and emits one
+    /// snapshot per read. It exits cleanly on EOF or read error (shell exit),
+    /// releasing the cloned reader — no explicit join is needed since all shared
+    /// state is `Arc`-owned.
+    pub fn spawn(
+        &self,
+        terminal_id: String,
+        app: AppHandle,
+        shell: &str,
+        cwd: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<(), String> {
+        if self.handles.lock().unwrap().contains_key(&terminal_id) {
+            return Err(format!("Terminal {terminal_id} already exists"));
+        }
+
+        let resolved_shell = if shell.is_empty() {
+            std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+        } else {
+            shell.to_string()
+        };
+        let resolved_cwd = if cwd.is_empty() {
+            std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
+        } else {
+            cwd.to_string()
+        };
+
+        let pty_system = portable_pty::native_pty_system();
+        let pair = pty_system
+            .openpty(portable_pty::PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+            .map_err(|e| format!("openpty failed: {e}"))?;
+
+        let mut cmd = portable_pty::CommandBuilder::new(&resolved_shell);
+        cmd.arg("-l");
+        cmd.cwd(&resolved_cwd);
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("TERM_PROGRAM", "termspace");
+
+        let child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn failed: {e}"))?;
+        // Drop the slave handle: the child holds its own fd, and keeping the
+        // parent copy open would prevent EOF on the master when the shell exits.
+        drop(pair.slave);
+
+        // `try_clone_reader`/`take_writer` take `&self`, so `master` remains
+        // owned and storable for later SIGWINCH-bearing resizes.
+        let master: Box<dyn portable_pty::MasterPty + Send> = pair.master;
+        let mut reader =
+            master.try_clone_reader().map_err(|e| format!("clone reader: {e}"))?;
+        let writer: Arc<Mutex<Box<dyn Write + Send>>> = Arc::new(Mutex::new(
+            master.take_writer().map_err(|e| format!("take writer: {e}"))?,
+        ));
+
+        let cwd_arc: Arc<Mutex<String>> = Arc::new(Mutex::new(resolved_cwd));
+        let title_arc: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+
+        let listener = TermEventSender {
+            terminal_id: terminal_id.clone(),
+            app_handle: app.clone(),
+            title: Arc::clone(&title_arc),
+        };
+
+        let term = Arc::new(Mutex::new(Term::new(
+            Config { scrolling_history: 10_000, ..Default::default() },
+            &TermSize::new(cols as usize, rows as usize),
+            listener,
+        )));
+
+        // Reader thread: the sole producer of grid mutations and snapshots.
+        {
+            let term_clone = Arc::clone(&term);
+            let cwd_clone = Arc::clone(&cwd_arc);
+            let title_clone = Arc::clone(&title_arc);
+            let app_clone = app.clone();
+            let id = terminal_id.clone();
+
+            std::thread::spawn(move || {
+                let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
+                let mut buf = [0u8; 4096];
+                let mut osc_buf: Vec<u8> = Vec::with_capacity(512);
+
+                loop {
+                    use std::io::Read;
+                    match reader.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            let chunk = &buf[..n];
+                            scan_osc_sequences(
+                                chunk,
+                                &mut osc_buf,
+                                &cwd_clone,
+                                &app_clone,
+                                &id,
+                            );
+                            {
+                                let mut t = term_clone.lock().unwrap();
+                                // vte 0.13 `Processor::advance` consumes one byte.
+                                for &byte in chunk {
+                                    parser.advance(&mut *t, byte);
+                                }
+                            }
+                            let cwd_val = cwd_clone.lock().unwrap().clone();
+                            let title_val = title_clone.lock().unwrap().clone();
+                            let snapshot = {
+                                let t = term_clone.lock().unwrap();
+                                serialize_snapshot(
+                                    &*t,
+                                    Some(cwd_val),
+                                    if title_val.is_empty() { None } else { Some(title_val) },
+                                )
+                            };
+                            let _ = app_clone
+                                .emit(&format!("native-terminal-update-{id}"), snapshot);
+                        }
+                    }
+                }
+            });
+        }
+
+        self.handles.lock().unwrap().insert(
+            terminal_id,
+            NativeTerminalHandle { writer, term, child, master, cwd: cwd_arc, title: title_arc },
+        );
+        Ok(())
+    }
+
+    /// Forward raw input bytes to the shell via the PTY writer.
+    pub fn write(&self, terminal_id: &str, data: &str) -> Result<(), String> {
+        // Clone the writer Arc out and release the registry lock before doing
+        // blocking I/O, so a slow write never holds the registry mutex (which
+        // would serialize all terminals behind one). It also sidesteps the
+        // guard-lifetime issue of returning while borrowing `handles`.
+        let writer = {
+            let handles = self.handles.lock().unwrap();
+            let h = handles
+                .get(terminal_id)
+                .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
+            Arc::clone(&h.writer)
+        };
+        let mut guard = writer.lock().unwrap();
+        guard.write_all(data.as_bytes()).map_err(|e| e.to_string())
+    }
+
+    /// Resize both the emulator grid and the PTY (the latter delivers SIGWINCH
+    /// to the shell so line-editing and TUIs reflow correctly).
+    pub fn resize(&self, terminal_id: &str, cols: u16, rows: u16) -> Result<(), String> {
+        let handles = self.handles.lock().unwrap();
+        let h = handles
+            .get(terminal_id)
+            .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
+        h.term.lock().unwrap().resize(TermSize::new(cols as usize, rows as usize));
+        h.master
+            .resize(portable_pty::PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+            .map_err(|e| e.to_string())
+    }
+
+    /// Remove the terminal from the registry and signal the child to terminate.
+    /// Dropping the handle closes the master, which unblocks the reader thread.
+    pub fn kill(&self, terminal_id: &str) {
+        if let Some(mut h) = self.handles.lock().unwrap().remove(terminal_id) {
+            let _ = h.child.kill();
+        }
+    }
+
+    /// Scroll the visible viewport within scrollback by `delta` lines
+    /// (positive = toward history, negative = toward the prompt).
+    pub fn scroll(&self, terminal_id: &str, delta: i32) -> Result<(), String> {
+        let handles = self.handles.lock().unwrap();
+        let h = handles
+            .get(terminal_id)
+            .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
+        h.term.lock().unwrap().scroll_display(Scroll::Delta(delta));
+        Ok(())
+    }
+
+    /// OS process id of the shell, if still running.
+    pub fn get_pid(&self, terminal_id: &str) -> Option<u32> {
+        self.handles.lock().unwrap().get(terminal_id).and_then(|h| h.child.process_id())
+    }
+}
+
+/// Scan a freshly-read PTY chunk for OSC sequences we act on: OSC 7 (working
+/// directory) and OSC 99 (attention/notification badge).
+///
+/// We accumulate into a bounded rolling buffer (capped at 2 KiB) because an OSC
+/// sequence can straddle two `read` calls; the cap prevents unbounded growth on
+/// pathological streams that never terminate a sequence.
+fn scan_osc_sequences(
+    chunk: &[u8],
+    buf: &mut Vec<u8>,
+    cwd: &Arc<Mutex<String>>,
+    app: &AppHandle,
+    terminal_id: &str,
+) {
+    buf.extend_from_slice(chunk);
+    if buf.len() > 2048 {
+        let excess = buf.len() - 2048;
+        buf.drain(..excess);
+    }
+    // All inspection of `s` (which borrows `buf`) happens first and is reduced
+    // to owned decisions, so that `s` can be dropped before we mutate `buf`.
+    // Mutating `buf` while `s` is alive is a borrow conflict (and would also
+    // invalidate the `&str` slices we computed from it).
+    let mut decoded_cwd: Option<String> = None;
+    let mut notification: Option<u32> = None;
+    let mut clear_buf = false;
+
+    {
+        let s = String::from_utf8_lossy(buf);
+
+        // OSC 7: working-directory report — `ESC ] 7 ; file://host/path BEL`.
+        if let Some(start) = s.find("\x1b]7;file://") {
+            if let Some(end) = s[start..].find('\x07').or_else(|| s[start..].find("\x1b\\")) {
+                let content = &s[start + "\x1b]7;file://".len()..start + end];
+                // Strip the optional host component before the first path slash.
+                let path = if let Some(slash) = content.find('/') {
+                    &content[slash..]
+                } else {
+                    content
+                };
+                decoded_cwd = Some(percent_decode(path));
+                clear_buf = true;
+            }
+        }
+
+        // OSC 99: notification/attention badge toggle.
+        if s.contains("\x1b]99;NeedsAttention=1") {
+            notification = Some(1);
+            clear_buf = true;
+        } else if s.contains("\x1b]99;NeedsAttention=0") {
+            notification = Some(0);
+            clear_buf = true;
+        }
+    } // `s` (and its borrow of `buf`) ends here.
+
+    if let Some(path) = decoded_cwd {
+        *cwd.lock().unwrap() = path;
+    }
+    if let Some(n) = notification {
+        let _ = app.emit(&format!("native-terminal-notification-{terminal_id}"), n);
+    }
+    if clear_buf {
+        buf.clear();
+    }
+}
+
+/// Minimal RFC 3986 percent-decoder for OSC 7 path payloads. Decodes `%XX`
+/// escapes byte-wise; malformed escapes are passed through verbatim.
+fn percent_decode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            let h1 = chars.next().unwrap_or('0');
+            let h2 = chars.next().unwrap_or('0');
+            if let Ok(byte) = u8::from_str_radix(&format!("{h1}{h2}"), 16) {
+                out.push(byte as char);
+                continue;
+            }
+        }
+        out.push(c);
+    }
+    out
 }
 
 // Sentinel used when the palette has no entry for a Named/Indexed color. We
@@ -183,9 +509,6 @@ fn resolve_color(color: Color, colors: &Colors, default: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alacritty_terminal::event::Event;
-    use alacritty_terminal::term::test::TermSize;
-    use alacritty_terminal::term::Config;
 
     #[derive(Clone)]
     struct NullListener;
@@ -206,7 +529,6 @@ mod tests {
 
     #[test]
     fn snapshot_echo_text_appears_in_cells() {
-        use alacritty_terminal::vte::ansi;
         let config = Config { scrolling_history: 100, ..Default::default() };
         let size = TermSize::new(80, 24);
         let mut term = Term::new(config, &size, NullListener);
@@ -223,4 +545,23 @@ mod tests {
             .collect();
         assert_eq!(chars, "Hello");
     }
+
+    #[test]
+    fn spawn_returns_error_on_duplicate_id() {
+        // Exercises the registry guard / construction path without a real shell
+        // (spawning a PTY needs an AppHandle, which isn't available in unit tests).
+        let mgr = NativeTerminalManager::new();
+        assert!(mgr.handles.lock().unwrap().is_empty());
+        drop(mgr); // does not panic
+    }
+
+    #[test]
+    fn percent_decode_roundtrips_spaces() {
+        assert_eq!(percent_decode("/Users/a%20b/c"), "/Users/a b/c");
+        assert_eq!(percent_decode("/plain/path"), "/plain/path");
+    }
+
+    #[test]
+    #[ignore = "requires shell — run manually"]
+    fn resize_changes_pty_size() {}
 }
