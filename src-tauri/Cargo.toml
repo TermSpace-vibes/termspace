@@ -26,6 +26,7 @@ serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 portable-pty = "0.9"
+alacritty_terminal = "0.24"
 sysinfo = "0.39.3"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
@@ -40,4 +41,13 @@ tauri-plugin-updater = "2"
 # WKWebView back/forward navigation gestures on macOS (non-Ghostty code).
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2.7"
+
+# alacritty_terminal -> rustix-openpty -> rustix 0.38 only enables the `fs`
+# and `termios` features, leaving `std` off. Without `std`, rustix uses its
+# no_std polyfill `OwnedFd`/`Errno` types, which do NOT interop with the
+# corresponding `std` types -- breaking alacritty_terminal's tty/unix.rs.
+# Declaring a direct dependency with `std` forces Cargo feature unification to
+# turn it on for the whole graph. Unix-only because rustix 0.38 is unix here.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "0.38", features = ["std", "fs", "termios"] }
 
