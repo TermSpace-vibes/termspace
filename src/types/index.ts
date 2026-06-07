@@ -40,6 +40,15 @@ export interface EditorPane {
   fileTreeWidth: number
   position: number
   createdAt: number
+  activeSidebarTab?: 'explorer' | 'git'
+  diffViewEnabled?: boolean
+}
+
+export interface GhosttyPane {
+  id: string
+  workspaceId: string
+  cwd: string
+  createdAt: number
 }
 
 export interface Keybindings {
@@ -48,6 +57,12 @@ export interface Keybindings {
   nextTerminal: string
   prevTerminal: string
   commandPalette: string
+  toggleSidebar: string
+  searchFiles: string
+  closeTab: string
+  switchTab: string
+  splitEditor: string
+  openSettings: string
 }
 
 export interface Settings {
@@ -59,6 +74,9 @@ export interface Settings {
   keybindings: Keybindings
   autosave: boolean
   adblockEnabled?: boolean
+  showTabBar?: boolean
+  iconTheme?: 'plain' | 'colorful' | 'filled'
+  defaultTerminalType?: 'built-in' | 'ghostty'
 }
 
 export type LayoutDirection = 'horizontal' | 'vertical'
@@ -67,9 +85,21 @@ export type LayoutNode =
   | { type: 'pane';    id: string; terminalId: string }
   | { type: 'browser'; id: string; browserPaneId: string }
   | { type: 'editor';  id: string; editorPaneId: string }
+  | { type: 'ghostty'; id: string; ghosttyPaneId: string }
   | { type: 'split';   id: string; direction: LayoutDirection; sizes: number[]; children: LayoutNode[] }
 
 export interface GitStatus {
   [filePath: string]: string
 }
 
+export interface DetectedTask {
+  name: string
+  command: string
+}
+
+export interface DetectedProject {
+  name: string
+  path: string
+  projectType: string
+  tasks: DetectedTask[]
+}
