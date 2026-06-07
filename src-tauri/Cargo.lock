@@ -4170,8 +4170,6 @@ dependencies = [
 name = "termspace"
 version = "0.1.0"
 dependencies = [
- "core-foundation",
- "core-graphics",
  "objc",
  "portable-pty",
  "rusqlite",
@@ -4184,7 +4182,6 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-opener",
  "tauri-plugin-updater",
- "tokio",
  "uuid",
 ]
 
