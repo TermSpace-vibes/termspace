@@ -11,7 +11,7 @@ import { ContextMenu } from './components/ui/ContextMenu'
 import { ToastContainer } from './components/ui/ToastContainer'
 import { CommandPalette } from './components/CommandPalette/CommandPalette'
 import { useGlobalKeybindings } from './hooks/useGlobalKeybindings'
-import { Workspace, Terminal, EditorPane } from './types'
+import { Workspace, Terminal, EditorPane, BrowserPane } from './types'
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
 import { open } from '@tauri-apps/plugin-dialog'
 import { AnimatePresence } from 'framer-motion'
@@ -81,6 +81,27 @@ export default function App() {
   useGlobalKeybindings()
 
   useEffect(() => {
+    const handleToggleSidebar = () => {
+      if (sidebarRef.current) {
+        if (sidebarRef.current.isCollapsed()) {
+          sidebarRef.current.expand()
+        } else {
+          sidebarRef.current.collapse()
+        }
+      }
+    }
+    const handleOpenSettings = () => setShowSettingsModal(true)
+
+    window.addEventListener('termspace:toggle-sidebar', handleToggleSidebar)
+    window.addEventListener('termspace:open-settings', handleOpenSettings)
+
+    return () => {
+      window.removeEventListener('termspace:toggle-sidebar', handleToggleSidebar)
+      window.removeEventListener('termspace:open-settings', handleOpenSettings)
+    }
+  }, [sidebarRef])
+
+  useEffect(() => {
     document.documentElement.setAttribute('data-theme', settings.theme)
     document.documentElement.style.setProperty('--app-font-family', settings.uiFontFamily || 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif')
   }, [settings.theme, settings.uiFontFamily])
@@ -113,11 +134,25 @@ export default function App() {
         5000,
         'get_terminals'
       );
-      if (saved.length === 0) {
+      
+      const savedBrowserPanes = await withTimeout(
+        invoke<BrowserPane[]>('get_browser_panes', { workspaceId }),
+        5000,
+        'get_browser_panes'
+      ).catch((err) => {
+        console.error('get_browser_panes failed:', err);
+        return [] as BrowserPane[];
+      });
+
+      const savedEditorPanes = useAppStore.getState().editorPanesByWorkspace[workspaceId] ?? [];
+
+      if (saved.length === 0 && savedBrowserPanes.length === 0 && savedEditorPanes.length === 0) {
         setTerminals(workspaceId, [])
+        useAppStore.getState().setBrowserPanes(workspaceId, [])
         await spawnAndAddTerminal(workspaceId)
         return
       }
+
       // Spawn terminals serially
       const spawned: Terminal[] = []
       for (const t of saved) {
@@ -127,7 +162,28 @@ export default function App() {
         spawned.push({ ...t, scrollback })
       }
       setTerminals(workspaceId, spawned)
-      setActiveTerminalId(spawned[0]?.id ?? null)
+      if (spawned.length > 0) {
+        setActiveTerminalId(spawned[0].id)
+      }
+
+      const adblockEnabled = useAppStore.getState().settings.adblockEnabled ?? true;
+      const respawnedBrowserPanes: BrowserPane[] = []
+      for (const p of savedBrowserPanes) {
+        await withTimeout(invoke<void>('respawn_browser_pane', { 
+          id: p.id, 
+          url: p.url || 'termspace://newtab', 
+          x: -10000,
+          y: -10000,
+          w: 800,
+          h: 600,
+          adblockEnabled 
+        }), 5000, 'respawn_browser_pane').catch((err) => {
+          console.error(`respawn_browser_pane failed for ${p.id}:`, err);
+        });
+        respawnedBrowserPanes.push(p)
+      }
+      useAppStore.getState().setBrowserPanes(workspaceId, respawnedBrowserPanes)
+
     } finally {
       useAppStore.getState().setActivatingWorkspace(workspaceId, false);
     }
@@ -143,6 +199,15 @@ export default function App() {
     }, 8000);
 
     async function bootstrap() {
+      try {
+        const savedUsername = await invoke<string | null>('get_username')
+        if (savedUsername) {
+          useAppStore.getState().setUsername(savedUsername)
+        }
+      } catch (e) {
+        console.error("Failed to load username", e)
+      }
+
       const wsList = await withTimeout(invoke<Workspace[]>('get_workspaces'), 5000, 'get_workspaces')
       if (wsList.length === 0) {
         const ws = await withTimeout(invoke<Workspace>('create_workspace', {
@@ -443,7 +508,10 @@ export default function App() {
       <AnimatePresence>
         {username === null && (
           <UsernameModal
-            onSave={(name) => setUsername(name)}
+            onSave={(name) => {
+              setUsername(name)
+              invoke('set_username', { username: name }).catch(console.error)
+            }}
           />
         )}
       </AnimatePresence>

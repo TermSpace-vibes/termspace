@@ -9,15 +9,16 @@ interface Props {
   isActive: boolean
   canDelete: boolean
   isCollapsed?: boolean
+  isProcessing?: boolean
   terminalCount: number
   onClick: () => void
   onDelete: () => void
   onContextMenu?: (e: React.MouseEvent) => void
 }
 
-export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, terminalCount, onClick, onDelete, onContextMenu }: Props) {
+export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isProcessing, terminalCount, onClick, onDelete, onContextMenu }: Props) {
   const [hovered, setHovered] = useState(false)
-  const IconComponent = (LucideIcons as any)[workspace.emoji] || LayoutGrid
+  const IconComponent = isProcessing ? LucideIcons.Loader2 : ((LucideIcons as any)[workspace.emoji] || LayoutGrid)
 
   return (
     <div
@@ -43,7 +44,7 @@ export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, ter
           borderRadius: 6,
           boxShadow: isActive ? '0 0 10px color-mix(in srgb, var(--accent) 25%, transparent)' : 'none'
         }}>
-          <IconComponent size={14} strokeWidth={2} />
+          <IconComponent size={14} strokeWidth={2} style={isProcessing ? { animation: 'spin 1s linear infinite' } : undefined} />
         </div>
         {(workspace.notificationCount ?? 0) > 0 && isCollapsed && (
           <span style={{

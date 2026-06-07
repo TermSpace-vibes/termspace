@@ -1,6 +1,7 @@
 import { useAppStore } from '../../store/useAppStore'
 import { AddWorkspaceButton } from './AddWorkspaceButton'
 import { WorkspaceItem } from './WorkspaceItem'
+import { ProjectTasks } from './ProjectTasks'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface Props {
@@ -19,6 +20,7 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
   const terminalsByWorkspace = useAppStore((s) => s.terminalsByWorkspace)
   const showContextMenu = useAppStore((s) => s.showContextMenu)
   const username = useAppStore((s) => s.username) || 'User'
+  const activatingWorkspaces = useAppStore((s) => s.activatingWorkspaces)
 
   const initials = username.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
 
@@ -97,6 +99,7 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
               isActive={ws.id === activeWorkspaceId}
               canDelete={workspaces.length > 1}
               isCollapsed={isCollapsed}
+              isProcessing={activatingWorkspaces[ws.id]}
               terminalCount={terminalsByWorkspace[ws.id]?.length || 0}
               onClick={() => onSelectWorkspace(ws.id)}
               onDelete={() => onDeleteWorkspace(ws.id)}
@@ -125,7 +128,9 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
         <AddWorkspaceButton onClick={onAddWorkspace} isCollapsed={isCollapsed} />
       </motion.div>
 
-      <div style={{ flex: 1 }} />
+      <ProjectTasks isCollapsed={isCollapsed} />
+
+      <div style={{ flex: 1, minHeight: 16 }} />
       
       <div
         style={{
@@ -140,7 +145,6 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
         {!isCollapsed && (
           <div style={{ flex: 1, overflow: 'hidden' }}>
             <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-active)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{username}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>Personal · Pro</div>
           </div>
         )}
         {!isCollapsed && (

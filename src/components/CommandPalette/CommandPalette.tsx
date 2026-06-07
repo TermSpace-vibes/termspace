@@ -8,7 +8,7 @@ const EMPTY_ARRAY: any[] = []
 interface Action {
   id: string
   label: string
-  category: 'Commands' | 'Open Files' | 'Workspaces'
+  category: 'Commands' | 'Open Files' | 'Workspaces' | 'Project Files'
   icon?: React.ReactNode
   onSelect: () => void
   isSearchMatch?: boolean
@@ -46,41 +46,66 @@ export function CommandPalette({ onNewWorkspace, onOpenSettings, onNewTerminal, 
     }
 
     const allOpenFiles = Array.from(new Set(editorPanes.flatMap(p => p.openFiles)))
-    if (allOpenFiles.length === 0) return
 
     const timer = setTimeout(async () => {
       try {
-        const matches = await invoke<any[]>('search_in_files', { paths: allOpenFiles, query })
+        let searchActions: Action[] = []
+        if (allOpenFiles.length > 0) {
+          const matches = await invoke<any[]>('search_in_files', { paths: allOpenFiles, query })
+          
+          // Group and limit to 5 matches per file
+          const limitedMatches: any[] = []
+          const fileMatchCounts: Record<string, number> = {}
+          
+          for (const m of matches) {
+            fileMatchCounts[m.path] = (fileMatchCounts[m.path] || 0) + 1
+            if (fileMatchCounts[m.path] <= 5) {
+              limitedMatches.push(m)
+            }
+          }
+
+          searchActions = limitedMatches.map((m, i) => ({
+            id: `search-match-${i}`,
+            label: `${m.path.split('/').pop()}:${m.line_number}`,
+            category: 'Open Files',
+            snippet: m.content,
+            path: m.path,
+            lineNumber: m.line_number,
+            isSearchMatch: true,
+            icon: <span style={{ fontSize: 16 }}>🔍</span>,
+            onSelect: () => {
+              // Find the pane that has this file or the first editor pane
+              const targetPane = editorPanes.find(p => p.openFiles.includes(m.path)) || editorPanes[0]
+              if (targetPane && activeWorkspaceId) {
+                updateEditorPaneFile(activeWorkspaceId, targetPane.id, m.path, m.line_number)
+              }
+            }
+          }))
+        }
         
-        // Group and limit to 5 matches per file
-        const limitedMatches: any[] = []
-        const fileMatchCounts: Record<string, number> = {}
-        
-        for (const m of matches) {
-          fileMatchCounts[m.path] = (fileMatchCounts[m.path] || 0) + 1
-          if (fileMatchCounts[m.path] <= 5) {
-            limitedMatches.push(m)
+        let fileMatchActions: Action[] = []
+        if (activeWorkspaceId && editorPanes.length > 0) {
+          const firstPane = editorPanes[0];
+          try {
+            const files = await invoke<string[]>('search_files_by_name', { path: firstPane.rootPath, query })
+            fileMatchActions = files.map((f, i) => ({
+              id: `file-match-${i}`,
+              label: f,
+              category: 'Project Files',
+              icon: <span style={{ fontSize: 16 }}>📄</span>,
+              onSelect: () => {
+                const targetPane = editorPanes[0]
+                if (targetPane && activeWorkspaceId) {
+                  updateEditorPaneFile(activeWorkspaceId, targetPane.id, `${targetPane.rootPath}/${f}`)
+                }
+              }
+            }))
+          } catch (e) {
+            console.error('File search failed:', e)
           }
         }
 
-        const searchActions: Action[] = limitedMatches.map((m, i) => ({
-          id: `search-match-${i}`,
-          label: `${m.path.split('/').pop()}:${m.line_number}`,
-          category: 'Open Files',
-          snippet: m.content,
-          path: m.path,
-          lineNumber: m.line_number,
-          isSearchMatch: true,
-          icon: <span style={{ fontSize: 16 }}>🔍</span>,
-          onSelect: () => {
-            // Find the pane that has this file or the first editor pane
-            const targetPane = editorPanes.find(p => p.openFiles.includes(m.path)) || editorPanes[0]
-            if (targetPane && activeWorkspaceId) {
-              updateEditorPaneFile(activeWorkspaceId, targetPane.id, m.path, m.line_number)
-            }
-          }
-        }))
-        setSearchResults(searchActions)
+        setSearchResults([...fileMatchActions, ...searchActions])
       } catch (e) {
         console.error('Search failed:', e)
       }

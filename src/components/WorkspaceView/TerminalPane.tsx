@@ -6,6 +6,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { invoke, listen } from '../../utils/tauri'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../../store/useAppStore'
 import '@xterm/xterm/css/xterm.css'
 
@@ -117,6 +118,8 @@ const XTERM_THEMES = {
 
 import { useKeybindingHandler } from '../../hooks/useGlobalKeybindings'
 
+const scrollbackCache = new Map<string, string[]>()
+
 export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, scrollback, onFocus, onToggleMaximize, onClose, onSplit, isDragOver }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
@@ -130,6 +133,8 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   const terminal = useAppStore(s => s.terminalsByWorkspace[workspaceId]?.find(t => t.id === terminalId))
+  const terminalIndex = useAppStore(s => s.terminalsByWorkspace[workspaceId]?.findIndex(t => t.id === terminalId)) ?? -1
+  const defaultTitle = `Terminal ${terminalIndex >= 0 ? terminalIndex + 1 : ''}`.trim()
   const renameTerminal = useAppStore(s => s.renameTerminal)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitleValue, setEditTitleValue] = useState('')
@@ -185,7 +190,6 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
       lineHeight: 1.4,
       cursorBlink: true,
       macOptionIsMeta: true,
-      smoothScrollDuration: 150,
     })
 
     const fitAddon = new FitAddon()
@@ -290,6 +294,7 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
     
     const handleFocus = () => {
       useAppStore.getState().setTerminalNotification(workspaceId, terminalId, 0)
+      getCurrentWindow().requestUserAttention(null).catch(() => {})
     }
     containerRef.current.addEventListener('focusin', handleFocus)
     
@@ -334,12 +339,23 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
     })
 
     xterm.open(containerRef.current)
+    try {
+      const webglAddon = new WebglAddon()
+      webglAddon.onContextLoss(() => {
+        webglAddon.dispose()
+      })
+      xterm.loadAddon(webglAddon)
+    } catch (e) {
+      console.warn('WebGL addon could not be loaded', e)
+    }
+    
     fitAddon.fit()
     xtermRef.current = xterm
 
     // replay saved scrollback
-    if (scrollback && scrollback.length > 0) {
-      xterm.write(scrollback.join(''))
+    const cachedLines = scrollbackCache.get(terminalId) || scrollback
+    if (cachedLines && cachedLines.length > 0) {
+      xterm.write(cachedLines.join('\n'))
     }
 
     xterm.focus()
@@ -352,8 +368,32 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
 
     // Attach listener first, then tell Rust to start streaming — prevents
     // the shell's initial prompt from being emitted before anyone is listening.
+    let outputBuffer = ''
+    
+    const triggerAttention = () => {
+      const currentCount = useAppStore.getState().terminalsByWorkspace[workspaceId]?.find(t => t.id === terminalId)?.notificationCount || 0
+      useAppStore.getState().setTerminalNotification(workspaceId, terminalId, currentCount + 1)
+      if (!document.hasFocus() || !isActive) {
+        getCurrentWindow().requestUserAttention(1).catch(() => {}) // 1 = Critical (continuous bounce until focused)
+      }
+    }
+    
+    xterm.onBell(() => triggerAttention())
+
     unlistenRef.current = listen<string>(`pty-output-${terminalId}`, (e) => {
       xterm.write(e.payload)
+      
+      // Buffer output to detect prompts if terminal is not actively focused
+      if (!containerRef.current?.contains(document.activeElement)) {
+        outputBuffer += e.payload
+        if (outputBuffer.length > 1000) outputBuffer = outputBuffer.slice(-1000)
+        
+        // Match common agent and cli prompts
+        if (/(Do you want to proceed\?|\[Y\/n\]|\[y\/N\]|\(y\/n\)|\bConfirm\b.*\?|Please select|Select an option|Requesting permission for:)/i.test(outputBuffer)) {
+          triggerAttention()
+          outputBuffer = '' // reset to avoid multiple triggers
+        }
+      }
     })
     unlistenRef.current.then(() => {
       invoke('start_terminal', { terminalId }).catch(console.error)
@@ -370,12 +410,14 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
         // Only load WebGL AFTER the first valid fit() so the canvas doesn't stretch enormously
         if (!webglLoadedRef.current) {
           webglLoadedRef.current = true
+          /*
           try {
             const webglAddon = new WebglAddon()
             xterm.loadAddon(webglAddon)
           } catch (e: any) {
             console.warn('WebGL addon failed to load, falling back to canvas/DOM', e)
           }
+          */
         }
       } catch (e) {
         console.warn('fit() failed', e)
@@ -388,6 +430,7 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
       unlistenRef.current?.then((fn) => fn()).catch(() => {})
       ro.disconnect()
       const lines = serializeAddon.serialize().split('\n')
+      scrollbackCache.set(terminalId, lines)
       // Only save scrollback on unmount, do NOT kill the backend process
       // because unmount happens naturally when layout is reparented or workspace switched.
       invoke('save_scrollback', { id: terminalId, scrollback: lines }).catch(console.error)
@@ -552,7 +595,7 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
           ) : (
             <div
               onDoubleClick={() => {
-                setEditTitleValue(terminal?.title || 'Terminal')
+                setEditTitleValue(terminal?.title || defaultTitle)
                 setIsEditingTitle(true)
               }}
               style={{
@@ -561,14 +604,14 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
                 position: 'relative'
               }}
             >
-              {terminal?.title || 'Terminal'}
-              {terminal?.notificationCount && terminal.notificationCount > 0 && (
+              {terminal?.title || defaultTitle}
+              {(terminal?.notificationCount ?? 0) > 0 && (
                 <span style={{
                   position: 'absolute', top: -6, right: -12, background: '#ef4444', color: 'white',
                   fontSize: 9, fontWeight: 'bold', padding: '1px 4px', borderRadius: 10,
                   lineHeight: 1, minWidth: 14, textAlign: 'center', display: 'inline-block'
                 }}>
-                  {terminal.notificationCount > 99 ? '99+' : terminal.notificationCount}
+                  {terminal?.notificationCount && terminal.notificationCount > 99 ? '99+' : terminal?.notificationCount}
                 </span>
               )}
             </div>

@@ -159,6 +159,7 @@ export function TerminalGrid({ workspaceId, terminals, activeTerminalId, onFocus
     return (
       <div
         key={editorPaneId}
+        onMouseDownCapture={() => onFocus(editorPaneId)}
         style={{
           display: isMaximized && maximizedTerminalId !== editorPaneId ? 'none' : 'flex',
           width: '100%', height: '100%', minWidth: 0, minHeight: 0,
@@ -179,6 +180,7 @@ export function TerminalGrid({ workspaceId, terminals, activeTerminalId, onFocus
     return (
       <div
         key={ghosttyPaneId}
+        onMouseDownCapture={() => onFocus(ghosttyPaneId)}
         style={{ display: 'flex', width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}
       >
         <GhosttyPane

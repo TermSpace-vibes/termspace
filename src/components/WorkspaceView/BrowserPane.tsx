@@ -28,10 +28,10 @@ export function BrowserPane({
   ])
   const [activeTabId, setActiveTabId] = useState(browserPaneId)
   
-  const browserHistory = useAppStore(s => s.browserHistory)
+  const browserHistory = useAppStore(s => s.browserHistory || [])
   const addToHistory = useAppStore(s => s.addToHistory)
   const addToast = useAppStore(s => s.addToast)
-  const bookmarks = useAppStore(s => s.bookmarks)
+  const bookmarks = useAppStore(s => s.bookmarks || [])
   const addBookmark = useAppStore(s => s.addBookmark)
   const removeBookmark = useAppStore(s => s.removeBookmark)
   const showContextMenu = useAppStore(s => s.showContextMenu)
@@ -40,7 +40,7 @@ export function BrowserPane({
   const [showBookmarks, setShowBookmarks] = useState(false)
   const isModalOpen = useAppStore(s => s.isModalOpen)
   
-  const adblockEnabled = useAppStore(s => s.settings.adblockEnabled ?? true)
+  const adblockEnabled = useAppStore(s => s.settings?.adblockEnabled ?? true)
   const updateSettings = useAppStore(s => s.updateSettings)
   
   // The url/inputUrl now reflect the *active* tab
@@ -97,7 +97,8 @@ export function BrowserPane({
     // If the component is hidden (e.g. by maximization of another pane) or too small,
     // or if a modal is open, we must move the native webview off-screen so it doesn't float over other UI.
     const isDropdownOpen = showBookmarks || showHistory
-    if (rect.width < 1 || rect.height <= HEADER_HEIGHT || isModalOpen || isHidden || isDropdownOpen) {
+    const isNewTab = activeTab?.url === 'termspace://newtab'
+    if (rect.width < 1 || rect.height <= HEADER_HEIGHT || isModalOpen || isHidden || isDropdownOpen || isNewTab) {
       invoke('hide_browser_pane', { id: activeTabId }).catch(() => {})
       return
     }
@@ -116,7 +117,7 @@ export function BrowserPane({
       w: rect.width,
       h: rect.height - HEADER_HEIGHT - MACOS_TITLEBAR_OFFSET,
     }).catch(() => {})
-  }, [activeTabId, isModalOpen, isHidden, showBookmarks, showHistory, browserPaneId])
+  }, [activeTabId, isModalOpen, isHidden, showBookmarks, showHistory, browserPaneId, activeTab?.url])
 
   // Handle hiding inactive tabs efficiently
   useEffect(() => {
@@ -127,13 +128,14 @@ export function BrowserPane({
       }
     })
 
-    if (!isHidden) {
+    const isNewTab = activeTab?.url === 'termspace://newtab'
+    if (!isHidden && !isNewTab) {
       invoke('show_browser_pane', { id: activeTabId }).catch(() => {})
     } else {
       invoke('hide_browser_pane', { id: activeTabId }).catch(() => {})
     }
     hiddenTabsRef.current.delete(activeTabId)
-  }, [activeTabId, tabs, isHidden])
+  }, [activeTabId, tabs, isHidden, activeTab?.url])
 
   // Keep adblock setting synced with webview
   useEffect(() => {
@@ -367,7 +369,7 @@ export function BrowserPane({
     invoke('navigate_browser_pane', { id: activeTabId, url: normalized }).catch(() => {})
   }
   
-  const handleAddTab = async (targetUrl: string = 'https://google.com') => {
+  const handleAddTab = async (targetUrl: string = 'termspace://newtab') => {
     const newTabId = `ephemeral-tab-${Date.now()}`
     try {
       await invoke('spawn_ephemeral_browser_pane', {
@@ -562,7 +564,7 @@ export function BrowserPane({
               style={{ flex: 1, cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               <span style={{ fontSize: 13, color: '#e8eaed' }}>
-                {url || 'https://google.com'}
+                {url === 'termspace://newtab' ? '' : (url || 'termspace://newtab')}
               </span>
             </div>
           )}
@@ -669,7 +671,11 @@ export function BrowserPane({
       </div>
 
       {/* Transparent hole — native webview floats here, positioned via containerRef + HEADER_HEIGHT offset */}
-      <div style={{ flex: 1, minHeight: 0, minWidth: 0, background: 'transparent' }} />
+      <div style={{ flex: 1, minHeight: 0, minWidth: 0, background: 'transparent', position: 'relative' }}>
+        {activeTab?.url === 'termspace://newtab' && (
+          <NewTabPage onNavigate={handleNavigate} />
+        )}
+      </div>
     </div>
   )
 }
@@ -678,4 +684,70 @@ const navBtnStyle: React.CSSProperties = {
   width: 28, height: 28, background: 'transparent', border: 'none',
   borderRadius: 6, color: '#9aa0a6', cursor: 'pointer',
   display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+}
+
+function NewTabPage({ onNavigate }: { onNavigate: (url: string) => void }) {
+  const [search, setSearch] = useState('')
+  const shortcuts = [
+    { name: 'YouTube', url: 'https://www.youtube.com/', icon: 'https://www.youtube.com/favicon.ico' },
+    { name: 'GitHub', url: 'https://github.com/', icon: 'https://github.com/favicon.ico' },
+    { name: 'ChatGPT', url: 'https://chatgpt.com/', icon: 'https://chatgpt.com/favicon.ico' },
+    { name: 'X', url: 'https://x.com/', icon: 'https://x.com/favicon.ico' },
+    { name: 'Reddit', url: 'https://www.reddit.com/', icon: 'https://www.redditstatic.com/shreddit/assets/favicon/192x192.png' },
+    { name: 'Notion', url: 'https://www.notion.so/', icon: 'https://www.notion.so/images/favicon.ico' },
+  ]
+  
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, background: 'var(--bg-main, #1a1612)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '10vh',
+      color: '#e8eaed', zIndex: 10
+    }}>
+      <div style={{ fontSize: 48, fontWeight: 700, marginBottom: 40, background: 'linear-gradient(45deg, #e8a045, #fbbc04)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+        Termspace
+      </div>
+      
+      <form 
+        onSubmit={e => { e.preventDefault(); if (search) onNavigate(search) }}
+        style={{ width: '100%', maxWidth: 600, position: 'relative', marginBottom: 60 }}
+      >
+        <input 
+          autoFocus
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search the web or enter a URL"
+          style={{
+            width: '100%', padding: '16px 24px', fontSize: 16,
+            background: '#221e18', border: '1px solid #3d3528',
+            borderRadius: 30, color: '#e8eaed', outline: 'none',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.2)'
+          }}
+        />
+      </form>
+      
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24, maxWidth: 600 }}>
+        {shortcuts.map(s => (
+          <div 
+            key={s.name}
+            onClick={() => onNavigate(s.url)}
+            style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+              padding: 16, borderRadius: 12, cursor: 'pointer',
+              transition: 'background 0.2s', width: 100
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = '#221e18'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            <div style={{ 
+              width: 48, height: 48, borderRadius: 24, background: '#2a2420',
+              display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}>
+              <img src={s.icon} alt="" style={{ width: 24, height: 24, borderRadius: 4 }} onError={e => e.currentTarget.style.display = 'none'} />
+            </div>
+            <span style={{ fontSize: 13, color: '#9aa0a6' }}>{s.name}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }

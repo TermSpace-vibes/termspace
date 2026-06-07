@@ -3,7 +3,22 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: 'error-logger',
+      configureServer(server) {
+        server.middlewares.use('/__log_error', (req, res) => {
+          let body = '';
+          req.on('data', chunk => body += chunk.toString());
+          req.on('end', () => {
+            console.error('\n\n[FRONTEND ERROR]', body, '\n\n');
+            res.end('ok');
+          });
+        });
+      }
+    }
+  ],
   clearScreen: false,
   server: { port: 1420, strictPort: true },
   envPrefix: ['VITE_', 'TAURI_'],

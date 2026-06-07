@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { ChevronRight, ChevronDown, File, Folder, FileJson, FileText, FileCode, Image, FileType, FileTerminal, FileArchive, Settings } from 'lucide-react'
+import { ChevronRight, ChevronDown, File, Folder, FileJson, FileText, FileCode, Image, FileType, FileTerminal, FileArchive, Settings, Server, Monitor, Book, Ship, Package, ScrollText, Database, Layout, FlaskConical, Code2, GitBranch, Workflow, Wrench, Boxes, AppWindow, Type, Palette } from 'lucide-react'
 import { FileNode, fetchDirectoryTree } from '../utils/fs'
 import { useAppStore } from '../store/useAppStore'
 
@@ -29,36 +29,79 @@ const getStatusColor = (status?: string) => {
   }
 }
 
-const getIconForFile = (filename: string) => {
+const getIconForFile = (filename: string, iconTheme: 'plain' | 'colorful' | 'filled') => {
   const ext = filename.split('.').pop()?.toLowerCase()
   const name = filename.toLowerCase()
 
-  if (name === 'package.json' || name === 'tsconfig.json') return <FileJson size={14} color="#FBC02D" />
-  if (name.includes('config') || name.includes('settings')) return <Settings size={14} color="#607D8B" />
-  if (name.startsWith('.')) return <Settings size={14} color="#9E9E9E" />
+  const isFilled = iconTheme === 'filled'
+  const isPlain = iconTheme === 'plain'
+
+  const renderIcon = (Icon: React.FC<any>, color: string) => {
+    const finalColor = isPlain ? "#90A4AE" : color
+    return <Icon size={14} color={finalColor} fill={isFilled ? finalColor : "transparent"} />
+  }
+
+  if (name === 'package.json' || name === 'tsconfig.json') return renderIcon(FileJson, "#FBC02D")
+  if (name.includes('config') || name.includes('settings')) return renderIcon(Settings, "#607D8B")
+  if (name.startsWith('.')) return renderIcon(Settings, "#9E9E9E")
 
   switch (ext) {
     case 'ts':
-    case 'tsx': return <FileType size={14} color="#0288D1" />
+    case 'tsx': return renderIcon(FileType, "#0288D1")
     case 'js':
-    case 'jsx': return <FileCode size={14} color="#FDD835" />
-    case 'html': return <FileCode size={14} color="#E65100" />
-    case 'css': return <FileCode size={14} color="#0277BD" />
-    case 'json': return <FileJson size={14} color="#FBC02D" />
-    case 'md': return <FileText size={14} color="#000000" style={{ fill: '#B0BEC5' }} />
-    case 'rs': return <FileCode size={14} color="#FF5722" />
+    case 'jsx': return renderIcon(FileCode, "#FDD835")
+    case 'html': return renderIcon(FileCode, "#E65100")
+    case 'css': return renderIcon(FileCode, "#0277BD")
+    case 'json': return renderIcon(FileJson, "#FBC02D")
+    case 'md': return renderIcon(FileText, "#B0BEC5")
+    case 'rs': return renderIcon(FileCode, "#FF5722")
     case 'png':
     case 'jpg':
     case 'jpeg':
     case 'svg':
-    case 'ico': return <Image size={14} color="#4DB6AC" />
+    case 'ico': return renderIcon(Image, "#4DB6AC")
     case 'sh':
-    case 'bash': return <FileTerminal size={14} color="#4CAF50" />
+    case 'bash': return renderIcon(FileTerminal, "#4CAF50")
     case 'zip':
     case 'tar':
-    case 'gz': return <FileArchive size={14} color="#F44336" />
-    default: return <File size={14} color="#90A4AE" />
+    case 'gz': return renderIcon(FileArchive, "#F44336")
+    default: return renderIcon(File, "#90A4AE")
   }
+}
+
+const getIconForFolder = (dirname: string, isOpen: boolean, iconTheme: 'plain' | 'colorful' | 'filled') => {
+  const name = dirname.toLowerCase()
+  const isFilled = iconTheme === 'filled'
+
+  if (iconTheme === 'plain') {
+    return <Folder size={14} color="#90A4AE" fill={isOpen || isFilled ? "#90A4AE" : "transparent"} />
+  }
+
+  const renderIcon = (Icon: React.FC<any>, color: string) => (
+    <Icon size={14} color={color} fill={isFilled ? color : "transparent"} />
+  )
+
+  if (name.includes('hook')) return renderIcon(Workflow, "#E91E63")
+  if (name.includes('util') || name.includes('helper') || name.includes('shared')) return renderIcon(Wrench, "#795548")
+  if (name.includes('store') || name.includes('context') || name.includes('state') || name.includes('provider')) return renderIcon(Boxes, "#673AB7")
+  if (name.includes('page') || name.includes('route') || name.includes('screen')) return renderIcon(AppWindow, "#009688")
+  if (name.includes('type') || name.includes('interface')) return renderIcon(Type, "#0288D1")
+  if (name.includes('style') || name.includes('css') || name.includes('theme')) return renderIcon(Palette, "#E91E63")
+  if (name.includes('backend') || name.includes('services') || name.includes('api') || name.includes('server')) return renderIcon(Server, "#4CAF50")
+  if (name.includes('frontend') || name.includes('client') || name.includes('web') || name.includes('app')) return renderIcon(Monitor, "#2196F3")
+  if (name.includes('docs') || name.includes('documentation')) return renderIcon(Book, "#9E9E9E")
+  if (name.includes('k8s') || name.includes('kubernetes') || name.includes('docker')) return renderIcon(Ship, "#326CE5")
+  if (name.includes('vendor') || name.includes('node_modules')) return renderIcon(Package, "#8D6E63")
+  if (name.includes('log')) return renderIcon(ScrollText, "#607D8B")
+  if (name.includes('model') || name.includes('db') || name.includes('database')) return renderIcon(Database, "#FF9800")
+  if (name.includes('component') || name.includes('ui') || name.includes('view')) return renderIcon(Layout, "#9C27B0")
+  if (name.includes('assets') || name.includes('public') || name.includes('image') || name.includes('static')) return renderIcon(Image, "#00BCD4")
+  if (name.includes('test') || name.includes('spec')) return renderIcon(FlaskConical, "#F44336")
+  if (name === 'src' || name === 'lib' || name === 'source') return renderIcon(Code2, "#FFC107")
+  if (name.includes('git')) return renderIcon(GitBranch, "#F4511E")
+  if (name.includes('exchange')) return <Folder size={14} color="#E91E63" fill={isOpen || isFilled ? "#E91E63" : "transparent"} />
+
+  return <Folder size={14} color="#90A4AE" fill={isOpen || isFilled ? "#90A4AE" : "transparent"} />
 }
 
 const flattenNodes = (
@@ -109,10 +152,11 @@ const TreeNode = React.memo<{
   node: FlatNode
   isFocused: boolean
   isSelected: boolean
+  iconTheme: 'plain' | 'colorful' | 'filled'
   onToggle: (node: FlatNode) => void
   onFocus: (node: FlatNode) => void
   style?: React.CSSProperties
-}>(({ node, isFocused, isSelected, onToggle, onFocus, style }) => {
+}>(({ node, isFocused, isSelected, iconTheme, onToggle, onFocus, style }) => {
   const [isHovered, setIsHovered] = React.useState(false)
   const statusColor = getStatusColor(node.status)
   const ref = useRef<HTMLDivElement>(null)
@@ -193,13 +237,13 @@ const TreeNode = React.memo<{
             node.isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />
           )
         ) : (
-           getIconForFile(node.name)
+           getIconForFile(node.name, iconTheme)
         )}
       </span>
       
       {node.isDirectory && (
         <span style={{ marginRight: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#90A4AE' }}>
-          <Folder size={14} fill={node.isOpen ? "#90A4AE" : "transparent"} />
+          {getIconForFolder(node.name, node.isOpen, iconTheme)}
         </span>
       )}
 
@@ -226,7 +270,7 @@ const TreeNode = React.memo<{
           color: statusColor,
           opacity: 0.8
         }}>
-          {node.status}
+          {node.status === '??' ? 'U' : node.status}
         </span>
       )}
     </div>
@@ -247,6 +291,7 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
 
   const gitStatus = useAppStore(s => s.gitStatusByWorkspace[workspaceId])
   const activeFile = useAppStore(s => s.activeFileByWorkspace[workspaceId])
+  const iconTheme = useAppStore(s => s.settings.iconTheme || 'colorful')
 
   useEffect(() => {
     if (activeFile && !focusedPath) {
@@ -502,6 +547,7 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
                 node={node} 
                 isFocused={focusedPath === node.path}
                 isSelected={activeFile === node.path}
+                iconTheme={iconTheme}
                 onToggle={handleToggle}
                 onFocus={(n) => setFocusedPath(n.path)}
                 style={{ top: index * ITEM_HEIGHT }}

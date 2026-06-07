@@ -85,7 +85,7 @@ describe('useAppStore', () => {
 })
 
 describe('browser pane store', () => {
-  it('addBrowserPane adds pane and creates browser layout node', () => {
+  it('addBrowserPane adds pane and creates split-wrapped browser layout node', () => {
     const pane: BrowserPane = {
       id: 'bp-1', workspaceId: 'ws-1', url: 'http://localhost:3000',
       position: 0, createdAt: 1000,
@@ -96,7 +96,10 @@ describe('browser pane store', () => {
     expect(panes[0].id).toBe('bp-1')
 
     const layout = useAppStore.getState().layoutsByWorkspace['ws-1']
-    expect(layout?.type).toBe('browser')
+    expect(layout?.type).toBe('split')
+    if (layout?.type === 'split') {
+      expect(layout.children[0]).toMatchObject({ type: 'browser', browserPaneId: 'bp-1' })
+    }
   })
 
   it('removeBrowserPane removes pane from store and layout', () => {
@@ -188,8 +191,15 @@ describe('editor pane store', () => {
     const layout = useAppStore.getState().layoutsByWorkspace['ws-1']
     expect(layout?.type).toBe('split')
     if (layout?.type === 'split') {
-      expect(layout.direction).toBe('vertical')
-      expect(layout.children).toHaveLength(2)
+      // Root split wraps in horizontal (deterministic).
+      // The split creates a nested sub-split with vertical direction.
+      expect(layout.children).toHaveLength(1)
+      const subSplit = layout.children[0]
+      expect(subSplit.type).toBe('split')
+      if (subSplit.type === 'split') {
+        expect(subSplit.direction).toBe('vertical')
+        expect(subSplit.children).toHaveLength(2)
+      }
     }
   })
 })

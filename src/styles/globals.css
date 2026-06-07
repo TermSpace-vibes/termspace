@@ -1,5 +1,7 @@
 :root, [data-theme="warm-dark"] {
   --bg-main:         #1c1c1c;
+  --bg-primary:      #1c1c1c;
+  --bg-secondary:    #252525;
   --bg-sidebar:      #111111;
   --bg-terminal:     #1c1c1c;
   --bg-item:         rgba(255, 255, 255, 0.04);
@@ -16,6 +18,8 @@
 
 [data-theme="cold-dark"] {
   --bg-main:         #1a1b26;
+  --bg-primary:      #1a1b26;
+  --bg-secondary:    #222433;
   --bg-sidebar:      #13141c;
   --bg-terminal:     #1a1b26;
   --bg-item:         rgba(255, 255, 255, 0.04);
@@ -32,6 +36,8 @@
 
 [data-theme="catppuccin-mocha"] {
   --bg-main:         #1e1e2e;
+  --bg-primary:      #1e1e2e;
+  --bg-secondary:    #282840;
   --bg-sidebar:      #11111b;
   --bg-terminal:     #1e1e2e;
   --bg-item:         rgba(255, 255, 255, 0.04);
@@ -48,6 +54,8 @@
 
 [data-theme="synthwave"] {
   --bg-main:         #2b213a;
+  --bg-primary:      #2b213a;
+  --bg-secondary:    #352a47;
   --bg-sidebar:      #1f1627;
   --bg-terminal:     #2b213a;
   --bg-item:         rgba(255, 255, 255, 0.04);
@@ -64,6 +72,8 @@
 
 [data-theme="fruity"] {
   --bg-main:         #1e1e1e;
+  --bg-primary:      #1e1e1e;
+  --bg-secondary:    #282828;
   --bg-sidebar:      #121212;
   --bg-terminal:     #1e1e1e;
   --bg-item:         rgba(255, 255, 255, 0.04);
@@ -80,6 +90,8 @@
 
 [data-theme="light"] {
   --bg-main:         #ffffff;
+  --bg-primary:      #ffffff;
+  --bg-secondary:    #f5f5f5;
   --bg-sidebar:      #fafafa;
   --bg-terminal:     #ffffff;
   --bg-item:         rgba(0, 0, 0, 0.03);
@@ -164,3 +176,12 @@ html, body, #root {
   animation: spin 1s linear infinite;
 }
 
+@keyframes loadingPulse {
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
+
+.editor-tab-close { opacity: 0; }
+.editor-tab:hover .editor-tab-close { opacity: 1 !important; }
+.editor-tab.active .editor-tab-close { opacity: 1 !important; }

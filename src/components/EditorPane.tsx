@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
-import Editor, { useMonaco } from '@monaco-editor/react'
-import { X, Save, Image as ImageIcon, FileCode, ChevronRight, Columns, Rows, Eye, EyeOff } from 'lucide-react'
+import Editor, { useMonaco, DiffEditor } from '@monaco-editor/react'
+import { X, Save, Image as ImageIcon, FileCode, ChevronRight, Columns, Rows, Eye, EyeOff, Folder, GitBranch } from 'lucide-react'
 import { FileTree } from './FileTree'
+import { GitPanel } from './GitPanel'
 import { ConfirmModal } from './ConfirmModal/ConfirmModal'
 import { MarkdownPreview } from './MarkdownPreview'
 import { readTextFileContent, writeTextFileContent } from '../utils/fs'
 import { useAppStore } from '../store/useAppStore'
-import { convertFileSrc } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 
 interface EditorPaneComponentProps {
   workspaceId: string
@@ -46,6 +47,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
   const settings = useAppStore(s => s.settings)
 
   const [fileContent, setFileContent] = useState('')
+  const [originalFileContent, setOriginalFileContent] = useState('')
   const [isDirty, setIsDirty] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [showPreview, setShowPreview] = useState(true)
@@ -78,6 +80,45 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
       refreshGitStatus(workspaceId, editorPane.rootPath)
     }
   }, [workspaceId, editorPane?.rootPath, refreshGitStatus])
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+        // If the active element is an input (excluding Monaco's textarea), let it handle its own select all
+        const activeTag = document.activeElement?.tagName?.toLowerCase();
+        const isMonacoTextarea = document.activeElement?.classList.contains('inputarea');
+        
+        if (!isMonacoTextarea && (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable)) {
+          return;
+        }
+
+        // Only handle if this pane is active
+        if (!isActive) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (editorRef.current) {
+          const content = editorRef.current.getValue();
+          navigator.clipboard.writeText(content).then(() => {
+            addToast('File content copied to clipboard', 'success');
+          }).catch(err => {
+            console.error('Failed to copy text:', err);
+            addToast('Failed to copy file content', 'error');
+          });
+
+          const model = editorRef.current.getModel();
+          if (model) {
+            editorRef.current.setSelection(model.getFullModelRange());
+            editorRef.current.focus();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown, { capture: true });
+  }, [isActive, addToast]);
 
   useEffect(() => {
     if (monaco) {
@@ -137,12 +178,14 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
     const loadFile = async () => {
       if (!editorPane?.activeFilePath) {
         setFileContent('')
+        setOriginalFileContent('')
         setIsDirty(false)
         return
       }
       
       if (isBinaryFile(editorPane.activeFilePath)) {
         setFileContent('')
+        setOriginalFileContent('')
         setIsDirty(false)
         return
       }
@@ -152,6 +195,21 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
         const content = await readTextFileContent(editorPane.activeFilePath)
         if (controller.signal.aborted) return
         setFileContent(content)
+        
+        if (editorPane.diffViewEnabled) {
+          try {
+            const relativePath = editorPane.activeFilePath.replace(editorPane.rootPath + '/', '')
+            const origContent = await invoke('get_git_file_content', { path: editorPane.rootPath, file_path: relativePath }) as string
+            if (!controller.signal.aborted) {
+              setOriginalFileContent(origContent)
+            }
+          } catch (e) {
+            if (!controller.signal.aborted) {
+              setOriginalFileContent('')
+            }
+          }
+        }
+        
         setIsDirty(false)
       } catch (err: any) {
         if (controller.signal.aborted) return
@@ -166,7 +224,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
     
     loadFile()
     return () => controller.abort()
-  }, [editorPane?.activeFilePath, addToast])
+  }, [editorPane?.activeFilePath, editorPane?.diffViewEnabled, editorPane?.rootPath, addToast])
 
   const handleFileSelect = (path: string) => {
     if (isDirty) {
@@ -204,11 +262,47 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
     }
   }, [editorPane?.activeFilePath, editorPane?.rootPath, fileContent, addToast, refreshGitStatus, workspaceId])
 
+  useEffect(() => {
+    const onSaveAll = () => {
+      if (isDirty) handleSave()
+    }
+    window.addEventListener('save-all-editors', onSaveAll)
+    return () => window.removeEventListener('save-all-editors', onSaveAll)
+  }, [isDirty, handleSave])
+
   const handleEditorDidMount = (editor: any, monaco: any) => {
     editorRef.current = editor
+    
+    // Only update the model text if it differs from the disk content.
+    // This preserves the undo stack if the user switches tabs back and forth.
+    if (editor.getValue() !== fileContent) {
+      editor.setValue(fileContent);
+    }
+    
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      handleSave()
-    })
+      handleSave();
+    });
+
+    // macOS native menus swallow Cmd+Z / Cmd+Shift+Z and convert them to native undo/redo actions.
+    // Monaco doesn't always catch these natively, so we intercept the beforeinput events.
+    const handleBeforeInput = (e: Event) => {
+      const inputEvent = e as InputEvent;
+      if (inputEvent.inputType === 'historyUndo') {
+        e.preventDefault();
+        editor.trigger('keyboard', 'undo', null);
+      } else if (inputEvent.inputType === 'historyRedo') {
+        e.preventDefault();
+        editor.trigger('keyboard', 'redo', null);
+      }
+    };
+    
+    const container = typeof editor.getContainerDOMNode === 'function' 
+      ? editor.getContainerDOMNode() 
+      : (typeof editor.getDomNode === 'function' ? editor.getDomNode() : null);
+      
+    if (container) {
+      container.addEventListener('beforeinput', handleBeforeInput);
+    }
 
     // Handle jumpToLine on initial mount
     if (editorPane?.jumpToLine) {
@@ -229,15 +323,16 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
     }
   }
 
-  useEffect(() => {
-    if (!settings.autosave || !isDirty || !editorPane?.activeFilePath) return
-    
-    const timer = setTimeout(() => {
-      handleSave()
-    }, 1000)
-    
-    return () => clearTimeout(timer)
-  }, [isDirty, settings.autosave, editorPane?.activeFilePath, handleSave])
+  // Auto-save has been disabled per user request
+  // useEffect(() => {
+  //   if (!settings.autosave || !isDirty || !editorPane?.activeFilePath) return
+  //   
+  //   const timer = setTimeout(() => {
+  //     handleSave()
+  //   }, 1000)
+  //   
+  //   return () => clearTimeout(timer)
+  // }, [isDirty, settings.autosave, editorPane?.activeFilePath, handleSave])
 
   if (!editorPane) return null
 
@@ -253,7 +348,8 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
         position: 'relative', border: '1px solid',
         borderColor: isActive ? 'var(--accent)' : 'var(--border-inactive)',
         boxShadow: isActive ? '0 10px 25px rgba(0,0,0,0.2)' : '0 4px 6px rgba(0,0,0,0.1)',
-        zIndex: isActive ? 10 : 0
+        zIndex: isActive ? 10 : 0,
+        minWidth: 0, minHeight: 0
       }}
     >
       {/* Header Area */}
@@ -265,7 +361,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', height: 32 }}>
            {/* Breadcrumbs */}
            {filePathParts.length > 0 ? (
-             <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-dim)', overflow: 'hidden' }}>
+             <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-dim)', overflow: 'hidden', flex: 1 }}>
                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>root</span>
                {filePathParts.map((part, idx) => (
                  <React.Fragment key={idx}>
@@ -275,11 +371,35 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
                ))}
              </div>
            ) : (
-             <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>No file selected</div>
+             <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', flex: 1 }}>No file selected</div>
            )}
 
+           {/* Command Center Search Bar */}
+           <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+             <div 
+               onClick={() => useAppStore.getState().setShowCommandPalette(true)}
+               style={{
+                 width: '100%', maxWidth: 300, height: 24, borderRadius: 6,
+                 backgroundColor: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-inactive)',
+                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                 color: 'var(--text-dim)', fontSize: 11, cursor: 'pointer', transition: 'all 0.2s',
+               }}
+               onMouseEnter={(e) => {
+                 e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.08)'
+                 e.currentTarget.style.color = 'var(--text-inactive)'
+               }}
+               onMouseLeave={(e) => {
+                 e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)'
+                 e.currentTarget.style.color = 'var(--text-dim)'
+               }}
+             >
+               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+               <span>Search {editorPane.rootPath.split('/').pop()}</span>
+             </div>
+           </div>
+
            {/* Actions */}
-           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, justifyContent: 'flex-end' }}>
              <button 
                onClick={handleSave}
                disabled={!isDirty || !editorPane.activeFilePath || isBinary}
@@ -299,10 +419,10 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
                <Save size={14} />
              </button>
 
-             {editorPane.activeFilePath?.toLowerCase().endsWith('.md') && (
-               <button 
-                 onClick={() => setShowPreview(!showPreview)} 
-                 style={{
+              {editorPane.activeFilePath?.toLowerCase().endsWith('.md') && (
+                <button 
+                  onClick={() => setShowPreview(!showPreview)} 
+                  style={{
                    padding: 4, borderRadius: 4, transition: 'colors 0.2s', border: 'none', background: 'none', cursor: 'pointer',
                    color: showPreview ? 'var(--accent)' : 'var(--text-dim)'
                  }}
@@ -396,40 +516,57 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
             return (
               <div 
                 key={path}
-                onClick={() => handleFileSelect(path)}
+                onClick={() => {
+                  if (editorPane.diffViewEnabled) updateEditorPaneLayout(workspaceId, editorPaneId, { diffViewEnabled: false });
+                  handleFileSelect(path);
+                }}
                 style={{
-                  display: 'flex', alignItems: 'center', height: '100%', gap: 8,
-                  borderRight: '1px solid var(--border-inactive)', cursor: 'pointer', transition: 'colors 0.2s',
-                  backgroundColor: editorPane.activeFilePath === path ? 'var(--bg-primary)' : 'transparent',
+                  display: 'flex', alignItems: 'center', height: '100%', gap: 6,
+                  backgroundColor: editorPane.activeFilePath === path ? 'var(--bg-terminal)' : 'transparent',
                   color: statusColor || (editorPane.activeFilePath === path ? 'var(--accent)' : 'var(--text-dim)'),
-                  borderTop: editorPane.activeFilePath === path ? '2px solid var(--accent)' : 'none',
-                  padding: '0 12px'
-                }}
-                onMouseEnter={(e) => {
-                  if (editorPane.activeFilePath !== path) e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)'
-                }}
-                onMouseLeave={(e) => {
-                  if (editorPane.activeFilePath !== path) e.currentTarget.style.backgroundColor = 'transparent'
+                  borderTop: `2px solid ${editorPane.activeFilePath === path ? 'var(--accent)' : 'transparent'}`,
+                  cursor: 'pointer',
+                  borderRight: '1px solid var(--border-inactive)',
+                  opacity: editorPane.activeFilePath === path ? 1 : 0.6,
+                  transition: 'background-color 0.2s, opacity 0.2s',
+                  padding: '0 12px',
+                  minWidth: 120,
+                  maxWidth: 200,
+                  position: 'relative'
                 }}
               >
                 <FileCode 
                   size={12} 
                   style={{ color: statusColor || (editorPane.activeFilePath === path ? 'var(--accent)' : 'var(--text-dim)') }} 
                 />
-                <span style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{path.split('/').pop()}</span>
+                <span style={{ 
+                  fontSize: 11, 
+                  whiteSpace: 'nowrap',
+                  fontStyle: (isDirty && editorPane.activeFilePath === path) ? 'italic' : 'normal',
+                  fontWeight: (isDirty && editorPane.activeFilePath === path) ? 'bold' : 'normal',
+                  flex: 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}>
+                  {path.split('/').pop()}
+                  {isDirty && editorPane.activeFilePath === path && <span style={{ color: 'var(--accent)', marginLeft: 2 }}>*</span>}
+                </span>
                 {status && (
-                  <span style={{ fontSize: '9px', fontWeight: 'bold', opacity: 0.8 }}>{status}</span>
+                  <span style={{ fontSize: '9px', fontWeight: 'bold', opacity: 0.8 }}>{status === '??' ? 'U' : status}</span>
                 )}
                 {isDirty && editorPane.activeFilePath === path && (
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'var(--accent)', flexShrink: 0 }} />
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'var(--accent)', flexShrink: 0, marginLeft: 4 }} />
                 )}
                 <button 
+                  className="editor-tab-close"
                   onClick={(e) => { e.stopPropagation(); closeEditorFile(workspaceId, editorPaneId, path); }}
                   style={{
-                    padding: 2, borderRadius: 4, transition: 'opacity 0.2s', border: 'none', background: 'none', cursor: 'pointer',
-                    opacity: editorPane.activeFilePath === path ? 1 : 0
+                    padding: 2, borderRadius: 4, transition: 'opacity 0.2s, background-color 0.2s', border: 'none', background: 'none', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
                   }}
                   title="Close Tab"
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                 >
                   <X size={12} />
                 </button>
@@ -452,9 +589,42 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
             defaultSize={editorPane.fileTreeWidth || 20} 
             minSize={10} 
             style={{ height: '100%', position: 'relative' }}
-            onResize={(size) => updateEditorPaneLayout(workspaceId, editorPaneId, { fileTreeWidth: Number(size) })}
+            onResize={(size) => {
+              const currentSize = editorPane.fileTreeWidth || 20
+              if (Math.abs(currentSize - Number(size)) > 0.1) {
+                updateEditorPaneLayout(workspaceId, editorPaneId, { fileTreeWidth: Number(size) })
+              }
+            }}
           >
-            <FileTree workspaceId={workspaceId} rootPath={editorPane.rootPath} onFileSelect={handleFileSelect} />
+            <div style={{ display: 'flex', height: '100%' }}>
+              <div style={{ 
+                width: 48, backgroundColor: 'var(--bg-main)', borderRight: '1px solid var(--border-inactive)',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 16, gap: 16
+              }}>
+                <button 
+                  onClick={() => updateEditorPaneLayout(workspaceId, editorPaneId, { activeSidebarTab: 'explorer' })}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: editorPane.activeSidebarTab !== 'git' ? 'var(--text-active)' : 'var(--text-dim)' }}
+                >
+                  <Folder size={20} />
+                </button>
+                <button 
+                  onClick={() => updateEditorPaneLayout(workspaceId, editorPaneId, { activeSidebarTab: 'git' })}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: editorPane.activeSidebarTab === 'git' ? 'var(--text-active)' : 'var(--text-dim)' }}
+                >
+                  <GitBranch size={20} />
+                </button>
+              </div>
+              <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+                {editorPane.activeSidebarTab === 'git' ? (
+                  <GitPanel workspaceId={workspaceId} editorPaneId={editorPaneId} rootPath={editorPane.rootPath} onFileSelect={handleFileSelect} />
+                ) : (
+                  <FileTree workspaceId={workspaceId} rootPath={editorPane.rootPath} onFileSelect={(path) => {
+                    if (editorPane.diffViewEnabled) updateEditorPaneLayout(workspaceId, editorPaneId, { diffViewEnabled: false });
+                    handleFileSelect(path);
+                  }} />
+                )}
+              </div>
+            </div>
           </Panel>
           
           <Separator 
@@ -499,13 +669,41 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
                    <p style={{ fontSize: 14 }}>The file is not displayed in the editor because it is either binary or uses an unsupported text encoding.</p>
                    <p style={{ fontSize: 12, opacity: 0.7, marginTop: 8, fontFamily: 'monospace', backgroundColor: 'var(--bg-primary)', padding: '4px 8px', borderRadius: 4 }}>{fileName}</p>
                 </div>
+              ) : editorPane.diffViewEnabled ? (
+                <DiffEditor
+                  height="100%"
+                  original={originalFileContent.replace(/\r\n/g, '\n')}
+                  modified={fileContent.replace(/\r\n/g, '\n')}
+                  language={getLanguageFromPath(editorPane.activeFilePath)}
+                  theme="termspace-dynamic"
+                  onMount={(editor, m) => {
+                    const modifiedEditor = editor.getModifiedEditor();
+                    handleEditorDidMount(modifiedEditor, m);
+                    modifiedEditor.onDidChangeModelContent(() => {
+                      handleEditorChange(modifiedEditor.getValue());
+                    });
+                  }}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: settings.fontSize || 14,
+                    fontFamily: settings.terminalFontFamily || '"JetBrains Mono", "Fira Code", Menlo, monospace',
+                    fontLigatures: true,
+                    wordWrap: 'on',
+                    scrollBeyondLastLine: false,
+                    padding: { top: 16, bottom: 16 },
+                    renderSideBySide: true,
+                    readOnly: false,
+                    hideUnchangedRegions: { enabled: false },
+                    ignoreTrimWhitespace: true,
+                  }}
+                />
               ) : (editorPane.activeFilePath && editorPane.activeFilePath.toLowerCase().endsWith('.md') && showPreview) ? (
                 <MarkdownPreview content={fileContent} workspaceId={workspaceId} editorPaneId={editorPaneId} />
               ) : (
                 <Editor
                   height="100%"
+                  path={editorPane.activeFilePath}
                   language={getLanguageFromPath(editorPane.activeFilePath)}
-                  value={fileContent}
                   theme="termspace-dynamic"
                   onChange={handleEditorChange}
                   onMount={handleEditorDidMount}
@@ -556,13 +754,11 @@ function getLanguageFromPath(path: string): string {
   const ext = path.split('.').pop()?.toLowerCase()
   switch (ext) {
     case 'ts':
-      return 'typescript'
     case 'tsx':
-      return 'typescriptreact'
+      return 'typescript'
     case 'js':
-      return 'javascript'
     case 'jsx':
-      return 'javascriptreact'
+      return 'javascript'
     case 'json':
       return 'json'
     case 'html':

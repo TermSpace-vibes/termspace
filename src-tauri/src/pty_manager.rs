@@ -21,6 +21,15 @@ impl PtyManager {
         }
     }
 
+    pub fn get_pid(&self, terminal_id: &str) -> Option<u32> {
+        if let Ok(handles) = self.handles.lock() {
+            if let Some(handle) = handles.get(terminal_id) {
+                return handle.child.process_id();
+            }
+        }
+        None
+    }
+
     pub fn spawn(
         &self,
         terminal_id: String,
@@ -96,6 +105,7 @@ impl PtyManager {
                 reader: Some(reader),
             },
         );
+        println!(">>> RUST: pty_manager.spawn handle inserted.");
         Ok(())
     }
 
@@ -127,7 +137,7 @@ impl PtyManager {
                 }
             }
         });
-        Ok(())
+        println!(">>> RUST: pty_manager.spawn finished successfully."); Ok(())
     }
 
     pub fn write(&self, terminal_id: &str, data: &str) -> Result<(), String> {

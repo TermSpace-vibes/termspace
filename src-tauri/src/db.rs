@@ -78,6 +78,10 @@ pub fn init_db(path: &Path) -> Result<Connection> {
             url          TEXT NOT NULL DEFAULT 'https://google.com',
             position     INTEGER NOT NULL DEFAULT 0,
             created_at   INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
         );",
     )?;
     // We no longer clear terminals on launch.
@@ -85,6 +89,17 @@ pub fn init_db(path: &Path) -> Result<Connection> {
     // we persist workspace layouts without accumulating stale DB rows.
     let _ = conn.execute("ALTER TABLE terminals ADD COLUMN title TEXT", []);
     Ok(conn)
+}
+
+pub fn clear_all_data(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "DELETE FROM scrollback;
+         DELETE FROM browser_panes;
+         DELETE FROM terminals;
+         DELETE FROM workspaces;
+         DELETE FROM settings;"
+    )?;
+    Ok(())
 }
 
 pub fn get_workspaces(conn: &Connection) -> Result<Vec<Workspace>> {
@@ -104,6 +119,25 @@ pub fn get_workspaces(conn: &Connection) -> Result<Vec<Workspace>> {
         })?
         .collect();
     rows
+}
+
+pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT value FROM settings WHERE key=?1")?;
+    let mut rows = stmt.query(params![key])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(row.get(0)?))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
 }
 
 pub fn create_workspace(

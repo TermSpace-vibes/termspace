@@ -12,6 +12,8 @@
 //! NOTE: `Window::add_child` is gated behind Tauri's `unstable` feature, which
 //! is enabled in `Cargo.toml`.
 
+#![allow(unexpected_cfgs)]
+
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -101,9 +103,15 @@ impl BrowserPaneManager {
         let app_handle = app.clone();
         let id_owned = id.to_string();
 
+        let safe_url = if url.starts_with("termspace://") {
+            "about:blank"
+        } else {
+            url
+        };
+
         // Parse defensively: a malformed/empty URL must not panic the command
         // thread. Fall back to https://google.com, mirroring browser behavior.
-        let target_url = url.parse().unwrap_or_else(|_| {
+        let target_url = safe_url.parse().unwrap_or_else(|_| {
             "https://google.com"
                 .parse()
                 .expect("https://google.com is a valid URL")
@@ -176,6 +184,23 @@ impl BrowserPaneManager {
                 if (!window.__termspace_adblock_enabled) return;
                 if (!document.head.contains(style)) document.head.appendChild(style);
             }});
+            
+            // YouTube specific ad-skipper
+            setInterval(() => {{
+                if (window.__termspace_adblock_enabled && window.location.hostname.includes('youtube.com')) {{
+                    const skipBtn = document.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern');
+                    if (skipBtn) skipBtn.click();
+                    
+                    const adOverlay = document.querySelector('.ytp-ad-overlay-close-button');
+                    if (adOverlay) adOverlay.click();
+                    
+                    const video = document.querySelector('video');
+                    const adShowing = document.querySelector('.ad-showing, .ad-interrupting');
+                    if (video && adShowing) {{
+                        video.currentTime = video.duration || 9999;
+                    }}
+                }}
+            }}, 300);
             observer.observe(document.documentElement, {{childList: true, subtree: true}});
 
             window.addEventListener('contextmenu', (e) => {{
@@ -207,7 +232,8 @@ impl BrowserPaneManager {
             WebviewUrl::External(target_url),
         )
         .data_directory(data_dir)
-        .initialization_script(init_js)
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15")
+        .initialization_script(format!("{}\nObject.defineProperty(navigator, 'webdriver', {{get: () => false}});", init_js))
         .on_navigation(move |nav_url| {
             if nav_url.scheme() == "termspace-ctx" {
                 let url = nav_url.query_pairs().find(|(k, _)| k == "url").map(|(_, v)| v.into_owned()).unwrap_or_default();
@@ -222,23 +248,27 @@ impl BrowserPaneManager {
                 }));
                 return false;
             }
+            if nav_url.scheme() == "termspace" {
+                return false;
+            }
             
             println!(">>> BROWSER: Navigation requested to: {}", nav_url);
-            // Returning `true` allows the navigation to proceed. We only
-            // observe it to keep the frontend's URL state in sync.
-            let _ = nav_app_handle.emit(
-                "browser-pane-url-changed",
-                serde_json::json!({
-                    "id": nav_id,
-                    "url": nav_url.to_string(),
-                }),
-            );
+            // We no longer emit browser-pane-url-changed here because this hook fires for iframes too.
+            // URL changes are now handled by on_page_load and the native polling task.
             true
         })
         .on_page_load(move |webview, payload| {
-            println!(">>> BROWSER: Page load event: {:?}", payload.url());
+            let url_str = payload.url().to_string();
+            println!(">>> BROWSER: Page load event: {:?}", url_str);
             let app = title_app_handle.clone();
             let id = title_id.clone();
+            
+            if !url_str.contains("RotateCookiesPage") && url_str != "about:blank" {
+                let _ = app.emit("browser-pane-url-changed", serde_json::json!({
+                    "id": id.clone(),
+                    "url": url_str,
+                }));
+            }
             
             let js = r#"
                 (function() {
@@ -320,6 +350,18 @@ impl BrowserPaneManager {
         let webview =
             window.add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(w, h))?;
 
+        #[cfg(target_os = "macos")]
+        {
+            let _ = webview.with_webview(|wry_webview| {
+                #[allow(unexpected_cfgs)]
+                unsafe {
+                    use objc::{msg_send, sel, sel_impl};
+                    let wk_webview: *mut objc::runtime::Object = wry_webview.inner() as _;
+                    let _: () = msg_send![wk_webview, setAllowsBackForwardNavigationGestures:true];
+                }
+            });
+        }
+
         self.panes.lock().unwrap().insert(
             id.to_string(),
             PaneEntry {
@@ -342,9 +384,14 @@ impl BrowserPaneManager {
         let entry = panes
             .get(id)
             .ok_or_else(|| format!("pane '{}' not found", id))?;
-        let parsed: tauri::Url = url
+        let safe_url = if url.starts_with("termspace://") {
+            "about:blank"
+        } else {
+            url
+        };
+        let parsed: tauri::Url = safe_url
             .parse()
-            .map_err(|e| format!("invalid URL '{}': {}", url, e))?;
+            .map_err(|e| format!("invalid URL '{}': {}", safe_url, e))?;
         entry.webview.navigate(parsed).map_err(|e| e.to_string())
     }
 
