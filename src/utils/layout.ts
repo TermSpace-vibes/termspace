@@ -23,7 +23,7 @@ export function addTerminalToLayout(
 
   // If no targetId, we just split the root.
   if (!targetId) {
-    if (root.type === 'pane' || root.type === 'browser' || root.type === 'editor') {
+    if (root.type === 'pane' || root.type === 'browser' || root.type === 'editor' || root.type === 'ghostty') {
       return {
         type: 'split',
         id: ROOT_SPLIT_ID,
@@ -177,7 +177,7 @@ export function addBrowserPaneToLayout(
   }
 
   if (!targetId) {
-    if (root.type === 'pane' || root.type === 'browser' || root.type === 'editor') {
+    if (root.type === 'pane' || root.type === 'browser' || root.type === 'editor' || root.type === 'ghostty') {
       return { type: 'split', id: ROOT_SPLIT_ID, direction, sizes: [50, 50], children: [root, newNode] }
     }
     // Already a split — append
@@ -205,6 +205,12 @@ export function addBrowserPaneToLayout(
     }
     if (node.type === 'editor') {
       if (node.editorPaneId === targetId) {
+        return { type: 'split', id: splitId, direction, sizes: [50, 50], children: splitChildren }
+      }
+      return node
+    }
+    if (node.type === 'ghostty') {
+      if (node.ghosttyPaneId === targetId) {
         return { type: 'split', id: splitId, direction, sizes: [50, 50], children: splitChildren }
       }
       return node
@@ -262,7 +268,7 @@ export function addEditorPaneToLayout(
   }
 
   if (!targetId) {
-    if (root.type === 'pane' || root.type === 'browser' || root.type === 'editor') {
+    if (root.type === 'pane' || root.type === 'browser' || root.type === 'editor' || root.type === 'ghostty') {
       return { type: 'split', id: ROOT_SPLIT_ID, direction, sizes: [50, 50], children: [root, newNode] }
     }
     // Already a split — append
@@ -290,6 +296,12 @@ export function addEditorPaneToLayout(
     }
     if (node.type === 'editor') {
       if (node.editorPaneId === targetId) {
+        return { type: 'split', id: splitId, direction, sizes: [50, 50], children: splitChildren }
+      }
+      return node
+    }
+    if (node.type === 'ghostty') {
+      if (node.ghosttyPaneId === targetId) {
         return { type: 'split', id: splitId, direction, sizes: [50, 50], children: splitChildren }
       }
       return node

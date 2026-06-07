@@ -71,6 +71,21 @@ describe('addGhosttyPaneToLayout', () => {
       expect(result.children[1].type).toBe('ghostty')
     }
   })
+
+  it('splits at targetId in a nested split', () => {
+    const root: LayoutNode = {
+      type: 'split', id: 's1', direction: 'horizontal', sizes: [50, 50],
+      children: [
+        { type: 'pane', id: 'pane-t1', terminalId: 't1' },
+        { type: 'pane', id: 'pane-t2', terminalId: 't2' },
+      ]
+    }
+    const result = addGhosttyPaneToLayout(root, 'g1', 't1', 'vertical')
+    expect(result.type).toBe('split')
+    if (result.type === 'split') {
+      expect(result.children[0].type).toBe('split')
+    }
+  })
 })
 
 describe('removeGhosttyPaneFromLayout', () => {
