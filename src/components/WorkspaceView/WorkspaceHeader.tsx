@@ -7,14 +7,12 @@ interface Props {
   onAddTerminal: () => void
   onAddBrowserPane: () => void
   onAddEditorPane: () => void
-  onAddGhosttyPane: () => void
   onEditWorkspace: () => void
   onSelectTerminal: (id: string) => void
   onCloseTerminal: (id: string) => void
-  showTabBar?: boolean
 }
 
-export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, onAddBrowserPane, onAddEditorPane, onAddGhosttyPane, onSelectTerminal, onCloseTerminal, showTabBar = true }: Props) {
+export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, onAddBrowserPane, onAddEditorPane, onSelectTerminal, onCloseTerminal }: Props) {
   return (
     <div
       data-tauri-drag-region
@@ -25,7 +23,7 @@ export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, on
       }}
     >
       <div data-tauri-drag-region style={{ flex: 1, display: 'flex', overflowX: 'auto', overflowY: 'hidden' }}>
-        {showTabBar && terminals.map((t, idx) => {
+        {terminals.map((t, idx) => {
           const isActive = t.id === activeTerminalId
           return (
             <div
@@ -70,7 +68,7 @@ export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, on
             </div>
           )
         })}
-        {showTabBar && terminals.length < 8 && (
+        {terminals.length < 8 && (
           <button
             onClick={onAddTerminal}
             style={{
@@ -137,26 +135,6 @@ export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, on
           }}
         >
           <span>&lt;/&gt;</span> Editor
-        </button>
-        <button
-          onClick={onAddGhosttyPane}
-          title="New Ghostty Terminal"
-          style={{
-            padding: '3px 8px', background: 'transparent',
-            border: '1px solid var(--border-inactive)', borderRadius: 4,
-            color: 'var(--text-inactive)', fontSize: 10, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: 4
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = 'var(--text-active)'
-            e.currentTarget.style.borderColor = 'var(--text-dim)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = 'var(--text-inactive)'
-            e.currentTarget.style.borderColor = 'var(--border-inactive)'
-          }}
-        >
-          👻 Ghostty
         </button>
       </div>
     </div>

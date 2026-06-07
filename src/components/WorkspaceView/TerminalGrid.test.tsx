@@ -47,32 +47,32 @@ describe('TerminalGrid', () => {
   it('renders nothing when terminals array is empty', () => {
     setupLayout(0)
     const { container } = render(
-      <TerminalGrid workspaceId="ws-1" terminals={[]} activeTerminalId={null} onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} onCloseGhosttyPane={vi.fn()} />
+      <TerminalGrid workspaceId="ws-1" terminals={[]} activeTerminalId={null} onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} />
     )
     expect(container.firstChild).toBeNull()
   })
 
   it('renders 1 terminal', () => {
     setupLayout(1)
-    render(<TerminalGrid workspaceId="ws-1" terminals={makeTerminals(1)} activeTerminalId="t-0" onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} onCloseGhosttyPane={vi.fn()} />)
+    render(<TerminalGrid workspaceId="ws-1" terminals={makeTerminals(1)} activeTerminalId="t-0" onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} />)
     expect(screen.getByTestId('pane-t-0')).toBeInTheDocument()
   })
 
   it('renders 2 terminals', () => {
     setupLayout(2)
-    render(<TerminalGrid workspaceId="ws-1" terminals={makeTerminals(2)} activeTerminalId="t-0" onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} onCloseGhosttyPane={vi.fn()} />)
+    render(<TerminalGrid workspaceId="ws-1" terminals={makeTerminals(2)} activeTerminalId="t-0" onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} />)
     expect(screen.getAllByTestId(/^pane-/)).toHaveLength(2)
   })
 
   it('renders 3 terminals', () => {
     setupLayout(3)
-    render(<TerminalGrid workspaceId="ws-1" terminals={makeTerminals(3)} activeTerminalId="t-0" onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} onCloseGhosttyPane={vi.fn()} />)
+    render(<TerminalGrid workspaceId="ws-1" terminals={makeTerminals(3)} activeTerminalId="t-0" onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} />)
     expect(screen.getAllByTestId(/^pane-/)).toHaveLength(3)
   })
 
   it('renders 4 terminals', () => {
     setupLayout(4)
-    render(<TerminalGrid workspaceId="ws-1" terminals={makeTerminals(4)} activeTerminalId="t-0" onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} onCloseGhosttyPane={vi.fn()} />)
+    render(<TerminalGrid workspaceId="ws-1" terminals={makeTerminals(4)} activeTerminalId="t-0" onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} />)
     expect(screen.getAllByTestId(/^pane-/)).toHaveLength(4)
   })
 })
