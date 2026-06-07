@@ -65,12 +65,21 @@ struct GhosttyManager {
 
 #### macOS native calls
 
-Use the `objc2` crate (already a transitive dependency via Tauri's WRY). Key calls:
+Use the `objc = "0.2.7"` crate already in `Cargo.toml` (not `objc2`).
 
-- `CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID)` filtered by `kCGWindowOwnerPID` to find the child `NSWindow`
-- Tauri exposes its `NSWindow` handle via `AppHandle::get_webview_window("main").ns_window()`
-- `NSWindow::addChildWindow_ordered(child, NSWindowOrderingMode::Above)`
-- `NSWindow::setFrame_display(frame, true)`
+**Cross-process window acquisition — key constraint:** `[NSApp windowWithWindowNumber:]` only returns windows owned by the calling process. Since Ghostty is a separate process we cannot use it. Two viable strategies:
+
+1. **Accessibility API** (public): Use `AXUIElementCreateApplication(pid)` → `kAXWindowsAttribute` to get the foreign `NSWindow *` via accessibility element. Requires Accessibility permission from the user on first run.
+2. **`CGSSetWindowParent`** (private CoreGraphics SPI): Sets a parent window cross-process without needing an `NSWindow *` reference, only a `CGWindowID`. No permission prompt, but is a private API.
+
+**Implementation choice: Accessibility API (option 1)** — avoids private APIs at the cost of one permission prompt. Termspace already interacts with the system deeply enough that this is acceptable.
+
+Flow:
+1. `CGWindowListCopyWindowInfo` filtered by `kCGWindowOwnerPID` → get `kCGWindowNumber` (CGWindowID)
+2. `AXUIElementCreateApplication(pid)` → `AXUIElementCopyAttributeValue(kAXWindowsAttribute)` → cast element to `NSWindow *` via `AXUIElementGetWindow` (or `_AXUIElementGetWindow` on older macOS)
+3. Get Termspace `NSWindow *`: `app_handle.get_webview_window("main")` → `.ns_window()` returns `*mut c_void`, cast to `id`
+4. `msg_send![parent_ns_window, addChildWindow:child_ns_window ordered:NSWindowAbove]`
+5. `msg_send![child_ns_window, setFrame:frame display:YES]`
 
 #### Ghostty launch flags
 
@@ -101,17 +110,18 @@ Add `GhosttyManager` to Tauri's managed state alongside `PtyManager` and registe
 - On unmount: `invoke('kill_ghostty', { paneId })`
 - Workspace visibility: prop `isActive: boolean` → `useEffect` calls `show_ghostty` / `hide_ghostty`
 
-Coordinate conversion (identical to `BrowserPane`):
+Coordinate conversion (identical to `BrowserPane` — logical CSS pixels, no DPR multiplication):
 
 ```ts
-const pos = await getCurrentWindow().outerPosition()
-const dpr = window.devicePixelRatio
 const rect = ref.current.getBoundingClientRect()
-const x = Math.round(pos.x + rect.left * dpr)
-const y = Math.round(pos.y + rect.top * dpr)
-const width = Math.round(rect.width * dpr)
-const height = Math.round(rect.height * dpr)
+const MACOS_TITLEBAR_OFFSET = 28  // same constant BrowserPane uses
+const x = rect.left
+const y = rect.top + MACOS_TITLEBAR_OFFSET
+const width = rect.width
+const height = rect.height - MACOS_TITLEBAR_OFFSET
 ```
+
+`LogicalPosition`/`LogicalSize` on the Rust side handles DPR internally — do not pre-multiply in the frontend.
 
 ### Integration points
 
@@ -136,6 +146,7 @@ Wire to local state `defaultTerminalType` + include in `handleSave`.
 ## Error Handling
 
 - `spawn_ghostty` returns `Err` if Ghostty binary not found at `/Applications/Ghostty.app/Contents/MacOS/ghostty` → frontend shows toast "Ghostty not installed"
+- If Accessibility permission not granted → `AXIsProcessTrusted()` returns false → `Err("Accessibility permission required")` → frontend shows toast with instructions to enable in System Settings → Privacy & Security → Accessibility
 - If window-find polling times out after 3s → `Err("ghostty window did not appear")` → toast + fall back to built-in terminal
 - `kill_ghostty` called on unknown `pane_id` → no-op (same as `PtyManager::kill`)
 
