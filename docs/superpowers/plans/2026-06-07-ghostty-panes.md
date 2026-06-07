@@ -320,7 +320,7 @@ git commit -m "feat: add ghosttyPanesByWorkspace store slice"
 
 - [ ] **Step 1: Add macOS deps to `src-tauri/Cargo.toml`**
 
-Find the `[dependencies]` section and add after `objc = "0.2.7"`:
+Find the existing `[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]` section (near the bottom of the file) and add a new section **after** it (not inside `[dependencies]`):
 
 ```toml
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -361,11 +361,14 @@ const K_CG_NULL_WINDOW_ID: CGWindowID = 0;
 const K_CF_NUMBER_SI32_TYPE: i32 = 3;
 const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 
+// All #[link] blocks must be at module scope — never inside a function body.
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGWindowListCopyWindowInfo(option: u32, relative_to: CGWindowID) -> CFArrayRef;
     fn CGSDefaultConnection() -> i32;
     fn CGSSetWindowParent(conn: i32, child: CGWindowID, parent: CGWindowID) -> i32;
+    fn CGSMoveWindow(conn: i32, wid: CGWindowID, point: *const NSPoint) -> i32;
+    fn CGSSetWindowGeometry(conn: i32, wid: CGWindowID, origin: NSPoint, size: NSSize) -> i32;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -382,9 +385,24 @@ extern "C" {
     ) -> CFTypeRef;
 }
 
-fn cf_string(s: &str) -> CFTypeRef {
-    let c = CString::new(s).unwrap();
-    unsafe { CFStringCreateWithCString(std::ptr::null(), c.as_ptr(), K_CF_STRING_ENCODING_UTF8) }
+// RAII wrapper so every cf_string caller automatically releases on drop.
+struct CfString(CFTypeRef);
+impl CfString {
+    fn new(s: &str) -> Self {
+        let c = CString::new(s).unwrap();
+        let r = unsafe {
+            CFStringCreateWithCString(std::ptr::null(), c.as_ptr(), K_CF_STRING_ENCODING_UTF8)
+        };
+        CfString(r)
+    }
+    fn as_ref(&self) -> CFTypeRef { self.0 }
+}
+impl Drop for CfString {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { CFRelease(self.0) }
+        }
+    }
 }
 
 fn find_window_id_for_pid(target_pid: u32) -> Option<CGWindowID> {
@@ -393,14 +411,15 @@ fn find_window_id_for_pid(target_pid: u32) -> Option<CGWindowID> {
         if list.is_null() {
             return None;
         }
-        let pid_key = cf_string("kCGWindowOwnerPID");
-        let wid_key = cf_string("kCGWindowNumber");
+        // CfString RAII — released at end of scope regardless of early returns.
+        let pid_key = CfString::new("kCGWindowOwnerPID");
+        let wid_key = CfString::new("kCGWindowNumber");
         let count = CFArrayGetCount(list);
         let mut result = None;
 
-        'outer: for i in 0..count {
+        for i in 0..count {
             let dict = CFArrayGetValueAtIndex(list, i);
-            let pid_val = CFDictionaryGetValue(dict, pid_key);
+            let pid_val = CFDictionaryGetValue(dict, pid_key.as_ref());
             if pid_val.is_null() {
                 continue;
             }
@@ -408,7 +427,7 @@ fn find_window_id_for_pid(target_pid: u32) -> Option<CGWindowID> {
             if CFNumberGetValue(pid_val, K_CF_NUMBER_SI32_TYPE, &mut pid as *mut _ as *mut c_void)
                 && pid as u32 == target_pid
             {
-                let wid_val = CFDictionaryGetValue(dict, wid_key);
+                let wid_val = CFDictionaryGetValue(dict, wid_key.as_ref());
                 if !wid_val.is_null() {
                     let mut wid: i32 = 0;
                     if CFNumberGetValue(
@@ -417,14 +436,13 @@ fn find_window_id_for_pid(target_pid: u32) -> Option<CGWindowID> {
                         &mut wid as *mut _ as *mut c_void,
                     ) {
                         result = Some(wid as CGWindowID);
-                        break 'outer;
+                        break;
                     }
                 }
             }
         }
 
-        CFRelease(pid_key);
-        CFRelease(wid_key);
+        // pid_key and wid_key dropped here (CFRelease called via Drop).
         CFRelease(list);
         result
     }
@@ -463,21 +481,9 @@ fn screen_height() -> f64 {
 }
 
 fn set_ghostty_frame(window_id: CGWindowID, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-    // CGSMoveWindow and CGSSetWindowGeometry use Quartz coordinates (bottom-left origin).
-    // Convert: quartz_y = screen_height - css_y - height
+    // CGSSetWindowGeometry uses Quartz coordinates (bottom-left origin).
+    // Convert: quartz_y = screen_height - physical_y - height
     let quartz_y = screen_height() - y - h;
-
-    #[allow(improper_ctypes)]
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGSMoveWindow(conn: i32, wid: CGWindowID, point: *const NSPoint) -> i32;
-        fn CGSSetWindowGeometry(
-            conn: i32,
-            wid: CGWindowID,
-            origin: NSPoint,
-            size: NSSize,
-        ) -> i32;
-    }
 
     unsafe {
         let conn = CGSDefaultConnection();
@@ -485,7 +491,7 @@ fn set_ghostty_frame(window_id: CGWindowID, x: f64, y: f64, w: f64, h: f64) -> R
         let size = NSSize { width: w, height: h };
         let r = CGSSetWindowGeometry(conn, window_id, origin, size);
         if r != 0 {
-            // Fall back to just move if geometry call fails
+            // Fall back to move-only if geometry call fails
             CGSMoveWindow(conn, window_id, &origin);
         }
     }
@@ -535,24 +541,34 @@ impl GhosttyManager {
 
         let pid = child.id();
 
-        // Poll until Ghostty's window appears (max 3 s)
-        let deadline = Instant::now() + Duration::from_secs(3);
-        let window_id = loop {
-            thread::sleep(Duration::from_millis(100));
-            if let Some(wid) = find_window_id_for_pid(pid) {
-                break wid;
+        // Poll until Ghostty's window appears (max 3 s).
+        // Runs on a blocking thread — must NOT block the Tauri async command executor.
+        let window_id = std::thread::spawn(move || -> Option<CGWindowID> {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                thread::sleep(Duration::from_millis(100));
+                if let Some(wid) = find_window_id_for_pid(pid) {
+                    return Some(wid);
+                }
+                if Instant::now() > deadline {
+                    return None;
+                }
             }
-            if Instant::now() > deadline {
-                return Err(
-                    "Ghostty window did not appear within 3 seconds. Check that Ghostty is installed correctly.".into(),
-                );
-            }
-        };
+        })
+        .join()
+        .map_err(|_| "window-poll thread panicked".to_string())?
+        .ok_or_else(|| "Ghostty window did not appear within 3 seconds. Check that Ghostty is installed correctly.".to_string())?;
+
+        // Bounds-check: CGWindowID is u32; NSInteger windowNumber can be negative for
+        // off-screen windows. Reject those rather than silently truncating.
+        if parent_window_number < 0 || parent_window_number > u32::MAX as i64 {
+            return Err(format!("parent window number {parent_window_number} is out of CGWindowID range"));
+        }
 
         // Reparent Ghostty's window to Termspace's window
         unsafe {
             let conn = CGSDefaultConnection();
-            let result = CGSSetWindowParent(conn, window_id, parent_window_number as CGWindowID);
+            let result = CGSSetWindowParent(conn, window_id, parent_window_number as u32);
             if result != 0 {
                 return Err(format!("CGSSetWindowParent failed with code {result}"));
             }
@@ -588,15 +604,20 @@ impl GhosttyManager {
             .ok_or_else(|| format!("No Ghostty pane '{pane_id}'"))?;
         unsafe {
             use objc::{class, msg_send, sel, sel_impl};
-            // Get NSWindow for window_id — since CGSSetWindowParent reparented it,
-            // we can use [NSApp windowWithWindowNumber:] if it's now considered ours.
-            // If that returns nil, use NSRunningApplication + accessibility to call orderFront.
+            // [NSApp windowWithWindowNumber:] returns nil for foreign-process windows.
+            // After CGSSetWindowParent the OS may adopt the window into our process's
+            // window list — if it does, orderFront works. If it still returns nil,
+            // return Err so the caller can log; show/hide failures are non-fatal.
             let ns_app: *mut objc::runtime::Object = msg_send![class!(NSApplication), sharedApplication];
             let win: *mut objc::runtime::Object =
                 msg_send![ns_app, windowWithWindowNumber: handle.window_id as i64];
-            if !win.is_null() {
-                let _: () = msg_send![win, orderFront: std::ptr::null::<objc::runtime::Object>()];
+            if win.is_null() {
+                return Err(format!(
+                    "show_ghostty: window {} not in our process's window list after reparent",
+                    handle.window_id
+                ));
             }
+            let _: () = msg_send![win, orderFront: std::ptr::null::<objc::runtime::Object>()];
         }
         Ok(())
     }
@@ -611,9 +632,13 @@ impl GhosttyManager {
             let ns_app: *mut objc::runtime::Object = msg_send![class!(NSApplication), sharedApplication];
             let win: *mut objc::runtime::Object =
                 msg_send![ns_app, windowWithWindowNumber: handle.window_id as i64];
-            if !win.is_null() {
-                let _: () = msg_send![win, orderOut: std::ptr::null::<objc::runtime::Object>()];
+            if win.is_null() {
+                return Err(format!(
+                    "hide_ghostty: window {} not in our process's window list after reparent",
+                    handle.window_id
+                ));
             }
+            let _: () = msg_send![win, orderOut: std::ptr::null::<objc::runtime::Object>()];
         }
         Ok(())
     }
@@ -800,7 +825,7 @@ git commit -m "feat: register GhosttyManager and five Ghostty Tauri commands"
 - [ ] **Step 1: Create `src/components/WorkspaceView/GhosttyPane.tsx`**
 
 ```tsx
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { invoke } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
 
@@ -815,10 +840,13 @@ interface Props {
 
 export function GhosttyPane({ ghosttyPaneId, cwd, isActive, isHidden }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const spawnedRef = useRef(false)
+  // useState (not useRef) so the loading label re-renders when spawn completes.
+  const [isSpawned, setIsSpawned] = useState(false)
+  // Track whether the component is still mounted when spawn resolves.
+  const mountedRef = useRef(true)
 
   const syncBounds = useCallback(() => {
-    if (!containerRef.current || !spawnedRef.current) return
+    if (!containerRef.current || !isSpawned) return
     const rect = containerRef.current.getBoundingClientRect()
 
     if (rect.width < 1 || rect.height <= MACOS_TITLEBAR_OFFSET || isHidden) {
@@ -834,10 +862,11 @@ export function GhosttyPane({ ghosttyPaneId, cwd, isActive, isHidden }: Props) {
       w: rect.width,
       h: rect.height - MACOS_TITLEBAR_OFFSET,
     }).catch(() => {})
-  }, [ghosttyPaneId, isHidden])
+  }, [ghosttyPaneId, isHidden, isSpawned])
 
   // Spawn on mount
   useEffect(() => {
+    mountedRef.current = true
     if (!containerRef.current) return
     const rect = containerRef.current.getBoundingClientRect()
 
@@ -850,9 +879,15 @@ export function GhosttyPane({ ghosttyPaneId, cwd, isActive, isHidden }: Props) {
       h: rect.height - MACOS_TITLEBAR_OFFSET,
     })
       .then(() => {
-        spawnedRef.current = true
+        if (!mountedRef.current) {
+          // Component unmounted before spawn resolved — kill the zombie process.
+          invoke('kill_ghostty', { paneId: ghosttyPaneId }).catch(() => {})
+          return
+        }
+        setIsSpawned(true)
       })
       .catch((err: unknown) => {
+        if (!mountedRef.current) return
         const msg = err instanceof Error ? err.message : String(err)
         if (msg.includes('not installed')) {
           useAppStore.getState().addToast('Ghostty not installed — install from ghostty.org', 'error')
@@ -869,8 +904,13 @@ export function GhosttyPane({ ghosttyPaneId, cwd, isActive, isHidden }: Props) {
       })
 
     return () => {
-      invoke('kill_ghostty', { paneId: ghosttyPaneId }).catch(() => {})
+      mountedRef.current = false
+      // Only kill if spawn already resolved; otherwise the .then() branch above kills it.
+      if (isSpawned) {
+        invoke('kill_ghostty', { paneId: ghosttyPaneId }).catch(() => {})
+      }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ghosttyPaneId, cwd])
 
   // Sync on isHidden changes
@@ -906,8 +946,8 @@ export function GhosttyPane({ ghosttyPaneId, cwd, isActive, isHidden }: Props) {
         overflow: 'hidden',
       }}
     >
-      {/* Visible label while Ghostty window is loading */}
-      {!spawnedRef.current && (
+      {/* Visible label while Ghostty window is loading — disappears once isSpawned flips */}
+      {!isSpawned && (
         <div style={{
           position: 'absolute', inset: 0, display: 'flex',
           alignItems: 'center', justifyContent: 'center',
@@ -999,7 +1039,7 @@ if (node.type === 'ghostty') {
 }
 ```
 
-Also add the `Props` interface extension — add `onCloseGhosttyPane` and `onAddGhosttyPane` to the `Props` interface:
+Add `onCloseGhosttyPane` to the `Props` interface (splitting is handled by `WorkspaceView`, not `TerminalGrid`, so no `onAddGhosttyPane` here):
 
 ```ts
 interface Props {
@@ -1167,9 +1207,13 @@ Find the `matchShortcut(e, keybindings.newTerminal)` block and replace the `invo
 if (matchShortcut(e, keybindings.newTerminal)) {
   e.preventDefault()
   const { defaultTerminalType } = settings
+  const ghosttyPanes = useAppStore.getState().ghosttyPanesByWorkspace[activeWorkspaceId] ?? []
+  const totalPanes = terminals.length + ghosttyPanes.length
   if (defaultTerminalType === 'ghostty') {
-    // Dispatch a custom event that WorkspaceView handles
-    window.dispatchEvent(new CustomEvent('termspace:new-ghostty-terminal'))
+    // Guard matches the built-in limit so Cmd+T spam can't open unlimited Ghostty processes.
+    if (totalPanes < 4) {
+      window.dispatchEvent(new CustomEvent('termspace:new-ghostty-terminal'))
+    }
   } else if (terminals.length < 4) {
     invoke<TerminalType>('spawn_terminal', {
       workspaceId: activeWorkspaceId,
