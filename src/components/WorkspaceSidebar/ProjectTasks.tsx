@@ -40,7 +40,7 @@ export function ProjectTasks({ isCollapsed }: { isCollapsed: boolean }) {
   const handleRunTask = (command: string) => {
     if (activeTerminalId) {
       // Append a carriage return to execute the command immediately
-      invoke('write_pty', { terminalId: activeTerminalId, data: command + '\r' })
+      invoke('write_terminal', { terminalId: activeTerminalId, data: command + '\r' })
     }
   }
 

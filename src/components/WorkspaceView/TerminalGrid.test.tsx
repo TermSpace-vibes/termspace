@@ -5,8 +5,8 @@ import { TerminalGrid } from './TerminalGrid'
 import { useAppStore } from '../../store/useAppStore'
 import { Terminal, LayoutNode } from '../../types'
 
-vi.mock('./TerminalPane', () => ({
-  TerminalPane: ({ terminalId }: { terminalId: string }) => (
+vi.mock('./NativeTerminalPane', () => ({
+  NativeTerminalPane: ({ terminalId }: { terminalId: string }) => (
     <div data-testid={`pane-${terminalId}`}>{terminalId}</div>
   ),
 }))

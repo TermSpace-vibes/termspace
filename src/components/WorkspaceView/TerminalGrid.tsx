@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { Terminal as TerminalType, BrowserPane as BrowserPaneType, LayoutNode } from '../../types'
 
 const EMPTY_BROWSER_PANES: BrowserPaneType[] = []
-import { TerminalPane } from './TerminalPane'
+import { NativeTerminalPane } from './NativeTerminalPane'
 import { BrowserPane } from './BrowserPane'
 import { EditorPaneComponent } from '../EditorPane'
 import { Group, Panel, Separator } from 'react-resizable-panels'
@@ -89,12 +89,11 @@ export function TerminalGrid({ workspaceId, terminals, activeTerminalId, onFocus
           minHeight: 0,
         }}
       >
-        <TerminalPane
+        <NativeTerminalPane
           terminalId={t.id}
           workspaceId={workspaceId}
           isActive={t.id === activeTerminalId}
           isDragOver={dragOverTerminalId === t.id}
-          scrollback={t.scrollback}
           isMaximized={maximizedTerminalId === t.id}
           onFocus={() => onFocus(t.id)}
           onSplit={(direction) => onSplit(t.id, direction)}

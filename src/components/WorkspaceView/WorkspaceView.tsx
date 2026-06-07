@@ -5,7 +5,6 @@ import { Workspace, Terminal, BrowserPane as BrowserPaneType, EditorPane as Edit
 import { TerminalGrid } from './TerminalGrid'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { open } from '@tauri-apps/plugin-dialog'
-import { writeTextFileContent } from '../../utils/fs'
 
 interface Props {
   workspace: Workspace
@@ -101,18 +100,8 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
        window.dispatchEvent(new CustomEvent('save-all-editors'))
        useAppStore.getState().addToast('Saved active editor files', 'success')
     } else if (action === 'save-ai') {
-       try {
-         const terminal = terminals.find(t => t.id === terminalId)
-         const cwd = terminal?.cwd || workspace.id
-         const scrollback = await invoke<string[]>('load_scrollback', { terminalId })
-         const content = scrollback.join('\n')
-         const filename = `AI_Chat_${Date.now()}.txt`
-         await writeTextFileContent(`${cwd}/${filename}`, content)
-         useAppStore.getState().addToast(`Saved AI chat to ${filename}`, 'success')
-       } catch (err) {
-         console.error(err)
-         useAppStore.getState().addToast('Failed to save AI chat', 'error')
-       }
+       // Scrollback saving is no longer supported with the native terminal renderer.
+       useAppStore.getState().addToast('AI chat saving is not available in native renderer mode', 'info')
     }
 
     try {

@@ -156,10 +156,8 @@ export default function App() {
       // Spawn terminals serially
       const spawned: Terminal[] = []
       for (const t of saved) {
-        const scrollback = await withTimeout(invoke<string[]>('load_scrollback', { terminalId: t.id }), 5000, 'load_scrollback');
         await withTimeout(invoke<void>('respawn_terminal', { id: t.id, shell: t.shell, cwd: t.cwd || '' }), 5000, 'respawn_terminal');
-
-        spawned.push({ ...t, scrollback })
+        spawned.push(t)
       }
       setTerminals(workspaceId, spawned)
       if (spawned.length > 0) {

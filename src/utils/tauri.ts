@@ -35,12 +35,15 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
       } as unknown as T;
     case 'get_terminals':
       return [] as unknown as T;
-    case 'load_scrollback':
-      return [] as unknown as T;
-    case 'pty_write':
-    case 'pty_resize':
+    case 'write_terminal':
+    case 'resize_terminal':
+    case 'scroll_terminal':
     case 'kill_terminal':
+    case 'start_terminal':
+    case 'save_scrollback':
       return undefined as unknown as T;
+    case 'search_terminal':
+      return [] as unknown as T;
     case 'create_browser_pane':
     case 'respawn_browser_pane':
       return { id: `mock-bp-${Date.now()}`, workspaceId: args?.workspaceId || '', url: args?.url || 'termspace://newtab' } as unknown as T;
