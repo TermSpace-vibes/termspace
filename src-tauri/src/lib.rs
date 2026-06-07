@@ -6,6 +6,7 @@ mod ghostty_manager;
 mod pty_manager;
 
 use browser_pane_manager::BrowserPaneManager;
+use ghostty_manager::GhosttyManager;
 use commands::DbState;
 use pty_manager::PtyManager;
 use std::sync::Mutex;
@@ -26,6 +27,7 @@ pub fn run() {
             app.manage(commands::SysInfoState(Mutex::new((sysinfo::System::new(), sysinfo::Networks::new_with_refreshed_list()))));
             app.manage(PtyManager::new());
             app.manage(BrowserPaneManager::new());
+            app.manage(GhosttyManager::new());
 
             #[cfg(target_os = "macos")]
             {
@@ -88,6 +90,11 @@ pub fn run() {
             commands::get_username,
             commands::set_username,
             commands::clear_database,
+            commands::spawn_ghostty,
+            commands::resize_ghostty,
+            commands::kill_ghostty,
+            commands::show_ghostty,
+            commands::hide_ghostty,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
