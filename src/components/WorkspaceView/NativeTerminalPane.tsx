@@ -212,7 +212,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     cellHRef.current = fontSize * 1.4
     // Forward new font metrics to worker
     sendFont(cellWRef.current, cellHRef.current, fontSize, fontFamily)
-    if (!workerActiveRef.current) {
+    if (typeof OffscreenCanvas === 'undefined') {
       // Replace renderer so it uses the new font metrics on the next frame.
       // Re-use WebGL if the existing renderer is already a WebGLRenderer;
       // otherwise fall back to Canvas 2D (mirrors the mount logic below).
@@ -234,6 +234,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
         rendererRef.current = new CanvasRenderer(fontSize, fontFamily)
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fontSize, fontFamily])
 
   // ── Render scheduling ──────────────────────────────────────────────────────
@@ -306,7 +307,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   useEffect(() => {
     // Auto-select WebGL2 when available; fall back to Canvas 2D otherwise.
     // Only create a renderer on the main thread when the worker is NOT active.
-    if (!workerActiveRef.current) {
+    if (typeof OffscreenCanvas === 'undefined') {
       if (canvasRef.current?.getContext('webgl2')) {
         try {
           rendererRef.current = new WebGLRenderer(
@@ -632,6 +633,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>,
             onClick: () => {
               selectionRef.current = null
+              sendSelection(null)
               scheduleRender()
               getSelectedText(
                 snapSel,
