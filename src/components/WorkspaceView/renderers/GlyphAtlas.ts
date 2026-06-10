@@ -14,8 +14,8 @@ const ATLAS_SIZE = 1024
  * (`upload()`) only when new glyphs have been added (`dirty === true`).
  */
 export class GlyphAtlas {
-  private canvas: HTMLCanvasElement
-  private ctx: CanvasRenderingContext2D
+  private canvas: HTMLCanvasElement | OffscreenCanvas
+  private ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
   private map = new Map<string, GlyphEntry>()
   private cursorX = 0
   private cursorY = 0
@@ -30,10 +30,16 @@ export class GlyphAtlas {
     private fontSize: number,
     private fontFamily: string,
   ) {
-    this.canvas = document.createElement('canvas')
-    this.canvas.width = ATLAS_SIZE
-    this.canvas.height = ATLAS_SIZE
-    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true })!
+    if (typeof OffscreenCanvas !== 'undefined' && typeof document === 'undefined') {
+      this.canvas = new OffscreenCanvas(ATLAS_SIZE, ATLAS_SIZE)
+    } else {
+      const c = document.createElement('canvas')
+      c.width = ATLAS_SIZE
+      c.height = ATLAS_SIZE
+      this.canvas = c
+    }
+    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true }) as
+      CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
     this.ctx.clearRect(0, 0, ATLAS_SIZE, ATLAS_SIZE)
   }
 
