@@ -3,7 +3,7 @@ use crate::db::{self, Terminal, Workspace};
 use crate::native_terminal_manager::NativeTerminalManager;
 use rusqlite::Connection;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use tauri::{AppHandle, Manager, State};
 
 pub struct DbState(pub Mutex<Connection>);
@@ -45,7 +45,7 @@ fn get_mac_gpu_utilization() -> f32 {
             }
         }
         let output_res2 = {
-            let _lock = SPAWN_LOCK.lock().unwrap();
+            let _lock = SPAWN_LOCK.lock();
             std::process::Command::new("ioreg")
                 .args(&["-c", "IGAccel", "-r", "-l"])
                 .output()
@@ -69,7 +69,7 @@ fn get_mac_gpu_utilization() -> f32 {
 
 #[tauri::command]
 pub fn get_system_stats(state: State<SysInfoState>) -> Result<SystemStats, String> {
-    let mut state_lock = state.0.lock().unwrap();
+    let mut state_lock = state.0.lock();
     let state_data = &mut *state_lock;
     let sys = &mut state_data.0;
     let networks = &mut state_data.1;
@@ -119,7 +119,7 @@ pub fn get_system_stats(state: State<SysInfoState>) -> Result<SystemStats, Strin
 #[tauri::command]
 pub fn get_workspaces(db: State<DbState>) -> Result<Vec<Workspace>, String> {
     println!(">>> RUST: get_workspaces called");
-    db::get_workspaces(&db.0.lock().unwrap()).map_err(|e| e.to_string())
+    db::get_workspaces(&db.0.lock()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -130,7 +130,7 @@ pub fn create_workspace(
     color: String,
 ) -> Result<Workspace, String> {
     println!(">>> RUST: create_workspace called for {}", name);
-    db::create_workspace(&db.0.lock().unwrap(), &name, &emoji, &color).map_err(|e| e.to_string())
+    db::create_workspace(&db.0.lock(), &name, &emoji, &color).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -141,7 +141,7 @@ pub fn update_workspace(
     emoji: String,
     color: String,
 ) -> Result<(), String> {
-    db::update_workspace(&db.0.lock().unwrap(), &id, &name, &emoji, &color)
+    db::update_workspace(&db.0.lock(), &id, &name, &emoji, &color)
         .map_err(|e| e.to_string())
 }
 
@@ -153,7 +153,7 @@ pub fn delete_workspace(
     id: String,
 ) -> Result<(), String> {
     {
-        let conn = db.0.lock().unwrap();
+        let conn = db.0.lock();
         // Kill terminal processes
         if let Ok(terminals) = db::get_terminals(&conn, &id) {
             for t in terminals {
@@ -174,13 +174,13 @@ pub fn delete_workspace(
 #[tauri::command]
 pub fn get_terminals(db: State<DbState>, workspace_id: String) -> Result<Vec<Terminal>, String> {
     println!(">>> RUST: get_terminals called for ws {}", workspace_id);
-    db::get_terminals(&db.0.lock().unwrap(), &workspace_id).map_err(|e| e.to_string())
+    db::get_terminals(&db.0.lock(), &workspace_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_terminal_active_cwd(
-    ntm: State<NativeTerminalManager>,
-    state: State<SysInfoState>,
+pub async fn get_terminal_active_cwd(
+    ntm: State<'_, NativeTerminalManager>,
+    state: State<'_, SysInfoState>,
     id: String,
 ) -> Result<String, String> {
     let shell_pid = match ntm.get_pid(&id) {
@@ -190,7 +190,7 @@ pub fn get_terminal_active_cwd(
 
     // First try sysinfo
     {
-        let mut state_lock = state.0.lock().unwrap();
+        let mut state_lock = state.0.lock();
         let sys = &mut state_lock.0;
         sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(shell_pid)]), true);
         if let Some(process) = sys.process(sysinfo::Pid::from_u32(shell_pid)) {
@@ -202,15 +202,20 @@ pub fn get_terminal_active_cwd(
         }
     }
 
-    // Fallback to lsof if sysinfo failed or returned empty
-    let output = std::process::Command::new("lsof")
-        .args(&["-p", &shell_pid.to_string(), "-a", "-d", "cwd", "-F", "n"])
-        .output();
+    // Fallback to lsof — run on a blocking thread to avoid stalling the async executor
+    let pid_str = shell_pid.to_string();
+    let lsof_result = tauri::async_runtime::spawn_blocking(move || {
+        std::process::Command::new("lsof")
+            .args(["-p", &pid_str, "-a", "-d", "cwd", "-F", "n"])
+            .output()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
 
-    if let Ok(out) = output {
+    if let Ok(out) = lsof_result {
         let s = String::from_utf8_lossy(&out.stdout);
         for line in s.lines() {
-            if line.starts_with("n") {
+            if line.starts_with('n') && line.len() > 1 {
                 return Ok(line[1..].to_string());
             }
         }
@@ -257,7 +262,7 @@ pub fn spawn_terminal(
     // no separate `start_terminal` step; output streams immediately.
     let temp_id = uuid::Uuid::new_v4().to_string();
     {
-        let _lock = SPAWN_LOCK.lock().unwrap();
+        let _lock = SPAWN_LOCK.lock();
         ntm.spawn(
             temp_id.clone(),
             app.clone(),
@@ -269,7 +274,7 @@ pub fn spawn_terminal(
     }
 
     let terminal = {
-        let conn = db.0.lock().unwrap();
+        let conn = db.0.lock();
         db::create_terminal_with_id(
             &conn,
             &temp_id,
@@ -312,7 +317,7 @@ pub fn respawn_terminal(
     };
 
     {
-        let _lock = SPAWN_LOCK.lock().unwrap();
+        let _lock = SPAWN_LOCK.lock();
         ntm.spawn(
             id.clone(),
             app.clone(),
@@ -336,12 +341,12 @@ pub fn start_terminal(_terminal_id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn rename_terminal(db: State<DbState>, id: String, title: String) -> Result<(), String> {
-    db::rename_terminal(&db.0.lock().unwrap(), &id, &title).map_err(|e| e.to_string())
+    db::rename_terminal(&db.0.lock(), &id, &title).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn update_terminal_cwd(db: State<DbState>, id: String, cwd: String) -> Result<(), String> {
-    db::update_terminal_cwd(&db.0.lock().unwrap(), &id, &cwd).map_err(|e| e.to_string())
+    db::update_terminal_cwd(&db.0.lock(), &id, &cwd).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -355,7 +360,7 @@ pub fn is_terminal_busy(
         None => return Ok(false),
     };
 
-    let mut state_lock = state.0.lock().unwrap();
+    let mut state_lock = state.0.lock();
     let sys = &mut state_lock.0;
     
     // Specifically refresh processes without grabbing all detailed attributes if possible
@@ -382,7 +387,7 @@ pub fn close_terminal(
     id: String,
 ) -> Result<(), String> {
     {
-        let conn = db.0.lock().unwrap();
+        let conn = db.0.lock();
         // Scrollback now lives in the native terminal's in-memory grid; no
         // persistence step is needed here.
         db::delete_terminal(&conn, &id).map_err(|e| e.to_string())?;
@@ -422,7 +427,7 @@ pub fn create_browser_pane(
             println!(">>> RUST: create_browser_pane failed: {}", e);
             e.to_string()
         })?;
-    db::create_browser_pane(&db.0.lock().unwrap(), &id, &workspace_id, &url).map_err(|e| {
+    db::create_browser_pane(&db.0.lock(), &id, &workspace_id, &url).map_err(|e| {
         browser.destroy(&id); // rollback native webview if DB insert fails
         e.to_string()
     })
@@ -493,12 +498,12 @@ pub fn navigate_browser_pane(
     url: String,
 ) -> Result<(), String> {
     browser.navigate(&id, &url)?;
-    db::update_browser_pane_url(&db.0.lock().unwrap(), &id, &url).map_err(|e| e.to_string())
+    db::update_browser_pane_url(&db.0.lock(), &id, &url).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn save_browser_pane_url(db: State<DbState>, id: String, url: String) -> Result<(), String> {
-    db::update_browser_pane_url(&db.0.lock().unwrap(), &id, &url).map_err(|e| e.to_string())
+    db::update_browser_pane_url(&db.0.lock(), &id, &url).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -532,7 +537,7 @@ pub fn destroy_browser_pane(
     browser: State<BrowserPaneManager>,
     id: String,
 ) -> Result<(), String> {
-    let conn = db.0.lock().unwrap();
+    let conn = db.0.lock();
     db::delete_browser_pane(&conn, &id).map_err(|e| e.to_string())?;
     browser.destroy(&id);
     Ok(())
@@ -573,7 +578,7 @@ pub fn get_browser_panes(
     db: State<DbState>,
     workspace_id: String,
 ) -> Result<Vec<db::BrowserPane>, String> {
-    db::get_browser_panes(&db.0.lock().unwrap(), &workspace_id).map_err(|e| e.to_string())
+    db::get_browser_panes(&db.0.lock(), &workspace_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -626,7 +631,7 @@ pub fn get_git_branch(cwd: String) -> Result<String, String> {
         return Err("Empty cwd".to_string());
     }
     let output = {
-        let _lock = SPAWN_LOCK.lock().unwrap();
+        let _lock = SPAWN_LOCK.lock();
         std::process::Command::new("git")
             .arg("rev-parse")
             .arg("--abbrev-ref")
@@ -647,7 +652,7 @@ pub fn get_git_branch(cwd: String) -> Result<String, String> {
 #[tauri::command]
 pub fn get_git_status(path: String) -> Result<HashMap<String, String>, String> {
     let output = {
-        let _lock = SPAWN_LOCK.lock().unwrap();
+        let _lock = SPAWN_LOCK.lock();
         std::process::Command::new("git")
             .args(["status", "--porcelain"])
             .current_dir(path)
@@ -708,7 +713,7 @@ pub fn search_files_by_name(path: String, query: String) -> Result<Vec<String>, 
     
     // Try git ls-files first
     let output_res = {
-        let _lock = SPAWN_LOCK.lock().unwrap();
+        let _lock = SPAWN_LOCK.lock();
         std::process::Command::new("git")
             .args(["ls-files"])
             .current_dir(&path)
@@ -764,17 +769,17 @@ pub fn search_files_by_name(path: String, query: String) -> Result<Vec<String>, 
 
 #[tauri::command]
 pub fn clear_database(db: State<DbState>) -> Result<(), String> {
-    db::clear_all_data(&db.0.lock().unwrap()).map_err(|e| e.to_string())
+    db::clear_all_data(&db.0.lock()).map_err(|e| e.to_string())
 }
 #[tauri::command]
 pub fn get_username(db: State<DbState>) -> Result<Option<String>, String> {
-    let conn = db.0.lock().unwrap();
+    let conn = db.0.lock();
     db::get_setting(&conn, "username").map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn set_username(db: State<DbState>, username: String) -> Result<(), String> {
-    let conn = db.0.lock().unwrap();
+    let conn = db.0.lock();
     db::set_setting(&conn, "username", &username).map_err(|e| e.to_string())
 }
 
@@ -876,7 +881,7 @@ pub fn get_detected_projects(cwd: String) -> Result<Vec<DetectedProject>, String
 #[tauri::command]
 pub fn get_git_file_content(path: String, file_path: String) -> Result<String, String> {
     let output = {
-        let _lock = SPAWN_LOCK.lock().unwrap();
+        let _lock = SPAWN_LOCK.lock();
         std::process::Command::new("git")
             .args(["show", &format!("HEAD:./{}", file_path)])
             .current_dir(path)
@@ -892,7 +897,7 @@ pub fn get_git_file_content(path: String, file_path: String) -> Result<String, S
 
 #[tauri::command]
 pub fn git_commit(path: String, message: String) -> Result<(), String> {
-    let _lock = SPAWN_LOCK.lock().unwrap();
+    let _lock = SPAWN_LOCK.lock();
     // First stage all changes
     let add_output = std::process::Command::new("git")
         .args(["add", "."])
@@ -923,56 +928,63 @@ pub fn play_notification_sound(player: State<'_, crate::audio::AudioPlayer>) -> 
     // We can include a small beep.mp3 or wav here later.
     // For now we just log it or pass a tiny hardcoded beep.
     println!(">>> RUST: play_notification_sound called");
-    player.play_sound_bytes(&[]);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn get_k8s_resources(resource: String, namespace: String) -> Result<String, String> {
-    let mut args = vec!["get", &resource, "-o", "json"];
-    if !namespace.is_empty() && namespace != "all" {
-        args.push("-n");
-        args.push(&namespace);
-    } else if namespace == "all" {
-        args.push("-A");
-    }
-
-    let output = std::process::Command::new("kubectl")
-        .args(&args)
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut args = vec!["get".to_string(), resource, "-o".to_string(), "json".to_string()];
+        if !namespace.is_empty() && namespace != "all" {
+            args.push("-n".to_string());
+            args.push(namespace);
+        } else if namespace == "all" {
+            args.push("-A".to_string());
+        }
+        let output = std::process::Command::new("kubectl")
+            .args(&args)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn get_k8s_contexts() -> Result<String, String> {
-    let output = std::process::Command::new("kubectl")
-        .args(&["config", "view", "-o", "json"])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
+    tauri::async_runtime::spawn_blocking(|| {
+        let output = std::process::Command::new("kubectl")
+            .args(["config", "view", "-o", "json"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn set_k8s_context(context_name: String) -> Result<(), String> {
-    let output = std::process::Command::new("kubectl")
-        .args(&["config", "use-context", &context_name])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let output = std::process::Command::new("kubectl")
+            .args(["config", "use-context", &context_name])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

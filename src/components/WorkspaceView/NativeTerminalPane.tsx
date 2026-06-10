@@ -107,6 +107,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
 
   // Tauri event unlisten callbacks – collected for cleanup.
   const unlistenCleanups = useRef<Array<() => void>>([])
+  const cwdPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [showSearch, setShowSearch] = useState(false)
@@ -271,7 +272,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       const snap = e.payload
       const b64 = snap.cells_b64 ?? (snap as any).cellsB64 ?? ''
       const u8 = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
-      cellsRef.current = new Uint32Array(u8.buffer.slice(0, u8.byteLength))
+      cellsRef.current = new Uint32Array(u8.buffer)
       colsRef.current = snap.cols
       rowsRef.current = snap.rows
       cursorRef.current = {
@@ -285,8 +286,11 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       if (snap.cwd && snap.cwd !== cwdRef.current) {
         cwdRef.current = snap.cwd
         setCwd(snap.cwd)
-        // Persist updated cwd to the store / database via Rust.
-        invoke('update_terminal_cwd', { id: terminalId, cwd: snap.cwd }).catch(console.error)
+        // Debounce DB write — cwd can change rapidly during long-running commands.
+        if (cwdPersistTimer.current) clearTimeout(cwdPersistTimer.current)
+        cwdPersistTimer.current = setTimeout(() => {
+          invoke('update_terminal_cwd', { id: terminalId, cwd: cwdRef.current }).catch(console.error)
+        }, 500)
       }
       if (snap.title && snap.title !== titleRef.current) {
         titleRef.current = snap.title

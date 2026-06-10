@@ -196,7 +196,6 @@ impl NativeTerminalManager {
         let cwd_arc: Arc<Mutex<String>> = Arc::new(Mutex::new(resolved_cwd));
         let title_arc: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
 
-
         let listener = TermEventSender {
             terminal_id: terminal_id.clone(),
             app_handle: app.clone(),
@@ -235,17 +234,14 @@ impl NativeTerminalManager {
                                 &app_clone,
                                 &id,
                             );
-                            {
+                            let cwd_val = cwd_clone.lock().clone();
+                            let title_val = title_clone.lock().clone();
+                            let snapshot = {
                                 let mut t = term_clone.lock();
                                 // vte 0.13 `Processor::advance` consumes one byte.
                                 for &byte in chunk {
                                     parser.advance(&mut *t, byte);
                                 }
-                            }
-                            let cwd_val = cwd_clone.lock().clone();
-                            let title_val = title_clone.lock().clone();
-                            let snapshot = {
-                                let t = term_clone.lock();
                                 serialize_snapshot(
                                     &*t,
                                     Some(cwd_val),
@@ -254,9 +250,6 @@ impl NativeTerminalManager {
                             };
                             let _ = app_clone
                                 .emit(&format!("native-terminal-update-{id}"), snapshot);
-                            
-                            let raw_str = String::from_utf8_lossy(chunk).into_owned();
-                            let _ = app_clone.emit(&format!("pty-output-{id}"), raw_str);
                         }
                     }
                 }

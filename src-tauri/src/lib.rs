@@ -4,27 +4,48 @@ mod commands;
 mod db;
 mod native_terminal_manager;
 mod audio;
+mod agent_hook;
 
 use browser_pane_manager::BrowserPaneManager;
 use commands::DbState;
 use native_terminal_manager::NativeTerminalManager;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(not(debug_assertions))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
             }
-        }))
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
-            let data_dir = app.path().app_data_dir().expect("no app data dir");
+            #[cfg(target_os = "macos")]
+            {
+                let path = std::env::var("PATH").unwrap_or_default();
+                if !path.contains("/opt/homebrew/bin") {
+                    std::env::set_var("PATH", format!("{}:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin", path));
+                }
+            }
+            
+            let mut data_dir = app.path().app_data_dir().expect("no app data dir");
+            #[cfg(debug_assertions)]
+            {
+                data_dir.push("dev");
+            }
             std::fs::create_dir_all(&data_dir).unwrap();
             let conn = db::init_db(&data_dir.join("state.db")).expect("db init failed");
             app.manage(DbState(Mutex::new(conn)));
@@ -32,6 +53,9 @@ pub fn run() {
             app.manage(NativeTerminalManager::new());
             app.manage(BrowserPaneManager::new());
             app.manage(audio::AudioPlayer::new());
+
+            // Start local HTTP hook server
+            agent_hook::start_server(app.handle().clone());
 
             #[cfg(target_os = "macos")]
             {
@@ -61,6 +85,7 @@ pub fn run() {
             commands::update_workspace,
             commands::delete_workspace,
             commands::get_terminals,
+            commands::get_terminal_active_cwd,
             commands::spawn_terminal,
             commands::respawn_terminal,
             commands::start_terminal,
@@ -97,6 +122,9 @@ pub fn run() {
             commands::set_username,
             commands::clear_database,
             commands::play_notification_sound,
+            commands::get_k8s_resources,
+            commands::get_k8s_contexts,
+            commands::set_k8s_context,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
