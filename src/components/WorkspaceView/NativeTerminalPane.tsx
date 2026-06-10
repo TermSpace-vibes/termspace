@@ -4,7 +4,13 @@ import { DRAG_FORMAT_TERMINAL } from '../../utils/constants'
 import { useAppStore } from '../../store/useAppStore'
 import { CanvasRenderer } from './renderers/CanvasRenderer'
 import { WebGLRenderer } from './renderers/WebGLRenderer'
-import { TerminalSnapshot, CursorState, SearchMatch, SelectionRange } from './renderers/types'
+import { TerminalSnapshot, CursorState, SearchMatch } from './renderers/types'
+import {
+  type AbsSelection,
+  viewportRowToAbs,
+  absSelToViewport,
+  normalizeAbsSel,
+} from './selectionUtils'
 import { useKeybindingHandler } from '../../hooks/useGlobalKeybindings'
 import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager'
 
@@ -83,7 +89,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   const lastWheelTimeRef = useRef(0)
   
   // ── Selection state ────────────────────────────────────────────────────────
-  const selectionRef = useRef<SelectionRange | null>(null)
+  const selectionRef = useRef<AbsSelection | null>(null)
   const isDraggingRef = useRef(false)
 
   // ── Renderer + snapshot state (refs to avoid re-render on every frame) ────
@@ -238,7 +244,9 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
         cellWRef.current,
         cellHRef.current,
         highlightsRef.current,
-        selectionRef.current,
+        selectionRef.current
+          ? absSelToViewport(selectionRef.current, displayOffsetRef.current, rowsRef.current, colsRef.current)
+          : null,
       )
 
       if (isAnimatingCursorRef.current) {
@@ -444,7 +452,8 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return
     const { row, col } = getCellCoords(e)
-    selectionRef.current = { startRow: row, startCol: col, endRow: row, endCol: col }
+    const absRow = viewportRowToAbs(row, displayOffsetRef.current, rowsRef.current)
+    selectionRef.current = { startAbsRow: absRow, startCol: col, endAbsRow: absRow, endCol: col }
     isDraggingRef.current = true
     scheduleRender()
   }, [getCellCoords, scheduleRender])
@@ -453,7 +462,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     const handleWinMouseMove = (e: MouseEvent) => {
       if (!isDraggingRef.current || !selectionRef.current) return
       const { row, col } = getCellCoords(e)
-      selectionRef.current.endRow = row
+      selectionRef.current.endAbsRow = viewportRowToAbs(row, displayOffsetRef.current, rowsRef.current)
       selectionRef.current.endCol = col
       scheduleRender()
     }
@@ -463,10 +472,10 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       isDraggingRef.current = false
       const { row, col } = getCellCoords(e)
       if (selectionRef.current) {
-        selectionRef.current.endRow = row
+        selectionRef.current.endAbsRow = viewportRowToAbs(row, displayOffsetRef.current, rowsRef.current)
         selectionRef.current.endCol = col
-        if (selectionRef.current.startRow === selectionRef.current.endRow && 
-            selectionRef.current.startCol === selectionRef.current.endCol) {
+        const { absTop, cTop, absBottom, cBottom } = normalizeAbsSel(selectionRef.current)
+        if (absTop === absBottom && cTop === cBottom) {
           selectionRef.current = null
         }
       }
@@ -506,7 +515,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
         
         const menuItems: any[] = []
         
-        const selectedText = getSelectedText(cellsRef.current, colsRef.current, rowsRef.current, selectionRef.current)
+        const selectedText = getSelectedText(selectionRef.current, cellsRef.current, colsRef.current, rowsRef.current, displayOffsetRef.current)
         if (selectedText) {
           menuItems.push({
             label: 'Copy',
@@ -860,7 +869,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
           onWheel={handleWheel}
           onMouseDown={handleMouseDown}
           onCopy={(e) => {
-            const text = getSelectedText(cellsRef.current, colsRef.current, rowsRef.current, selectionRef.current)
+            const text = getSelectedText(selectionRef.current, cellsRef.current, colsRef.current, rowsRef.current, displayOffsetRef.current)
             if (text) {
               e.clipboardData.setData('text/plain', text)
               e.preventDefault()
@@ -989,40 +998,30 @@ function keyEventToData(e: React.KeyboardEvent): string | null {
 }
 
 /**
- * Extracts the text content from a rectangular selection.
+ * Extracts the text content from a selection using absolute coordinates.
+ * Fast path only — operates on the current viewport cells buffer.
  */
-function getSelectedText(cells: Uint32Array, cols: number, rows: number, selection: SelectionRange | null): string {
-  if (!selection) return ''
-  let r1 = selection.startRow, c1 = selection.startCol
-  let r2 = selection.endRow, c2 = selection.endCol
-  if (r1 > r2 || (r1 === r2 && c1 > c2)) {
-    r1 = selection.endRow; c1 = selection.endCol
-    r2 = selection.startRow; c2 = selection.startCol
-  }
-  r1 = Math.max(0, Math.min(rows - 1, r1))
-  r2 = Math.max(0, Math.min(rows - 1, r2))
-
+function getSelectedText(
+  sel: AbsSelection | null,
+  cells: Uint32Array,
+  cols: number,
+  rows: number,
+  displayOffset: number,
+): string {
+  if (!sel) return ''
+  const vpSel = absSelToViewport(sel, displayOffset, rows, cols)
+  if (!vpSel) return ''
+  const { startRow: r1, startCol: c1, endRow: r2, endCol: c2 } = vpSel
   const lines: string[] = []
   for (let r = r1; r <= r2; r++) {
-    let sc = (r === r1) ? c1 : 0
-    let ec = (r === r2) ? c2 : cols
-    sc = Math.max(0, Math.min(cols, sc))
-    ec = Math.max(0, Math.min(cols, ec))
-
+    const sc = r === r1 ? c1 : 0
+    const ec = r === r2 ? c2 : cols
     let line = ''
     for (let c = sc; c < ec; c++) {
-      const ci = r * cols + c;
-      const ch_u32 = cells[ci * 4];
-      if (ch_u32 && ch_u32 !== 0 && ch_u32 !== 32) {
-        line += String.fromCodePoint(ch_u32);
-      } else {
-        line += ' ';
-      }
+      const ch = cells[(r * cols + c) * 4]
+      line += ch && ch !== 32 ? String.fromCodePoint(ch) : ' '
     }
-    // Trim trailing spaces for intermediate lines or if selection goes to the end
-    if (r < r2 || ec === cols) {
-      line = line.replace(/\s+$/, '')
-    }
+    if (r < r2 || ec === cols) line = line.replace(/\s+$/, '')
     lines.push(line)
   }
   return lines.join('\n')
