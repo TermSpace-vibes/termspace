@@ -48,6 +48,9 @@ export function SettingsModal({ onClose }: Props) {
   })
 
   const [appVersion, setAppVersion] = useState<string>('Loading...')
+  const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'downloading' | 'ready' | 'none'>('idle')
+  const [updateProgress, setUpdateProgress] = useState(0)
+  const [updateVersion, setUpdateVersion] = useState('')
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(console.error)
@@ -370,34 +373,86 @@ export function SettingsModal({ onClose }: Props) {
                 <div style={{ borderTop: '1px solid var(--border-inactive)', margin: '8px 0' }} />
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <p style={{ fontSize: 14, color: 'var(--text-dim)', margin: 0 }}>Current version: {appVersion}</p>
+                  <p style={{ fontSize: 14, color: 'var(--text-dim)', margin: 0 }}>
+                    Current version: <span style={{ color: 'var(--text-active)', fontWeight: 600 }}>{appVersion}</span>
+                  </p>
+
+                  {updateState === 'downloading' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <p style={{ fontSize: 12, color: 'var(--text-dim)', margin: 0 }}>
+                        Downloading v{updateVersion}… {updateProgress}%
+                      </p>
+                      <div style={{ height: 4, background: 'var(--border-inactive)', borderRadius: 2, overflow: 'hidden' }}>
+                        <div style={{
+                          height: '100%', width: `${updateProgress}%`,
+                          background: 'var(--accent, #7c6af7)', borderRadius: 2,
+                          transition: 'width 0.2s ease'
+                        }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {updateState === 'ready' && (
+                    <p style={{ fontSize: 13, color: '#4ade80', margin: 0 }}>
+                      ✓ v{updateVersion} installed — restart to apply
+                    </p>
+                  )}
+
+                  {updateState === 'none' && (
+                    <p style={{ fontSize: 13, color: 'var(--text-dim)', margin: 0 }}>
+                      ✓ You're on the latest version
+                    </p>
+                  )}
+
                   <button
+                    disabled={updateState === 'checking' || updateState === 'downloading' || updateState === 'ready'}
                     onClick={async () => {
-                      useAppStore.getState().addToast('Checking for updates...', 'info')
+                      setUpdateState('checking')
                       try {
                         const update = await check()
                         if (update) {
-                          useAppStore.getState().addToast(`Update ${update.version} available! Downloading...`, 'info')
-                          await update.downloadAndInstall()
-                          useAppStore.getState().addToast('Update installed! Please restart the app.', 'success')
+                          setUpdateVersion(update.version)
+                          setUpdateState('downloading')
+                          setUpdateProgress(0)
+                          let downloaded = 0
+                          let total = 0
+                          await update.downloadAndInstall((event) => {
+                            if (event.event === 'Started') {
+                              total = event.data.contentLength ?? 0
+                            } else if (event.event === 'Progress') {
+                              downloaded += event.data.chunkLength
+                              setUpdateProgress(total > 0 ? Math.round((downloaded / total) * 100) : 0)
+                            } else if (event.event === 'Finished') {
+                              setUpdateProgress(100)
+                            }
+                          })
+                          setUpdateState('ready')
                         } else {
-                          useAppStore.getState().addToast('You are on the latest version.', 'info')
+                          setUpdateState('none')
                         }
                       } catch (err) {
                         console.error(err)
+                        setUpdateState('idle')
                         useAppStore.getState().addToast('Failed to check for updates.', 'error')
                       }
                     }}
                     style={{
                       padding: '8px 16px', background: 'var(--bg-sidebar)',
                       border: '1px solid var(--border-inactive)', borderRadius: 6,
-                      color: 'var(--text-active)', cursor: 'pointer', fontSize: 14, fontWeight: 500,
-                      transition: 'background 0.2s', width: 'fit-content'
+                      color: updateState === 'idle' || updateState === 'none' ? 'var(--text-active)' : 'var(--text-dim)',
+                      cursor: updateState === 'checking' || updateState === 'downloading' || updateState === 'ready' ? 'default' : 'pointer',
+                      fontSize: 14, fontWeight: 500,
+                      transition: 'background 0.2s', width: 'fit-content', opacity: updateState === 'ready' ? 0.5 : 1
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-item)'}
+                    onMouseEnter={(e) => {
+                      if (updateState === 'idle' || updateState === 'none') e.currentTarget.style.background = 'var(--bg-item)'
+                    }}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-sidebar)'}
                   >
-                    Check for Updates
+                    {updateState === 'checking' ? 'Checking…' :
+                     updateState === 'downloading' ? 'Downloading…' :
+                     updateState === 'ready' ? 'Restart to Update' :
+                     'Check for Updates'}
                   </button>
                 </div>
               </div>
