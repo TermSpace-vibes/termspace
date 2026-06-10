@@ -34,7 +34,7 @@ export interface SelectionRange {
 
 export interface TerminalRenderer {
   render(
-    canvas: HTMLCanvasElement,
+    canvas: HTMLCanvasElement | OffscreenCanvas,
     cells: Uint32Array,
     cols: number,
     rows: number,

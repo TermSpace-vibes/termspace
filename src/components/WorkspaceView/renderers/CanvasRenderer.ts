@@ -36,7 +36,7 @@ export class CanvasRenderer implements TerminalRenderer {
   }
 
   render(
-    canvas: HTMLCanvasElement,
+    canvas: HTMLCanvasElement | OffscreenCanvas,
     cells: Uint32Array,
     cols: number,
     rows: number,
@@ -48,7 +48,7 @@ export class CanvasRenderer implements TerminalRenderer {
   ): void {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    const dpr = window.devicePixelRatio || 1
+    const dpr = globalThis.devicePixelRatio ?? 1
 
     // Resize canvas to match the physical terminal dimensions.
     const w = Math.round(cols * cellW * dpr)
@@ -56,8 +56,10 @@ export class CanvasRenderer implements TerminalRenderer {
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w
       canvas.height = h
-      canvas.style.width = `${w / dpr}px`
-      canvas.style.height = `${h / dpr}px`
+      if ('style' in canvas) {
+        canvas.style.width = `${w / dpr}px`
+        canvas.style.height = `${h / dpr}px`
+      }
     }
     
     // Scale context so we can draw in logical coordinates
