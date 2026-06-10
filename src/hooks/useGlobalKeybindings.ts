@@ -30,14 +30,30 @@ export function useKeybindingHandler() {
     if (matchShortcut(e, keybindings.newTerminal)) {
       e.preventDefault()
       if (terminals.length < 4) {
-        invoke<TerminalType>('spawn_terminal', {
-          workspaceId: activeWorkspaceId,
-          shell: 'zsh',
-          cwd: '',
-        }).then((terminal) => {
-          addTerminal(activeWorkspaceId, terminal)
-          setActiveTerminalId(terminal.id)
-        }).catch(err => console.error('spawn_terminal failed:', err))
+        let cwd = ''
+        const activeTerminal = activeTerminalId ? terminals.find(t => t.id === activeTerminalId) : null
+        if (activeTerminal) cwd = activeTerminal.cwd || ''
+
+        const spawn = (finalCwd: string) => {
+          invoke<TerminalType>('spawn_terminal', {
+            workspaceId: activeWorkspaceId,
+            shell: 'zsh',
+            cwd: finalCwd,
+          }).then((terminal) => {
+            addTerminal(activeWorkspaceId, terminal)
+            setActiveTerminalId(terminal.id)
+          }).catch(err => console.error('spawn_terminal failed:', err))
+        }
+
+        if (activeTerminalId) {
+          invoke<string>('get_terminal_active_cwd', { id: activeTerminalId })
+            .then(activeCwd => {
+              spawn(activeCwd || cwd)
+            })
+            .catch(() => spawn(cwd))
+        } else {
+          spawn(cwd)
+        }
       }
       return true
     }

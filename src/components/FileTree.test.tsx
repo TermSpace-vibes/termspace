@@ -20,7 +20,8 @@ vi.mock('../store/useAppStore', () => ({
     {
       getState: vi.fn(() => ({
         gitStatusByWorkspace: {},
-        activeFileByWorkspace: {}
+        activeFileByWorkspace: {},
+        settings: { iconTheme: 'colorful' }
       })),
       setState: vi.fn(),
       subscribe: vi.fn()

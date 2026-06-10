@@ -27,7 +27,7 @@ export function AddWorkspaceButton({ isCollapsed, onClick }: Props) {
       <div style={{ width: 12, height: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-item-active)', borderRadius: 3, flexShrink: 0 }}>
         <span style={{ fontSize: 10, lineHeight: 1, marginTop: -1 }}>+</span>
       </div>
-      {!isCollapsed && <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>New env</span>}
+      {!isCollapsed && <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>New Workspace</span>}
     </button>
   )
 }

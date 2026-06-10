@@ -9,6 +9,7 @@ import { MarkdownPreview } from './MarkdownPreview'
 import { readTextFileContent, writeTextFileContent } from '../utils/fs'
 import { useAppStore } from '../store/useAppStore'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 
 interface EditorPaneComponentProps {
   workspaceId: string
@@ -100,7 +101,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
 
         if (editorRef.current) {
           const content = editorRef.current.getValue();
-          navigator.clipboard.writeText(content).then(() => {
+          writeText(content).then(() => {
             addToast('File content copied to clipboard', 'success');
           }).catch(err => {
             console.error('Failed to copy text:', err);
@@ -592,7 +593,10 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
             onResize={(size) => {
               const currentSize = editorPane.fileTreeWidth || 20
               if (Math.abs(currentSize - Number(size)) > 0.1) {
-                updateEditorPaneLayout(workspaceId, editorPaneId, { fileTreeWidth: Number(size) })
+                if ((window as any).editorResizeTimeout) clearTimeout((window as any).editorResizeTimeout)
+                ;(window as any).editorResizeTimeout = setTimeout(() => {
+                  updateEditorPaneLayout(workspaceId, editorPaneId, { fileTreeWidth: Number(size) })
+                }, 100)
               }
             }}
           >

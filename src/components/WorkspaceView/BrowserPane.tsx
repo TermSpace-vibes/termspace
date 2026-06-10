@@ -3,6 +3,7 @@ import { Shield, ShieldCheck } from 'lucide-react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
+import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 
 interface Props {
   browserPaneId: string
@@ -302,20 +303,21 @@ export function BrowserPane({
       }
     })
 
-    const unlistenContextMenu = listen<{ id: string; url: string; x: number; y: number }>('browser-pane-context-menu', (event) => {
+    const unlistenContextMenu = listen<{ id: string; url: string; mediaType?: string; x: number; y: number }>('browser-pane-context-menu', (event) => {
       const belongsToUs = tabsRef.current.some(t => t.id === event.payload.id)
       if (belongsToUs && containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect()
+        const isVideo = event.payload.mediaType === 'video'
         showContextMenu(rect.left + event.payload.x, rect.top + HEADER_HEIGHT + event.payload.y, [
           {
-            label: 'Open Link in New Tab',
+            label: isVideo ? 'Open Video in New Tab' : 'Open Link in New Tab',
             onClick: () => handleAddTab(event.payload.url)
           },
           {
-            label: 'Copy Link Address',
+            label: isVideo ? 'Copy Video Address' : 'Copy Link Address',
             onClick: () => {
-              navigator.clipboard.writeText(event.payload.url)
-              addToast('Link copied to clipboard', 'success')
+              writeText(event.payload.url)
+              addToast(isVideo ? 'Video address copied' : 'Link copied to clipboard', 'success')
             }
           }
         ])

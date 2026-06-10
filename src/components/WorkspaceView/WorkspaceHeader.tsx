@@ -7,13 +7,14 @@ interface Props {
   onAddTerminal: () => void
   onAddBrowserPane: () => void
   onAddEditorPane: () => void
+  onAddKubernetesPane: () => void
   onEditWorkspace: () => void
   onSelectTerminal: (id: string) => void
   onCloseTerminal: (id: string) => void
   showTabBar?: boolean
 }
 
-export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, onAddBrowserPane, onAddEditorPane, onSelectTerminal, onCloseTerminal, showTabBar = true }: Props) {
+export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, onAddBrowserPane, onAddEditorPane, onAddKubernetesPane, onSelectTerminal, onCloseTerminal, showTabBar = true }: Props) {
   return (
     <div
       data-tauri-drag-region
@@ -136,6 +137,25 @@ export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, on
           }}
         >
           <span>&lt;/&gt;</span> Editor
+        </button>
+        <button
+          onClick={onAddKubernetesPane}
+          style={{
+            padding: '3px 8px', background: 'transparent',
+            border: '1px solid var(--border-inactive)', borderRadius: 4,
+            color: 'var(--text-inactive)', fontSize: 10, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 4
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = '#8b5cf6'
+            e.currentTarget.style.borderColor = '#8b5cf6'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = 'var(--text-inactive)'
+            e.currentTarget.style.borderColor = 'var(--border-inactive)'
+          }}
+        >
+          <span>⎈</span> K8s
         </button>
       </div>
     </div>

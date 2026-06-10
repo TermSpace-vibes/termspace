@@ -79,7 +79,7 @@ describe('EditorPaneComponent', () => {
     // One is breadcrumb, one is tab. The tab should have specific styles.
     const activeTab = tabs.find(el => {
       const parent = el.closest('div')
-      return parent?.style.backgroundColor === 'var(--bg-primary)'
+      return parent?.style.backgroundColor === 'var(--bg-terminal)'
     })
     expect(activeTab).toBeInTheDocument()
   })

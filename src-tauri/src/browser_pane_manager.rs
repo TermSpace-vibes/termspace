@@ -205,19 +205,29 @@ impl BrowserPaneManager {
 
             window.addEventListener('contextmenu', (e) => {{
                 let target = e.target;
-                let href = null;
-                while (target && target.tagName !== 'A') {{
-                    target = target.parentElement;
+                let urlToOpen = null;
+                let mediaType = 'link';
+
+                if (e.target && e.target.tagName === 'VIDEO') {{
+                    urlToOpen = e.target.src || e.target.currentSrc;
+                    mediaType = 'video';
                 }}
-                if (target && target.href) {{
-                    href = target.href;
+                
+                if (!urlToOpen) {{
+                    while (target && target.tagName !== 'A') {{
+                        target = target.parentElement;
+                    }}
+                    if (target && target.href) {{
+                        urlToOpen = target.href;
+                        mediaType = 'link';
+                    }}
                 }}
-                if (href) {{
+
+                if (urlToOpen) {{
                     e.preventDefault();
                     e.stopPropagation();
-                    const url = `termspace-ctx://menu?url=${{encodeURIComponent(href)}}&x=${{e.clientX}}&y=${{e.clientY}}`;
+                    const url = `termspace-ctx://menu?url=${{encodeURIComponent(urlToOpen)}}&type=${{mediaType}}&x=${{e.clientX}}&y=${{e.clientY}}`;
                     
-                    // Create an iframe to navigate without replacing the top window state
                     const iframe = document.createElement('iframe');
                     iframe.style.display = 'none';
                     iframe.src = url;
@@ -239,10 +249,12 @@ impl BrowserPaneManager {
                 let url = nav_url.query_pairs().find(|(k, _)| k == "url").map(|(_, v)| v.into_owned()).unwrap_or_default();
                 let x = nav_url.query_pairs().find(|(k, _)| k == "x").map(|(_, v)| v.into_owned()).unwrap_or_default();
                 let y = nav_url.query_pairs().find(|(k, _)| k == "y").map(|(_, v)| v.into_owned()).unwrap_or_default();
+                let type_str = nav_url.query_pairs().find(|(k, _)| k == "type").map(|(_, v)| v.into_owned()).unwrap_or_else(|| "link".to_string());
                 
                 let _ = nav_app_handle.emit("browser-pane-context-menu", serde_json::json!({
                     "id": nav_id,
                     "url": url,
+                    "mediaType": type_str,
                     "x": x.parse::<f64>().unwrap_or(0.0),
                     "y": y.parse::<f64>().unwrap_or(0.0)
                 }));

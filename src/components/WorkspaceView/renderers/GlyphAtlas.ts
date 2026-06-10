@@ -33,9 +33,8 @@ export class GlyphAtlas {
     this.canvas = document.createElement('canvas')
     this.canvas.width = ATLAS_SIZE
     this.canvas.height = ATLAS_SIZE
-    this.ctx = this.canvas.getContext('2d')!
-    this.ctx.fillStyle = '#000000'
-    this.ctx.fillRect(0, 0, ATLAS_SIZE, ATLAS_SIZE)
+    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true })!
+    this.ctx.clearRect(0, 0, ATLAS_SIZE, ATLAS_SIZE)
   }
 
   /**
@@ -49,16 +48,17 @@ export class GlyphAtlas {
 
     const w = Math.ceil(this.cellW)
     const h = Math.ceil(this.cellH)
+    const pad = 1
 
     // Advance to the next shelf row when the current row is full.
-    if (this.cursorX + w > ATLAS_SIZE) {
+    if (this.cursorX + w + pad * 2 > ATLAS_SIZE) {
       this.cursorX = 0
       this.cursorY += this.rowHeight
       this.rowHeight = 0
     }
 
     // Atlas exhausted — fall back to the very first slot rather than crashing.
-    if (this.cursorY + h > ATLAS_SIZE) {
+    if (this.cursorY + h + pad * 2 > ATLAS_SIZE) {
       console.warn('GlyphAtlas: atlas full, reusing first slot')
       return { u0: 0, v0: 0, u1: w / ATLAS_SIZE, v1: h / ATLAS_SIZE }
     }
@@ -67,17 +67,17 @@ export class GlyphAtlas {
     const style = italic ? 'italic' : 'normal'
     this.ctx.font = `${style} ${weight} ${this.fontSize}px ${this.fontFamily}`
     this.ctx.fillStyle = '#ffffff'
-    this.ctx.fillText(ch, this.cursorX, this.cursorY + this.fontSize)
+    this.ctx.fillText(ch, this.cursorX + pad, this.cursorY + pad + this.fontSize)
 
     const entry: GlyphEntry = {
-      u0: this.cursorX / ATLAS_SIZE,
-      v0: this.cursorY / ATLAS_SIZE,
-      u1: (this.cursorX + w) / ATLAS_SIZE,
-      v1: (this.cursorY + h) / ATLAS_SIZE,
+      u0: (this.cursorX + pad) / ATLAS_SIZE,
+      v0: (this.cursorY + pad) / ATLAS_SIZE,
+      u1: (this.cursorX + pad + w) / ATLAS_SIZE,
+      v1: (this.cursorY + pad + h) / ATLAS_SIZE,
     }
     this.map.set(key, entry)
-    this.cursorX += w
-    this.rowHeight = Math.max(this.rowHeight, h)
+    this.cursorX += w + pad * 2
+    this.rowHeight = Math.max(this.rowHeight, h + pad * 2)
     this.dirty = true
     return entry
   }

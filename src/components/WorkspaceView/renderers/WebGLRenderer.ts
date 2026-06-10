@@ -1,6 +1,34 @@
-import type { SnapshotCell, CursorState, SearchMatch, TerminalRenderer } from './types'
-import { FLAG_BOLD, FLAG_ITALIC } from './types'
+import type { CursorState, SearchMatch, TerminalRenderer, SelectionRange } from './types'
+import { FLAG_BOLD, FLAG_ITALIC, FLAG_DIM } from './types'
 import { GlyphAtlas } from './GlyphAtlas'
+
+let cachedAccent = 0xFFE8A045
+let cachedBg = 0xFF161310
+let lastCheck = 0
+
+function getThemeColors() {
+  const now = performance.now()
+  if (now - lastCheck < 1000) return { accent: cachedAccent, bg: cachedBg }
+  lastCheck = now
+  if (typeof document === 'undefined') return { accent: cachedAccent, bg: cachedBg }
+  
+  const style = getComputedStyle(document.documentElement)
+  const parseHex = (val: string, fallback: number) => {
+    val = val.trim()
+    if (val.startsWith('#') && (val.length === 7 || val.length === 9)) {
+      const r = parseInt(val.slice(1, 3), 16) || 0
+      const g = parseInt(val.slice(3, 5), 16) || 0
+      const b = parseInt(val.slice(5, 7), 16) || 0
+      return (0xFF000000 | (r << 16) | (g << 8) | b) >>> 0
+    }
+    return fallback
+  }
+  
+  cachedAccent = parseHex(style.getPropertyValue('--accent'), 0xFFE8A045)
+  cachedBg = parseHex(style.getPropertyValue('--bg-terminal'), 0xFF161310)
+  
+  return { accent: cachedAccent, bg: cachedBg }
+}
 
 // ---------------------------------------------------------------------------
 // Shaders
@@ -28,15 +56,14 @@ layout(location=1) in float a_col;     // grid column (instance)
 layout(location=2) in float a_row;     // grid row (instance)
 layout(location=3) in vec2  a_uv_min;  // atlas UV top-left (instance)
 layout(location=4) in vec2  a_uv_max;  // atlas UV bottom-right (instance)
-layout(location=5) in float a_fg;      // fg color bit-cast as float (instance)
-layout(location=6) in float a_bg;      // bg color bit-cast as float (instance)
+layout(location=5) in uint a_fg;      // fg color (instance)
+layout(location=6) in uint a_bg;      // bg color (instance)
 uniform vec2 u_cell;    // (cellW, cellH) in pixels
 uniform vec2 u_canvas;  // canvas (width, height) in pixels
 out vec2 v_uv;
 flat out vec4 v_fg;
 flat out vec4 v_bg;
-vec4 unpack(float f) {
-  uint u = floatBitsToUint(f);
+vec4 unpack(uint u) {
   return vec4(float((u>>16u)&255u),float((u>>8u)&255u),float(u&255u),float((u>>24u)&255u))/255.0;
 }
 void main() {
@@ -60,7 +87,7 @@ flat in vec4 v_fg;
 flat in vec4 v_bg;
 out vec4 out_color;
 void main() {
-  float a = texture(u_atlas, v_uv).r;
+  float a = texture(u_atlas, v_uv).a;
   out_color = mix(v_bg, v_fg, a);
 }`
 
@@ -77,26 +104,45 @@ const BG_VS = `#version 300 es
 layout(location=0) in vec2  a_quad;
 layout(location=1) in float a_col;
 layout(location=2) in float a_row;
-layout(location=3) in float a_color;
+layout(location=3) in uint a_color;
+layout(location=4) in uint a_fg;
+layout(location=5) in uint a_flags;
 uniform vec2 u_cell;
 uniform vec2 u_canvas;
+out vec2 v_quad;
 flat out vec4 v_color;
-vec4 unpack(float f) {
-  uint u = floatBitsToUint(f);
+flat out vec4 v_fg;
+flat out uint v_flags;
+vec4 unpack(uint u) {
   return vec4(float((u>>16u)&255u),float((u>>8u)&255u),float(u&255u),float((u>>24u)&255u))/255.0;
 }
 void main() {
   vec2 pos = (vec2(a_col,a_row) + a_quad) * u_cell;
   gl_Position = vec4((pos/u_canvas)*2.0-1.0, 0.0, 1.0);
   gl_Position.y = -gl_Position.y;
+  v_quad = a_quad;
   v_color = unpack(a_color);
+  v_fg = unpack(a_fg);
+  v_flags = a_flags;
 }`
 
 const BG_FS = `#version 300 es
 precision mediump float;
+in vec2 v_quad;
 flat in vec4 v_color;
+flat in vec4 v_fg;
+flat in uint v_flags;
 out vec4 out_color;
-void main() { out_color = v_color; }`
+void main() {
+  vec4 color = v_color;
+  if ((v_flags & 16u) != 0u && v_quad.y > 0.51 && v_quad.y < 0.59) {
+    color = v_fg;
+  }
+  if ((v_flags & 8u) != 0u && v_quad.y > 0.81 && v_quad.y < 0.89) {
+    color = v_fg;
+  }
+  out_color = color;
+}`
 
 // ---------------------------------------------------------------------------
 // Shader helpers
@@ -121,6 +167,21 @@ function link(gl: WebGL2RenderingContext, vs: WebGLShader, fs: WebGLShader): Web
   return p
 }
 
+function isCellSelected(row: number, col: number, sel?: SelectionRange | null): boolean {
+  if (!sel) return false
+  let r1 = sel.startRow, c1 = sel.startCol
+  let r2 = sel.endRow, c2 = sel.endCol
+  if (r1 > r2 || (r1 === r2 && c1 > c2)) {
+    r1 = sel.endRow; c1 = sel.endCol
+    r2 = sel.startRow; c2 = sel.startCol
+  }
+  if (row < r1 || row > r2) return false
+  if (row === r1 && row === r2) return col >= c1 && col < c2
+  if (row === r1) return col >= c1
+  if (row === r2) return col < c2
+  return true
+}
+
 // ---------------------------------------------------------------------------
 // Instance buffer layout constants
 // ---------------------------------------------------------------------------
@@ -128,29 +189,10 @@ function link(gl: WebGL2RenderingContext, vs: WebGLShader, fs: WebGLShader): Web
 /** Floats per glyph instance: col, row, u0, v0, u1, v1, fg, bg = 8 */
 const GLYPH_STRIDE = 8
 
-/** Floats per background instance: col, row, color = 3 */
-const BG_STRIDE = 3
+/** Floats per background instance: col, row, color, fg, flags = 5 */
+const BG_STRIDE = 5
 
-// ---------------------------------------------------------------------------
-// Colour bit-cast helper
-// ---------------------------------------------------------------------------
 
-/**
- * Packs an 0xAARRGGBB unsigned integer into the float32 bit pattern that the
- * GLSL `floatBitsToUint` instruction will recover correctly.
- *
- * We CANNOT just write `packedColor` into a Float32Array directly because that
- * would perform a numeric integer→float conversion (e.g. 0xFF161310 becomes
- * ~4.28e9 in float, losing precision). Instead we reinterpret the raw bytes so
- * the bit pattern is preserved exactly.
- */
-const _colorBuf = new ArrayBuffer(4)
-const _colorU32 = new Uint32Array(_colorBuf)
-const _colorF32 = new Float32Array(_colorBuf)
-function packColorBits(argb: number): number {
-  _colorU32[0] = argb >>> 0
-  return _colorF32[0]
-}
 
 // ---------------------------------------------------------------------------
 // WebGLRenderer
@@ -189,7 +231,8 @@ export class WebGLRenderer implements TerminalRenderer {
     if (!gl) throw new Error('WebGL2 not available')
     this.gl = gl
 
-    this.atlas = new GlyphAtlas(gl, cellW, cellH, fontSize, fontFamily)
+    const dpr = window.devicePixelRatio || 1
+    this.atlas = new GlyphAtlas(gl, cellW * dpr, cellH * dpr, fontSize * dpr, fontFamily)
 
     // Compile and link both shader programs.
     const glyphVs = compile(gl, gl.VERTEX_SHADER, VS)
@@ -221,18 +264,21 @@ export class WebGLRenderer implements TerminalRenderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.glyphInstBuf)
     const gs = GLYPH_STRIDE * 4  // stride in bytes
 
-    // [location, componentCount, byteOffset]
     const glyphAttribs: [number, number, number][] = [
       [1, 1, 0],   // a_col     (1f @ offset  0)
       [2, 1, 4],   // a_row     (1f @ offset  4)
       [3, 2, 8],   // a_uv_min  (2f @ offset  8)
       [4, 2, 16],  // a_uv_max  (2f @ offset 16)
-      [5, 1, 24],  // a_fg      (1f @ offset 24)
-      [6, 1, 28],  // a_bg      (1f @ offset 28)
+      [5, 1, 24],  // a_fg      (1ui @ offset 24)
+      [6, 1, 28],  // a_bg      (1ui @ offset 28)
     ]
     for (const [loc, size, offset] of glyphAttribs) {
       gl.enableVertexAttribArray(loc)
-      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, gs, offset)
+      if (loc >= 5) {
+        gl.vertexAttribIPointer(loc, size, gl.UNSIGNED_INT, gs, offset)
+      } else {
+        gl.vertexAttribPointer(loc, size, gl.FLOAT, false, gs, offset)
+      }
       gl.vertexAttribDivisor(loc, 1)
     }
 
@@ -250,7 +296,9 @@ export class WebGLRenderer implements TerminalRenderer {
     const bs = BG_STRIDE * 4
     gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 1, gl.FLOAT, false, bs, 0);  gl.vertexAttribDivisor(1, 1)
     gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, bs, 4);  gl.vertexAttribDivisor(2, 1)
-    gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, bs, 8);  gl.vertexAttribDivisor(3, 1)
+    gl.enableVertexAttribArray(3); gl.vertexAttribIPointer(3, 1, gl.UNSIGNED_INT, bs, 8); gl.vertexAttribDivisor(3, 1)
+    gl.enableVertexAttribArray(4); gl.vertexAttribIPointer(4, 1, gl.UNSIGNED_INT, bs, 12); gl.vertexAttribDivisor(4, 1)
+    gl.enableVertexAttribArray(5); gl.vertexAttribIPointer(5, 1, gl.UNSIGNED_INT, bs, 16); gl.vertexAttribDivisor(5, 1)
 
     gl.bindVertexArray(null)
 
@@ -261,59 +309,88 @@ export class WebGLRenderer implements TerminalRenderer {
 
   render(
     canvas: HTMLCanvasElement,
-    cells: SnapshotCell[],
+    cells: Uint32Array,
     cols: number,
     rows: number,
     cursor: CursorState,
     cellW: number,
     cellH: number,
     _highlights: SearchMatch[],
+    selection?: SelectionRange | null,
   ): void {
     const gl = this.gl
+    const dpr = window.devicePixelRatio || 1
+    
+    const pCellW = cellW * dpr
+    const pCellH = cellH * dpr
 
-    // Resize canvas backing store to match the logical terminal grid.
-    const w = Math.floor(cols * cellW)
-    const h = Math.floor(rows * cellH)
+    // Resize canvas backing store to match the physical terminal grid.
+    const w = Math.round(cols * pCellW)
+    const h = Math.round(rows * pCellH)
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w
       canvas.height = h
+      canvas.style.width = `${w / dpr}px`
+      canvas.style.height = `${h / dpr}px`
     }
     gl.viewport(0, 0, w, h)
 
-    // Clear to terminal background colour.
-    gl.clearColor(0x16 / 255, 0x13 / 255, 0x10 / 255, 1)
+    // Clear to transparent so CSS background shows through.
+    gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
 
     const count = cols * rows
-    const bgData    = new Float32Array(count * BG_STRIDE)
+    const bgBuf = new ArrayBuffer(count * BG_STRIDE * 4)
+    const bgF32 = new Float32Array(bgBuf)
+    const bgU32 = new Uint32Array(bgBuf)
+
     // Allocate for worst case (every cell has a glyph). We'll slice on upload.
-    const glyphData = new Float32Array(count * GLYPH_STRIDE)
+    const glyphBuf = new ArrayBuffer(count * GLYPH_STRIDE * 4)
+    const glyphF32 = new Float32Array(glyphBuf)
+    const glyphU32 = new Uint32Array(glyphBuf)
     let gi = 0, bi = 0, glyphCount = 0
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
-        const cell = cells[row * cols + col]
-        const bg = cell?.bg ?? 0xFF161310
+        const base = (row * cols + col) * 4
+        const chU32 = cells[base]
+        let bg = cells[base + 2] ?? 0x00000000
+        let fgPacked = cells[base + 1] ?? 0xFF000000
+        const flags = cells[base + 3] ?? 0
+
+        const selected = isCellSelected(row, col, selection)
+        if (selected) {
+          bg = 0xFFFFFFFF
+          fgPacked = 0xFF000000
+        } else if ((flags & FLAG_DIM) !== 0) {
+          const r = Math.floor(((fgPacked >>> 16) & 0xFF) * 0.45)
+          const g = Math.floor(((fgPacked >>> 8) & 0xFF) * 0.45)
+          const b = Math.floor((fgPacked & 0xFF) * 0.45)
+          fgPacked = (0xFF000000 | (r << 16) | (g << 8) | b) >>> 0
+        }
 
         // Background instance.
-        bgData[bi++] = col
-        bgData[bi++] = row
-        bgData[bi++] = packColorBits(bg)
+        bgF32[bi++] = col
+        bgF32[bi++] = row
+        bgU32[bi++] = bg
+        bgU32[bi++] = fgPacked
+        bgU32[bi++] = flags
 
         // Glyph instance — only emit when the cell has content.
-        if (cell?.ch) {
-          const bold   = (cell.flags & FLAG_BOLD)   !== 0
-          const italic = (cell.flags & FLAG_ITALIC) !== 0
-          const uv = this.atlas.getOrInsert(cell.ch, bold, italic)
+        if (chU32 !== undefined && chU32 !== 0 && chU32 !== 32 && chU32 <= 0x10FFFF) {
+          const ch = String.fromCodePoint(chU32)
+          const bold   = (flags & FLAG_BOLD)   !== 0
+          const italic = (flags & FLAG_ITALIC) !== 0
+          const uv = this.atlas.getOrInsert(ch, bold, italic)
 
-          glyphData[gi++] = col
-          glyphData[gi++] = row
-          glyphData[gi++] = uv.u0
-          glyphData[gi++] = uv.v0
-          glyphData[gi++] = uv.u1
-          glyphData[gi++] = uv.v1
-          glyphData[gi++] = packColorBits(cell.fg)
-          glyphData[gi++] = packColorBits(bg)
+          glyphF32[gi++] = col
+          glyphF32[gi++] = row
+          glyphF32[gi++] = uv.u0
+          glyphF32[gi++] = uv.v0
+          glyphF32[gi++] = uv.u1
+          glyphF32[gi++] = uv.v1
+          glyphU32[gi++] = fgPacked
+          glyphU32[gi++] = bg
           glyphCount++
         }
       }
@@ -323,32 +400,36 @@ export class WebGLRenderer implements TerminalRenderer {
     // We do this by emitting a synthetic background-coloured "█" glyph entry.
     if (cursor.visible && cursor.col < cols && cursor.row < rows) {
       const ci = cursor.row * cols + cursor.col
-      const cell = cells[ci]
+      const base = ci * 4
+      const chU32 = cells[base]
+      const flags = cells[base + 3] ?? 0
       // Draw cursor block character with amber fg.
       const uv = this.atlas.getOrInsert('█', false, false)
-      glyphData[gi++] = cursor.col
-      glyphData[gi++] = cursor.row
-      glyphData[gi++] = uv.u0
-      glyphData[gi++] = uv.v0
-      glyphData[gi++] = uv.u1
-      glyphData[gi++] = uv.v1
-      glyphData[gi++] = packColorBits(0xFFE8A045)  // amber
-      glyphData[gi++] = packColorBits(cell?.bg ?? 0xFF161310)
+      glyphF32[gi++] = cursor.col
+      glyphF32[gi++] = cursor.row
+      glyphF32[gi++] = uv.u0
+      glyphF32[gi++] = uv.v0
+      glyphF32[gi++] = uv.u1
+      glyphF32[gi++] = uv.v1
+      const theme = getThemeColors()
+      glyphU32[gi++] = theme.accent  // accent
+      glyphU32[gi++] = cells[base + 2] ?? 0x00000000
       glyphCount++
 
       // Re-draw the character under the cursor in a dark contrast colour.
-      if (cell?.ch) {
-        const bold   = (cell.flags & FLAG_BOLD)   !== 0
-        const italic = (cell.flags & FLAG_ITALIC) !== 0
-        const charUv = this.atlas.getOrInsert(cell.ch, bold, italic)
-        glyphData[gi++] = cursor.col
-        glyphData[gi++] = cursor.row
-        glyphData[gi++] = charUv.u0
-        glyphData[gi++] = charUv.v0
-        glyphData[gi++] = charUv.u1
-        glyphData[gi++] = charUv.v1
-        glyphData[gi++] = packColorBits(0xFF161310)  // dark fg over amber cursor
-        glyphData[gi++] = packColorBits(0x00000000)  // transparent bg (cursor block already drawn)
+      if (chU32 !== undefined && chU32 !== 0 && chU32 !== 32 && chU32 <= 0x10FFFF) {
+        const ch = String.fromCodePoint(chU32)
+        const bold   = (flags & FLAG_BOLD)   !== 0
+        const italic = (flags & FLAG_ITALIC) !== 0
+        const charUv = this.atlas.getOrInsert(ch, bold, italic)
+        glyphF32[gi++] = cursor.col
+        glyphF32[gi++] = cursor.row
+        glyphF32[gi++] = charUv.u0
+        glyphF32[gi++] = charUv.v0
+        glyphF32[gi++] = charUv.u1
+        glyphF32[gi++] = charUv.v1
+        glyphU32[gi++] = theme.bg  // dark fg over amber cursor
+        glyphU32[gi++] = 0x00000000  // transparent bg (cursor block already drawn)
         glyphCount++
       }
     }
@@ -358,23 +439,23 @@ export class WebGLRenderer implements TerminalRenderer {
 
     // ── Pass 1: Background ──────────────────────────────────────────────────
     gl.useProgram(this.bgProg)
-    gl.uniform2f(gl.getUniformLocation(this.bgProg, 'u_cell'),   cellW, cellH)
+    gl.uniform2f(gl.getUniformLocation(this.bgProg, 'u_cell'),   pCellW, pCellH)
     gl.uniform2f(gl.getUniformLocation(this.bgProg, 'u_canvas'), w,     h)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bgInstBuf)
-    gl.bufferData(gl.ARRAY_BUFFER, bgData, gl.DYNAMIC_DRAW)
+    gl.bufferData(gl.ARRAY_BUFFER, bgBuf, gl.DYNAMIC_DRAW)
     gl.bindVertexArray(this.bgVao)
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count)
 
     // ── Pass 2: Glyphs ──────────────────────────────────────────────────────
     if (glyphCount > 0) {
       gl.useProgram(this.glyphProg)
-      gl.uniform2f(gl.getUniformLocation(this.glyphProg, 'u_cell'),   cellW, cellH)
+      gl.uniform2f(gl.getUniformLocation(this.glyphProg, 'u_cell'),   pCellW, pCellH)
       gl.uniform2f(gl.getUniformLocation(this.glyphProg, 'u_canvas'), w,     h)
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, this.atlas.texture)
       gl.uniform1i(gl.getUniformLocation(this.glyphProg, 'u_atlas'), 0)
       gl.bindBuffer(gl.ARRAY_BUFFER, this.glyphInstBuf)
-      gl.bufferData(gl.ARRAY_BUFFER, glyphData.subarray(0, glyphCount * GLYPH_STRIDE), gl.DYNAMIC_DRAW)
+      gl.bufferData(gl.ARRAY_BUFFER, new Uint8Array(glyphBuf, 0, glyphCount * GLYPH_STRIDE * 4), gl.DYNAMIC_DRAW)
       gl.bindVertexArray(this.glyphVao)
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, glyphCount)
     }

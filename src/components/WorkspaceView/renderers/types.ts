@@ -1,19 +1,16 @@
-export interface SnapshotCell {
-  ch: string      // character; empty string = space
-  fg: number      // packed 0xFFRRGGBB
-  bg: number      // packed 0xFFRRGGBB
-  flags: number   // BOLD=1, DIM=2, ITALIC=4, UNDERLINE=8, STRIKEOUT=16
-}
-
 export interface TerminalSnapshot {
   cols: number
   rows: number
   cursorCol: number
   cursorRow: number
   cursorVisible: boolean
-  cells: SnapshotCell[]    // row-major: index = row * cols + col
+  is_alternate?: boolean
+  isAlternate?: boolean
+  cells_b64: string    // base64 encoded Uint32Array payload
   cwd: string | null
   title: string | null
+  displayOffset?: number
+  totalHistory?: number
 }
 
 export interface CursorState {
@@ -28,16 +25,24 @@ export interface SearchMatch {
   colEnd: number
 }
 
+export interface SelectionRange {
+  startRow: number
+  startCol: number
+  endRow: number
+  endCol: number
+}
+
 export interface TerminalRenderer {
   render(
     canvas: HTMLCanvasElement,
-    cells: SnapshotCell[],
+    cells: Uint32Array,
     cols: number,
     rows: number,
     cursor: CursorState,
     cellW: number,
     cellH: number,
     highlights: SearchMatch[],
+    selection?: SelectionRange | null,
   ): void
   dispose(): void
 }

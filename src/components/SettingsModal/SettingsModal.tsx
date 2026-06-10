@@ -29,6 +29,10 @@ export function SettingsModal({ onClose }: Props) {
   const [defaultTerminalType, setDefaultTerminalType] = useState<'built-in' | 'ghostty'>(
     settings.defaultTerminalType || 'built-in'
   )
+  const [terminalRenderer, setTerminalRenderer] = useState<'native' | 'xterm'>(
+    settings.terminalRenderer || 'native'
+  )
+  const [smoothCaret, setSmoothCaret] = useState(settings.smoothCaret ?? true)
   const [keybindings, setKeybindings] = useState<Settings['keybindings']>({
     newTerminal: settings.keybindings?.newTerminal || 'CmdOrCtrl+T',
     closeTerminal: settings.keybindings?.closeTerminal || 'CmdOrCtrl+W',
@@ -50,7 +54,7 @@ export function SettingsModal({ onClose }: Props) {
   }, [])
 
   function handleSave() {
-    updateSettings({ theme, fontSize, uiFontFamily, terminalFontFamily, timeFormat, autosave, showTabBar, iconTheme, keybindings, defaultTerminalType })
+    updateSettings({ theme, fontSize, uiFontFamily, terminalFontFamily, timeFormat, autosave, showTabBar, iconTheme, keybindings, defaultTerminalType, smoothCaret, terminalRenderer })
     useAppStore.getState().addToast('Settings saved', 'success')
     onClose()
   }
@@ -228,7 +232,7 @@ export function SettingsModal({ onClose }: Props) {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-inactive)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Terminal</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Default Terminal Engine</label>
+                    <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Terminal App Integration</label>
                     <select
                       value={defaultTerminalType}
                       onChange={(e) => setDefaultTerminalType(e.target.value as 'built-in' | 'ghostty')}
@@ -241,14 +245,60 @@ export function SettingsModal({ onClose }: Props) {
                       onFocus={(e) => e.currentTarget.style.borderColor = 'var(--accent)'}
                       onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border-inactive)'}
                     >
-                      <option value="built-in">Built-in (xterm.js)</option>
-                      <option value="ghostty">Ghostty (requires Ghostty.app)</option>
+                      <option value="built-in">Built-in App</option>
+                      <option value="ghostty">External App (Ghostty macOS)</option>
                     </select>
                     {defaultTerminalType === 'ghostty' && (
                       <p style={{ fontSize: 12, color: 'var(--text-dim)', margin: 0, lineHeight: 1.5 }}>
                         Requires Ghostty installed at /Applications/Ghostty.app. Ghostty panes use macOS native window embedding.
                       </p>
                     )}
+                  </div>
+
+                  {defaultTerminalType === 'built-in' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+                      <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Built-in Terminal Renderer</label>
+                      <select
+                        value={terminalRenderer}
+                        onChange={(e) => setTerminalRenderer(e.target.value as 'native' | 'xterm')}
+                        style={{
+                          padding: '10px 14px', background: 'var(--bg-sidebar)',
+                          border: '1px solid var(--border-inactive)', borderRadius: 6,
+                          color: 'var(--text-active)', outline: 'none', fontSize: 14,
+                          transition: 'border 0.2s', width: '100%', maxWidth: 300
+                        }}
+                        onFocus={(e) => e.currentTarget.style.borderColor = 'var(--accent)'}
+                        onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border-inactive)'}
+                      >
+                        <option value="native">Custom Canvas (Rust Backend)</option>
+                        <option value="xterm">xterm.js Web Renderer (Standard)</option>
+                      </select>
+                    </div>
+                  )}
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+                    <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Terminal Smooth Caret</label>
+                    <div
+                      onClick={() => setSmoothCaret(!smoothCaret)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+                        color: smoothCaret ? 'var(--accent)' : 'var(--text-inactive)',
+                        fontSize: 13, userSelect: 'none'
+                      }}
+                    >
+                      <div style={{
+                        width: 32, height: 18, borderRadius: 10,
+                        background: smoothCaret ? 'var(--accent)' : 'var(--bg-item)',
+                        position: 'relative', transition: 'background 0.2s'
+                      }}>
+                        <div style={{
+                          width: 14, height: 14, borderRadius: 7, background: 'var(--bg-main)',
+                          position: 'absolute', top: 2, left: smoothCaret ? 16 : 2,
+                          transition: 'left 0.2s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                        }} />
+                      </div>
+                      Enable smooth caret animation
+                    </div>
                   </div>
                 </div>
 

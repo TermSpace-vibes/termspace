@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { invoke } from './utils/tauri'
+import { invoke, listen } from './utils/tauri'
 import { useAppStore } from './store/useAppStore'
 import { WorkspaceSidebar } from './components/WorkspaceSidebar/WorkspaceSidebar'
 import { WorkspaceView } from './components/WorkspaceView/WorkspaceView'
@@ -14,7 +14,7 @@ import { useGlobalKeybindings } from './hooks/useGlobalKeybindings'
 import { Workspace, Terminal, EditorPane, BrowserPane } from './types'
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
 import { open } from '@tauri-apps/plugin-dialog'
-import { AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { flushSync } from 'react-dom'
 
 const SidebarResizeHandle = () => (
@@ -102,6 +102,22 @@ export default function App() {
   }, [sidebarRef])
 
   useEffect(() => {
+    const unlisten = listen<string>('agent-hook-event', (event) => {
+      try {
+        const payload = JSON.parse(event.payload)
+        useAppStore.getState().addToast(`🤖 AI Agent: ${payload.message || 'Action completed'}`, 'info')
+      } catch {
+        useAppStore.getState().addToast(`🤖 AI Agent: ${event.payload}`, 'info')
+      }
+      invoke('play_notification_sound').catch(console.error)
+    })
+
+    return () => {
+      unlisten.then(f => f())
+    }
+  }, [])
+
+  useEffect(() => {
     document.documentElement.setAttribute('data-theme', settings.theme)
     document.documentElement.style.setProperty('--app-font-family', settings.uiFontFamily || 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif')
   }, [settings.theme, settings.uiFontFamily])
@@ -145,8 +161,9 @@ export default function App() {
       });
 
       const savedEditorPanes = useAppStore.getState().editorPanesByWorkspace[workspaceId] ?? [];
+      const savedKubernetesPanes = useAppStore.getState().kubernetesPanesByWorkspace[workspaceId] ?? [];
 
-      if (saved.length === 0 && savedBrowserPanes.length === 0 && savedEditorPanes.length === 0) {
+      if (saved.length === 0 && savedBrowserPanes.length === 0 && savedEditorPanes.length === 0 && savedKubernetesPanes.length === 0) {
         setTerminals(workspaceId, [])
         useAppStore.getState().setBrowserPanes(workspaceId, [])
         await spawnAndAddTerminal(workspaceId)
@@ -436,34 +453,59 @@ export default function App() {
             </div>
           )}
           
-          {loading ? (
-            <div style={{
-              flex: 1, display: 'flex', alignItems: 'center',
-              justifyContent: 'center', flexDirection: 'column', gap: 8,
-            }}>
-              <span style={{ color: 'var(--text-inactive)', fontSize: 13 }}>Starting…</span>
-            </div>
-          ) : workspaces.length > 0 ? (
-            workspaces.map((ws) => (
-              <div
-                key={ws.id}
+          <AnimatePresence mode="wait">
+            {loading ? (
+              <div 
+                key="loading"
                 style={{
-                  display: ws.id === activeWorkspaceId ? 'flex' : 'none',
-                  flex: 1, flexDirection: 'column', height: '100%', overflow: 'hidden'
+                  flex: 1, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', flexDirection: 'column', gap: 24,
+                  background: 'var(--bg-main)', position: 'absolute', inset: 0, zIndex: 100,
+                  animation: 'fadeIn 0.3s ease-out'
                 }}
               >
-                <WorkspaceView
-                  workspace={ws}
-                  onEditWorkspace={setEditingWorkspace}
-                />
+                <div style={{ fontSize: 48, filter: 'drop-shadow(0 0 12px rgba(232, 160, 69, 0.4))' }}>💻</div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'loadingPulse 1.2s ease-in-out infinite' }} />
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'loadingPulse 1.2s ease-in-out infinite', animationDelay: '0.2s' }} />
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'loadingPulse 1.2s ease-in-out infinite', animationDelay: '0.4s' }} />
+                  </div>
+                  <span style={{ color: 'var(--text-dim)', fontSize: 13, fontFamily: 'SF Mono, Menlo, monospace', letterSpacing: 2, textTransform: 'uppercase' }}>
+                    Initializing Workspace
+                  </span>
+                </div>
               </div>
-            ))
-          ) : (
-            <div style={{
-              flex: 1, display: 'flex', alignItems: 'center',
-              justifyContent: 'center', flexDirection: 'column', gap: 16,
-              background: 'var(--bg-main)'
-            }}>
+            ) : workspaces.length > 0 ? (
+              workspaces.map((ws) => (
+                <motion.div
+                  key={ws.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, ease: 'easeOut' }}
+                  style={{
+                    display: ws.id === activeWorkspaceId ? 'flex' : 'none',
+                    flex: 1, flexDirection: 'column', height: '100%', overflow: 'hidden'
+                  }}
+                >
+                  <WorkspaceView
+                    workspace={ws}
+                    onEditWorkspace={setEditingWorkspace}
+                  />
+                </motion.div>
+              ))
+            ) : (
+            <motion.div 
+              key="empty"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.4 }}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center',
+                justifyContent: 'center', flexDirection: 'column', gap: 16,
+                background: 'var(--bg-main)'
+              }}
+            >
               <div style={{ fontSize: 48, opacity: 0.5 }}>🚀</div>
               <span style={{ color: 'var(--text-inactive)', fontSize: 16, fontWeight: 500, letterSpacing: 0.2 }}>Create a workspace to get started</span>
               <button 
@@ -479,8 +521,9 @@ export default function App() {
               >
                 + New Workspace
               </button>
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
         </Panel>
       </Group>
 

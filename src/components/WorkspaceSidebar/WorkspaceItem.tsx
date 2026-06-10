@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Workspace } from '../../types'
 
 import * as LucideIcons from 'lucide-react'
-import { LayoutGrid } from 'lucide-react'
 
 interface Props {
   workspace: Workspace
@@ -10,15 +9,20 @@ interface Props {
   canDelete: boolean
   isCollapsed?: boolean
   isProcessing?: boolean
-  terminalCount: number
+  terminals: import('../../types').Terminal[]
   onClick: () => void
   onDelete: () => void
   onContextMenu?: (e: React.MouseEvent) => void
 }
 
-export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isProcessing, terminalCount, onClick, onDelete, onContextMenu }: Props) {
+export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isProcessing, terminals, onClick, onDelete, onContextMenu }: Props) {
   const [hovered, setHovered] = useState(false)
-  const IconComponent = isProcessing ? LucideIcons.Loader2 : ((LucideIcons as any)[workspace.emoji] || LayoutGrid)
+  
+  const dotColor = workspace.color
+  const IconComp = (LucideIcons as any)[workspace.emoji] || LucideIcons.TerminalSquare
+
+  const terminalCount = terminals.length
+  const runningTerminalsCount = terminals.filter(t => t.executionState === 'running').length
 
   return (
     <div
@@ -28,23 +32,34 @@ export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isP
       onContextMenu={onContextMenu}
       style={{
         display: 'flex', alignItems: 'center', justifyContent: isCollapsed ? 'center' : 'flex-start', gap: 10,
-        padding: isCollapsed ? '8px 0' : '6px 12px', borderRadius: 4,
-        background: isActive ? 'var(--bg-item-active)' : 'transparent',
+        padding: isCollapsed ? '8px 0' : '8px 12px', borderRadius: 4,
+        background: isActive ? 'var(--bg-item-active)' : (isProcessing ? 'rgba(232, 160, 69, 0.05)' : 'transparent'),
         color: isActive ? 'var(--text-active)' : 'var(--text-inactive)',
-        fontWeight: isActive ? 500 : 400,
         fontSize: 13, cursor: 'pointer', transition: 'all 0.15s ease',
         position: 'relative',
+        overflow: 'hidden',
       }}
     >
+      {isProcessing && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: `linear-gradient(90deg, transparent, ${dotColor}10, transparent)`,
+          backgroundSize: '200% 100%',
+          animation: 'shimmer 2s infinite linear',
+          pointerEvents: 'none'
+        }} />
+      )}
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
         <div style={{
-          width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          color: isActive ? 'var(--accent)' : 'var(--text-dim)',
-          background: isActive ? 'color-mix(in srgb, var(--accent) 15%, transparent)' : 'var(--bg-item-active)',
-          borderRadius: 6,
-          boxShadow: isActive ? '0 0 10px color-mix(in srgb, var(--accent) 25%, transparent)' : 'none'
+          width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          color: dotColor,
+          transition: 'color 0.2s ease',
         }}>
-          <IconComponent size={14} strokeWidth={2} style={isProcessing ? { animation: 'spin 1s linear infinite' } : undefined} />
+          {isProcessing ? (
+             <LucideIcons.Loader2 size={16} strokeWidth={2} style={{ animation: 'spin 1s linear infinite', color: dotColor, filter: `drop-shadow(0 0 4px ${dotColor}40)` }} />
+          ) : (
+             <IconComp size={16} strokeWidth={2} style={{ opacity: isActive ? 1 : 0.5 }} />
+          )}
         </div>
         {(workspace.notificationCount ?? 0) > 0 && isCollapsed && (
           <span style={{
@@ -90,10 +105,21 @@ export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isP
       )}
 
       {!isCollapsed && (
-        <div style={{ display: 'flex', alignItems: 'center', flex: 1, overflow: 'hidden' }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isActive ? 500 : 400 }}>
             {workspace.name}
           </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 10, color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {isProcessing ? 'AI Agent Processing...' : (terminalCount > 0 ? `${terminalCount} terminal${terminalCount > 1 ? 's' : ''}` : 'No active terminals')}
+            </span>
+            {runningTerminalsCount > 0 && !isProcessing && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(79, 195, 161, 0.1)', padding: '1px 4px', borderRadius: 4 }}>
+                 <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#4fc3a1', animation: 'pulse 2s infinite' }} />
+                 <span style={{ fontSize: 9, color: '#4fc3a1', fontWeight: 600 }}>{runningTerminalsCount} active</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
       {!isCollapsed && (workspace.notificationCount ?? 0) > 0 && (
@@ -106,9 +132,9 @@ export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isP
       )}
       {!isCollapsed && (!workspace.notificationCount || workspace.notificationCount === 0) && terminalCount > 0 && (
         <span style={{ 
-          fontSize: 11, color: 'var(--text-dim)', fontWeight: 500
+          fontSize: 10, color: 'var(--text-dim)', fontWeight: 500, opacity: 0.5
         }}>
-          {terminalCount}
+          #{workspace.position + 1}
         </span>
       )}
       {!isCollapsed && hovered && canDelete && (

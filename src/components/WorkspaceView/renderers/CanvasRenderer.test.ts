@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { CanvasRenderer } from './CanvasRenderer'
-import type { SnapshotCell, CursorState } from './types'
+import type { CursorState } from './types'
 
 // ---------------------------------------------------------------------------
 // jsdom does not implement HTMLCanvasElement.getContext() without the `canvas`
@@ -47,14 +47,13 @@ function patchCanvas(canvas: HTMLCanvasElement) {
 
 // ---------------------------------------------------------------------------
 
-function makeCell(ch: string, fg = 0xFFE8D5B0, bg = 0xFF161310, flags = 0): SnapshotCell {
-  return { ch, fg, bg, flags }
-}
-
-function makeGrid(cols: number, rows: number): SnapshotCell[] {
-  return Array.from({ length: cols * rows }, (_, i) =>
-    makeCell(i === 0 ? 'A' : '')
-  )
+function makeGrid(cols: number, rows: number): Uint32Array {
+  const cells = new Uint32Array(cols * rows * 4)
+  cells[0] = 65 // 'A'
+  cells[1] = 0xFFE8D5B0
+  cells[2] = 0xFF161310
+  cells[3] = 0
+  return cells
 }
 
 describe('CanvasRenderer', () => {

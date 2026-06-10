@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import { SearchAddon } from '@xterm/addon-search'
-import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { DRAG_FORMAT_TERMINAL } from '../../utils/constants'
 import { invoke, listen } from '../../utils/tauri'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../../store/useAppStore'
 import '@xterm/xterm/css/xterm.css'
+import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager'
 
 interface Props {
   terminalId: string
@@ -16,41 +17,41 @@ interface Props {
   isActive: boolean
   isMaximized: boolean
   scrollback?: string[]
-  onFocus: () => void
-  onToggleMaximize: () => void
-  onClose: () => void
-  onSplit: (direction: 'horizontal' | 'vertical') => void
+  onFocus: (id: string) => void
+  onToggleMaximize: (id: string) => void
+  onClose: (id: string) => void
+  onSplit: (id: string, direction: 'horizontal' | 'vertical') => void
   isDragOver?: boolean
 }
 
 const XTERM_THEMES = {
   'warm-dark': {
-    background: '#161310',
-    foreground: '#e8d5b0',
-    cursor: '#e8a045',
-    cursorAccent: '#1a1612',
-    selectionBackground: 'rgba(232,160,69,0.3)',
+    background: 'transparent',
+    foreground: '#cccccc',
+    cursor: '#06b6d4',
+    cursorAccent: '#1c1c1c',
+    selectionBackground: 'rgba(6,182,212,0.3)',
   },
   'cold-dark': {
-    background: '#0d1117',
-    foreground: '#c9d1d9',
-    cursor: '#58a6ff',
-    cursorAccent: '#161b22',
-    selectionBackground: 'rgba(88,166,255,0.3)',
+    background: 'transparent',
+    foreground: '#c0caf5',
+    cursor: '#7dcfff',
+    cursorAccent: '#1a1b26',
+    selectionBackground: 'rgba(125,207,255,0.3)',
   },
   'light': {
-    background: '#ffffff',
-    foreground: '#24292f',
-    cursor: '#0969da',
+    background: 'transparent',
+    foreground: '#171717',
+    cursor: '#0891b2',
     cursorAccent: '#ffffff',
-    selectionBackground: 'rgba(9,105,218,0.3)',
+    selectionBackground: 'rgba(8,145,178,0.3)',
   },
   'catppuccin-mocha': {
-    background: '#1e1e2e',
+    background: 'transparent',
     foreground: '#cdd6f4',
-    cursor: '#f5e0dc',
+    cursor: '#89b4fa',
     cursorAccent: '#1e1e2e',
-    selectionBackground: 'rgba(245,224,220,0.3)',
+    selectionBackground: 'rgba(137,180,250,0.3)',
     black: '#45475a',
     red: '#f38ba8',
     green: '#a6e3a1',
@@ -69,11 +70,11 @@ const XTERM_THEMES = {
     brightWhite: '#a6adc8',
   },
   'synthwave': {
-    background: '#262335',
+    background: 'transparent',
     foreground: '#ff7edb',
-    cursor: '#f97e72',
-    cursorAccent: '#262335',
-    selectionBackground: 'rgba(249,126,114,0.3)',
+    cursor: '#36f9f6',
+    cursorAccent: '#2b213a',
+    selectionBackground: 'rgba(54,249,246,0.3)',
     black: '#000000',
     red: '#fe4450',
     green: '#72f1b8',
@@ -92,11 +93,11 @@ const XTERM_THEMES = {
     brightWhite: '#ffffff',
   },
   'fruity': {
-    background: '#2b1d24',
-    foreground: '#fce4ec',
-    cursor: '#ff4081',
-    cursorAccent: '#ffffff',
-    selectionBackground: 'rgba(255,64,129,0.3)',
+    background: 'transparent',
+    foreground: '#f8f8f2',
+    cursor: '#ff79c6',
+    cursorAccent: '#1e1e1e',
+    selectionBackground: 'rgba(255,121,198,0.3)',
     black: '#424242',
     red: '#ff1744',
     green: '#00e676',
@@ -120,18 +121,28 @@ import { useKeybindingHandler } from '../../hooks/useGlobalKeybindings'
 
 const scrollbackCache = new Map<string, string[]>()
 
-export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, scrollback, onFocus, onToggleMaximize, onClose, onSplit, isDragOver }: Props) {
+const writeTerminalChunked = async (terminalId: string, data: string) => {
+  const CHUNK_SIZE = 4096;
+  for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+    await invoke('write_terminal', { terminalId, data: data.slice(i, i + CHUNK_SIZE) });
+    if (i + CHUNK_SIZE < data.length) {
+      await new Promise(r => setTimeout(r, 1));
+    }
+  }
+}
+
+export const TerminalPane = React.memo(function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, scrollback, onFocus, onToggleMaximize, onClose, onSplit, isDragOver }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const unlistenRef = useRef<Promise<() => void> | null>(null)
-  const webglLoadedRef = useRef(false)
   // Removed isHovered state
   
   const [showSearch, setShowSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
-
+  
+  const setDraggedTerminalId = useAppStore(s => s.setDraggedTerminalId)
   const terminal = useAppStore(s => s.terminalsByWorkspace[workspaceId]?.find(t => t.id === terminalId))
   const terminalIndex = useAppStore(s => s.terminalsByWorkspace[workspaceId]?.findIndex(t => t.id === terminalId)) ?? -1
   const defaultTitle = `Terminal ${terminalIndex >= 0 ? terminalIndex + 1 : ''}`.trim()
@@ -185,6 +196,7 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
 
     const xterm = new XTerm({
       theme: XTERM_THEMES[settings.theme],
+      allowTransparency: true,
       fontFamily: settings.terminalFontFamily || '"JetBrains Mono", "Fira Code", Menlo, monospace',
       fontSize: settings.fontSize,
       lineHeight: 1.4,
@@ -300,6 +312,32 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
     
     xterm.attachCustomKeyEventHandler((e) => {
       if (e.type === 'keydown') {
+        // Handle Cmd+C (Copy)
+        if (e.metaKey && e.key.toLowerCase() === 'c') {
+          if (xterm.hasSelection()) {
+            writeText(xterm.getSelection())
+            xterm.clearSelection()
+            return false
+          }
+        }
+
+        // Handle Cmd+V (Paste)
+        if (e.metaKey && e.key.toLowerCase() === 'v') {
+          readText().then(text => {
+            if (text) {
+              const sanitizedText = text.replace(/\r?\n/g, '\r');
+              writeTerminalChunked(terminalId, sanitizedText).catch(console.error)
+            }
+          }).catch(console.error)
+          return false
+        }
+
+        // Handle Cmd+A (Select All)
+        if (e.metaKey && e.key.toLowerCase() === 'a') {
+          xterm.selectAll()
+          return false
+        }
+
         // Cmd/Ctrl + F to toggle search
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
           e.preventDefault()
@@ -312,23 +350,23 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
         if (e.key === 'Backspace') {
           if (e.altKey) {
             // Option+Backspace deletes word
-            invoke('write_pty', { terminalId, data: '\x1b\x7f' }).catch(console.error)
+            invoke('write_terminal', { terminalId, data: '\x1b\x7f' }).catch(console.error)
           } else if (e.metaKey) {
             // Cmd+Backspace deletes line (Ctrl+U)
-            invoke('write_pty', { terminalId, data: '\x15' }).catch(console.error)
+            invoke('write_terminal', { terminalId, data: '\x15' }).catch(console.error)
           } else {
-            invoke('write_pty', { terminalId, data: '\x7f' }).catch(console.error)
+            invoke('write_terminal', { terminalId, data: '\x7f' }).catch(console.error)
           }
           return false // Tell xterm to not process it natively
         }
         
         // Handle Option + Arrow keys for word navigation
         if (e.altKey && e.key === 'ArrowLeft') {
-          invoke('write_pty', { terminalId, data: '\x1bb' }).catch(console.error)
+          invoke('write_terminal', { terminalId, data: '\x1bb' }).catch(console.error)
           return false
         }
         if (e.altKey && e.key === 'ArrowRight') {
-          invoke('write_pty', { terminalId, data: '\x1bf' }).catch(console.error)
+          invoke('write_terminal', { terminalId, data: '\x1bf' }).catch(console.error)
           return false
         }
         
@@ -339,16 +377,6 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
     })
 
     xterm.open(containerRef.current)
-    try {
-      const webglAddon = new WebglAddon()
-      webglAddon.onContextLoss(() => {
-        webglAddon.dispose()
-      })
-      xterm.loadAddon(webglAddon)
-    } catch (e) {
-      console.warn('WebGL addon could not be loaded', e)
-    }
-    
     fitAddon.fit()
     xtermRef.current = xterm
 
@@ -362,8 +390,7 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
 
     // send keystrokes to PTY
     const onDataDispose = xterm.onData((data) => {
-      console.log('XTERM DATA:', Array.from(data).map(c => c.charCodeAt(0)), JSON.stringify(data))
-      invoke('write_pty', { terminalId, data }).catch(console.error)
+      writeTerminalChunked(terminalId, data).catch(console.error)
     })
 
     // Attach listener first, then tell Rust to start streaming — prevents
@@ -375,6 +402,22 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
       useAppStore.getState().setTerminalNotification(workspaceId, terminalId, currentCount + 1)
       if (!document.hasFocus() || !isActive) {
         getCurrentWindow().requestUserAttention(1).catch(() => {}) // 1 = Critical (continuous bounce until focused)
+        
+        const existingToasts = useAppStore.getState().toasts
+        if (!existingToasts.some(t => t.message === 'Agy in workspace wants your input')) {
+          useAppStore.getState().addToast(
+            'Agy in workspace wants your input',
+            'info',
+            {
+              label: 'Check',
+              onClick: () => {
+                useAppStore.getState().setActiveWorkspaceId(workspaceId)
+                onFocus(terminalId)
+                setTimeout(() => xtermRef.current?.focus(), 100)
+              }
+            }
+          )
+        }
       }
     }
     
@@ -399,26 +442,78 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
       invoke('start_terminal', { terminalId }).catch(console.error)
     })
 
+    // Custom auto-scrolling for drag selection
+    let scrollInterval: ReturnType<typeof setInterval> | null = null
+    let lastMouseX = 0
+    let lastMouseY = 0
+
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      lastMouseX = e.clientX
+      lastMouseY = e.clientY
+      
+      if (e.buttons !== 1) {
+        if (scrollInterval) { clearInterval(scrollInterval); scrollInterval = null }
+        return
+      }
+      
+      const rect = containerRef.current?.getBoundingClientRect()
+      // Only auto-scroll if xterm already has a selection started
+      if (!rect || !xtermRef.current?.hasSelection()) return
+      
+      const threshold = 40
+      let scrollDir = 0
+      
+      // Check if within horizontal bounds (with some leeway)
+      if (e.clientX >= rect.left - 50 && e.clientX <= rect.right + 50) {
+        // Near top edge
+        if (e.clientY <= rect.top + threshold) {
+          scrollDir = -1
+        } 
+        // Near bottom edge
+        else if (e.clientY >= rect.bottom - threshold) {
+          scrollDir = 1
+        }
+      }
+      
+      if (scrollDir !== 0) {
+        if (!scrollInterval) {
+          scrollInterval = setInterval(() => {
+            if (xtermRef.current) {
+              xtermRef.current.scrollLines(scrollDir)
+              // Trigger a synthetic mouse event to update xterm's selection state during scroll
+              const evt = new MouseEvent('mousemove', {
+                clientX: lastMouseX,
+                clientY: lastMouseY,
+                buttons: 1,
+                bubbles: true,
+                cancelable: true,
+                view: window
+              })
+              // Target the inner screen element which handles xterm selection
+              const screen = containerRef.current?.querySelector('.xterm-screen') || containerRef.current
+              screen?.dispatchEvent(evt)
+            }
+          }, 50)
+        }
+      } else {
+        if (scrollInterval) { clearInterval(scrollInterval); scrollInterval = null }
+      }
+    }
+    
+    const handleGlobalMouseUp = () => {
+      if (scrollInterval) { clearInterval(scrollInterval); scrollInterval = null }
+    }
+    
+    document.addEventListener('mousemove', handleGlobalMouseMove)
+    document.addEventListener('mouseup', handleGlobalMouseUp)
+
     // resize observer keeps cols/rows in sync with DOM
     const ro = new ResizeObserver((entries) => {
       if (!entries.length || entries[0].contentRect.width === 0) return
 
       try {
         fitAddon.fit()
-        invoke('resize_pty', { terminalId, cols: xterm.cols, rows: xterm.rows }).catch(console.error)
-
-        // Only load WebGL AFTER the first valid fit() so the canvas doesn't stretch enormously
-        if (!webglLoadedRef.current) {
-          webglLoadedRef.current = true
-          /*
-          try {
-            const webglAddon = new WebglAddon()
-            xterm.loadAddon(webglAddon)
-          } catch (e: any) {
-            console.warn('WebGL addon failed to load, falling back to canvas/DOM', e)
-          }
-          */
-        }
+        invoke('resize_terminal', { terminalId, cols: xterm.cols, rows: xterm.rows }).catch(console.error)
       } catch (e) {
         console.warn('fit() failed', e)
       }
@@ -426,6 +521,10 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
     ro.observe(containerRef.current)
 
     return () => {
+      document.removeEventListener('mousemove', handleGlobalMouseMove)
+      document.removeEventListener('mouseup', handleGlobalMouseUp)
+      if (scrollInterval) clearInterval(scrollInterval)
+      
       onDataDispose.dispose()
       unlistenRef.current?.then((fn) => fn()).catch(() => {})
       ro.disconnect()
@@ -449,7 +548,7 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
 
   return (
     <div
-      onClick={onFocus}
+      onClick={() => onFocus(terminalId)}
 
       onContextMenu={(e) => {
         // Only trigger our context menu if clicking near the top/edges, not inside the actual terminal text area
@@ -457,7 +556,39 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
         // Actually xterm intercepts right clicks in its text area! So container right-click is fine.
         e.preventDefault()
         e.stopPropagation()
-        useAppStore.getState().showContextMenu(e.clientX, e.clientY, [
+        
+        const menuItems: any[] = []
+        
+        if (xtermRef.current?.hasSelection()) {
+          menuItems.push({
+            label: 'Copy',
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>,
+            onClick: () => {
+              const text = xtermRef.current?.getSelection()
+              if (text) {
+                writeText(text)
+                xtermRef.current?.clearSelection()
+              }
+            }
+          })
+        }
+        
+        menuItems.push({
+          label: 'Paste',
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>,
+          onClick: () => {
+            readText().then(text => {
+              if (text) {
+                const sanitizedText = text.replace(/\r?\n/g, '\r');
+                writeTerminalChunked(terminalId, sanitizedText).catch(console.error)
+              }
+            }).catch(console.error)
+          }
+        })
+        
+        menuItems.push({ separator: true, label: '', onClick: () => {} })
+
+        menuItems.push(
           {
             label: 'Clear Output',
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>,
@@ -469,26 +600,28 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
           {
             label: 'Split Down',
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="12" x2="21" y2="12"></line></svg>,
-            onClick: () => onSplit('horizontal')
+            onClick: () => onSplit(terminalId, 'vertical')
           },
           {
             label: 'Split Right',
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg>,
-            onClick: () => onSplit('vertical')
+            onClick: () => onSplit(terminalId, 'horizontal')
           },
           { separator: true, label: '', onClick: () => {} },
           {
             label: isMaximized ? 'Restore' : 'Maximize',
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>,
-            onClick: onToggleMaximize
+            onClick: () => onToggleMaximize(terminalId)
           },
           {
             label: 'Close Terminal',
             danger: true,
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>,
-            onClick: onClose
+            onClick: () => onClose(terminalId)
           }
-        ])
+        )
+
+        useAppStore.getState().showContextMenu(e.clientX, e.clientY, menuItems)
       }}
       style={{
         width: '100%', height: '100%',
@@ -626,8 +759,12 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
               draggable
               onDragStart={(e) => {
                 e.stopPropagation()
-                e.dataTransfer.setData('application/terminal-id', terminalId)
+                e.dataTransfer.setData(DRAG_FORMAT_TERMINAL, terminalId)
                 e.dataTransfer.effectAllowed = 'move'
+                setDraggedTerminalId(terminalId)
+              }}
+              onDragEnd={() => {
+                setDraggedTerminalId(null)
               }}
               title="Drag to reorder"
               style={{ color: 'var(--text-dim)', cursor: 'grab', display: 'flex', marginRight: 4 }}
@@ -637,7 +774,7 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
             </div>
             <button
-              onClick={(e) => { e.stopPropagation(); onSplit('horizontal') }}
+              onClick={(e) => { e.stopPropagation(); onSplit(terminalId, 'horizontal') }}
               title="Split Right"
               style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', display: 'flex' }}
               onMouseEnter={e => e.currentTarget.style.color = 'var(--text-active)'}
@@ -646,7 +783,7 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg>
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); onSplit('vertical') }}
+              onClick={(e) => { e.stopPropagation(); onSplit(terminalId, 'vertical') }}
               title="Split Down"
               style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', display: 'flex' }}
               onMouseEnter={e => e.currentTarget.style.color = 'var(--text-active)'}
@@ -655,7 +792,7 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="12" x2="21" y2="12"></line></svg>
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); onToggleMaximize() }}
+              onClick={(e) => { e.stopPropagation(); onToggleMaximize(terminalId) }}
               title={isMaximized ? "Restore" : "Maximize"}
               style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}
               onMouseEnter={e => e.currentTarget.style.color = 'var(--accent)'}
@@ -664,7 +801,7 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
               {isMaximized ? '↙' : '↗'}
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); onClose() }}
+              onClick={(e) => { e.stopPropagation(); onClose(terminalId) }}
               title="Close"
               style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 16, lineHeight: 1, paddingBottom: 2 }}
               onMouseEnter={e => e.currentTarget.style.color = '#e07b7b'}
@@ -681,4 +818,4 @@ export function TerminalPane({ terminalId, workspaceId, isActive, isMaximized, s
       </div>
     </div>
   )
-}
+})

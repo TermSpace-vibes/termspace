@@ -12,6 +12,7 @@ pub struct Workspace {
     pub color: String,
     pub position: i64,
     pub created_at: i64,
+    pub group_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -54,7 +55,8 @@ pub fn init_db(path: &Path) -> Result<Connection> {
             emoji      TEXT NOT NULL DEFAULT '💻',
             color      TEXT NOT NULL DEFAULT '#e8a045',
             position   INTEGER NOT NULL,
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            group_name TEXT
         );
         CREATE TABLE IF NOT EXISTS terminals (
             id           TEXT PRIMARY KEY,
@@ -88,6 +90,7 @@ pub fn init_db(path: &Path) -> Result<Connection> {
     // By reusing existing DB records and only respawning their PTY processes,
     // we persist workspace layouts without accumulating stale DB rows.
     let _ = conn.execute("ALTER TABLE terminals ADD COLUMN title TEXT", []);
+    let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN group_name TEXT", []);
     Ok(conn)
 }
 
@@ -104,7 +107,7 @@ pub fn clear_all_data(conn: &Connection) -> Result<()> {
 
 pub fn get_workspaces(conn: &Connection) -> Result<Vec<Workspace>> {
     let mut stmt = conn.prepare(
-        "SELECT id,name,emoji,color,position,created_at FROM workspaces ORDER BY position",
+        "SELECT id,name,emoji,color,position,created_at,group_name FROM workspaces ORDER BY position",
     )?;
     let rows = stmt
         .query_map([], |r| {
@@ -115,6 +118,7 @@ pub fn get_workspaces(conn: &Connection) -> Result<Vec<Workspace>> {
                 color: r.get(3)?,
                 position: r.get(4)?,
                 created_at: r.get(5)?,
+                group_name: r.get(6)?,
             })
         })?
         .collect();
@@ -154,8 +158,8 @@ pub fn create_workspace(
     )?;
     let created_at = now_ms();
     conn.execute(
-        "INSERT INTO workspaces (id,name,emoji,color,position,created_at) VALUES (?1,?2,?3,?4,?5,?6)",
-        params![id, name, emoji, color, position, created_at],
+        "INSERT INTO workspaces (id,name,emoji,color,position,created_at,group_name) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        params![id, name, emoji, color, position, created_at, Option::<String>::None],
     )?;
     Ok(Workspace {
         id,
@@ -164,6 +168,7 @@ pub fn create_workspace(
         color: color.into(),
         position,
         created_at,
+        group_name: None,
     })
 }
 
@@ -256,6 +261,7 @@ pub fn delete_terminal(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn save_scrollback(conn: &Connection, terminal_id: &str, lines: &[String]) -> Result<()> {
     conn.execute(
         "DELETE FROM scrollback WHERE terminal_id=?1",
@@ -271,6 +277,7 @@ pub fn save_scrollback(conn: &Connection, terminal_id: &str, lines: &[String]) -
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn load_scrollback(conn: &Connection, terminal_id: &str) -> Result<Vec<String>> {
     let mut stmt =
         conn.prepare("SELECT data FROM scrollback WHERE terminal_id=?1 ORDER BY line_index")?;

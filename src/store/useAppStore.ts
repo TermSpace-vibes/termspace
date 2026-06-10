@@ -7,6 +7,7 @@ import {
   updateSplitSizes,
   addBrowserPaneToLayout, removeBrowserPaneFromLayout,
   addEditorPaneToLayout, removeEditorPaneFromLayout,
+  addKubernetesPaneToLayout, removeKubernetesPaneFromLayout,
 } from '../utils/layout'
 
 interface AppState {
@@ -16,6 +17,7 @@ interface AppState {
   terminalsByWorkspace: Record<string, Terminal[]>
   browserPanesByWorkspace: Record<string, BrowserPane[]>
   editorPanesByWorkspace: Record<string, EditorPane[]>
+  kubernetesPanesByWorkspace: Record<string, import('../types').KubernetesPane[]>
   layoutsByWorkspace: Record<string, LayoutNode | null>
   gitStatusByWorkspace: Record<string, GitStatus>
   activeFileByWorkspace: Record<string, string | null>
@@ -41,12 +43,16 @@ interface AppState {
   renameTerminal: (workspaceId: string, terminalId: string, title: string) => void
   updateTerminalCwd: (workspaceId: string, terminalId: string, cwd: string) => void
   setTerminalNotification: (workspaceId: string, terminalId: string, count: number) => void
+  setTerminalExecutionState: (workspaceId: string, terminalId: string, state: 'idle' | 'running' | 'stalled') => void
   setBrowserPanes: (workspaceId: string, panes: BrowserPane[]) => void
   addBrowserPane: (workspaceId: string, pane: BrowserPane, targetId?: string, direction?: LayoutDirection) => void
   removeBrowserPane: (workspaceId: string, browserPaneId: string) => void
   setEditorPanes: (workspaceId: string, panes: EditorPane[]) => void
   addEditorPane: (workspaceId: string, pane: EditorPane, targetId?: string, direction?: LayoutDirection) => void
   removeEditorPane: (workspaceId: string, editorPaneId: string) => void
+  addKubernetesPane: (workspaceId: string, pane: import('../types').KubernetesPane, targetId?: string, direction?: LayoutDirection) => void
+  removeKubernetesPane: (workspaceId: string, kubernetesPaneId: string) => void
+  updateKubernetesPane: (workspaceId: string, kubernetesPaneId: string, updates: Partial<import('../types').KubernetesPane>) => void
   updateEditorPaneFile: (workspaceId: string, editorPaneId: string, openFilePath: string | null, lineNumber?: number) => void
   closeEditorFile: (workspaceId: string, editorPaneId: string, filePath: string) => void
   updateEditorPaneLayout: (workspaceId: string, editorPaneId: string, layout: Partial<EditorPane>) => void
@@ -63,8 +69,8 @@ interface AppState {
   removeBookmark: (url: string) => void
   refreshGitStatus: (workspaceId: string, rootPath: string) => Promise<void>
   
-  toasts: { id: string; message: string; type: 'success' | 'error' | 'info' }[]
-  addToast: (message: string, type?: 'success' | 'error' | 'info') => void
+  toasts: { id: string; message: string; type: 'success' | 'error' | 'info'; action?: { label: string; onClick: () => void } }[]
+  addToast: (message: string, type?: 'success' | 'error' | 'info', action?: { label: string; onClick: () => void }) => void
   removeToast: (id: string) => void
 
   showCommandPalette: boolean
@@ -78,6 +84,12 @@ interface AppState {
 
   terminalToCloseId: { workspaceId: string, terminalId: string } | null
   setTerminalToCloseId: (data: { workspaceId: string, terminalId: string } | null) => void
+
+  tasksCollapsed: boolean
+  setTasksCollapsed: (collapsed: boolean) => void
+
+  draggedTerminalId: string | null
+  setDraggedTerminalId: (id: string | null) => void
 }
 
 export const useAppStore = create<AppState>()(
@@ -89,6 +101,7 @@ export const useAppStore = create<AppState>()(
       terminalsByWorkspace: {},
       browserPanesByWorkspace: {},
       editorPanesByWorkspace: {},
+      kubernetesPanesByWorkspace: {},
       layoutsByWorkspace: {},
       gitStatusByWorkspace: {},
       activeFileByWorkspace: {},
@@ -100,7 +113,8 @@ export const useAppStore = create<AppState>()(
       isModalOpen: false,
       activatingWorkspaces: {},
       terminalToCloseId: null,
-      setTerminalToCloseId: (data) => set({ terminalToCloseId: data }),
+      tasksCollapsed: false,
+      draggedTerminalId: null,
       username: null,
       setUsername: (name) => set({ username: name }),
       settings: {
@@ -260,6 +274,16 @@ export const useAppStore = create<AppState>()(
           }
         }),
 
+      setTerminalExecutionState: (workspaceId, terminalId, executionState) =>
+        set((s) => ({
+          terminalsByWorkspace: {
+            ...s.terminalsByWorkspace,
+            [workspaceId]: (s.terminalsByWorkspace[workspaceId] || []).map((t) =>
+              t.id === terminalId ? { ...t, executionState } : t
+            ),
+          },
+        })),
+
       setBrowserPanes: (workspaceId, panes) =>
         set((s) => {
           let layout = s.layoutsByWorkspace[workspaceId] ?? null
@@ -408,6 +432,50 @@ export const useAppStore = create<AppState>()(
           }
         }),
 
+      addKubernetesPane: (workspaceId, pane, targetId, direction) =>
+        set((s) => {
+          const layout = s.layoutsByWorkspace[workspaceId] ?? null
+          return {
+            kubernetesPanesByWorkspace: {
+              ...s.kubernetesPanesByWorkspace,
+              [workspaceId]: [...(s.kubernetesPanesByWorkspace[workspaceId] ?? []), pane],
+            },
+            layoutsByWorkspace: {
+              ...s.layoutsByWorkspace,
+              [workspaceId]: addKubernetesPaneToLayout(layout, pane.id, targetId, direction),
+            },
+          }
+        }),
+
+      removeKubernetesPane: (workspaceId, kubernetesPaneId) =>
+        set((s) => {
+          const layout = s.layoutsByWorkspace[workspaceId] ?? null
+          return {
+            kubernetesPanesByWorkspace: {
+              ...s.kubernetesPanesByWorkspace,
+              [workspaceId]: (s.kubernetesPanesByWorkspace[workspaceId] ?? []).filter(
+                (p) => p.id !== kubernetesPaneId,
+              ),
+            },
+            layoutsByWorkspace: {
+              ...s.layoutsByWorkspace,
+              [workspaceId]: removeKubernetesPaneFromLayout(layout, kubernetesPaneId),
+            },
+          }
+        }),
+
+      updateKubernetesPane: (workspaceId, kubernetesPaneId, updates) =>
+        set((s) => {
+          return {
+            kubernetesPanesByWorkspace: {
+              ...s.kubernetesPanesByWorkspace,
+              [workspaceId]: (s.kubernetesPanesByWorkspace[workspaceId] ?? []).map((p) =>
+                p.id === kubernetesPaneId ? { ...p, ...updates } : p
+              ),
+            },
+          }
+        }),
+
       updateEditorPaneFile: (workspaceId: string, editorPaneId: string, openFilePath: string | null, lineNumber?: number) =>
         set((s) => ({
           activeFileByWorkspace: {
@@ -523,10 +591,12 @@ export const useAppStore = create<AppState>()(
       updateLayoutSizes: (workspaceId, splitId, sizes) => 
         set((s) => {
           const layout = s.layoutsByWorkspace[workspaceId] ?? null
+          const newLayout = updateSplitSizes(layout, splitId, sizes)
+          if (layout === newLayout) return s // Bail out without making changes if layout is identical
           return {
             layoutsByWorkspace: {
               ...s.layoutsByWorkspace,
-              [workspaceId]: updateSplitSizes(layout, splitId, sizes),
+              [workspaceId]: newLayout,
             }
           }
         }),
@@ -573,9 +643,9 @@ export const useAppStore = create<AppState>()(
         }
       },
 
-      addToast: (message, type = 'info') => {
-        const id = Math.random().toString(36).substring(2, 9)
-        set((s) => ({ toasts: [...s.toasts, { id, message, type }] }))
+      addToast: (message, type = 'info', action) => {
+        const id = crypto.randomUUID()
+        set((s) => ({ toasts: [...s.toasts, { id, message, type, action }] }))
         setTimeout(() => {
           useAppStore.getState().removeToast(id)
         }, 3000)
@@ -586,16 +656,21 @@ export const useAppStore = create<AppState>()(
       setActivatingWorkspace: (id, activating) => set((s) => ({
         activatingWorkspaces: { ...s.activatingWorkspaces, [id]: activating }
       })),
+      setTerminalToCloseId: (data) => set({ terminalToCloseId: data }),
+      setTasksCollapsed: (collapsed) => set({ tasksCollapsed: collapsed }),
+      setDraggedTerminalId: (id) => set({ draggedTerminalId: id }),
     }),
     {
-      name: 'termspace-storage',
+      name: import.meta.env.DEV ? 'termspace-storage-dev' : 'termspace-storage',
       partialize: (state) => ({ 
         settings: state.settings,
         layoutsByWorkspace: state.layoutsByWorkspace,
         browserHistory: state.browserHistory,
         bookmarks: state.bookmarks,
         editorPanesByWorkspace: state.editorPanesByWorkspace,
-        gitStatusByWorkspace: state.gitStatusByWorkspace
+        kubernetesPanesByWorkspace: state.kubernetesPanesByWorkspace,
+        gitStatusByWorkspace: state.gitStatusByWorkspace,
+        tasksCollapsed: state.tasksCollapsed
       }),
     }
   )

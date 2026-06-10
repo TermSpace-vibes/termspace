@@ -54,6 +54,27 @@ export function ToastContainer() {
               </span>
             )}
             <span style={{ color: 'var(--text-active)', fontSize: 14, flex: 1 }}>{toast.message}</span>
+            {toast.action && (
+              <button
+                onClick={() => {
+                  toast.action?.onClick()
+                  removeToast(toast.id)
+                }}
+                style={{
+                  background: 'var(--accent)',
+                  color: 'var(--bg-main)',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  marginLeft: 8,
+                }}
+              >
+                {toast.action.label}
+              </button>
+            )}
             <button
               onClick={() => removeToast(toast.id)}
               style={{

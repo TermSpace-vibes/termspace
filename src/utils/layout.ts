@@ -23,7 +23,7 @@ export function addTerminalToLayout(
 
   // If no targetId, we just split the root.
   if (!targetId) {
-    if (root.type === 'pane' || root.type === 'browser' || root.type === 'editor') {
+    if (root.type === 'pane' || root.type === 'browser' || root.type === 'editor' || root.type === 'kubernetes') {
       return {
         type: 'split',
         id: ROOT_SPLIT_ID,
@@ -69,9 +69,15 @@ export function addTerminalToLayout(
       }
       return node
     }
-    
     if (node.type === 'editor') {
       if (node.editorPaneId === targetId) {
+        return { type: 'split', id: splitId, direction, sizes: [50, 50], children: splitChildren }
+      }
+      return node
+    }
+    
+    if (node.type === 'kubernetes') {
+      if (node.kubernetesPaneId === targetId) {
         return { type: 'split', id: splitId, direction, sizes: [50, 50], children: splitChildren }
       }
       return node
@@ -98,7 +104,7 @@ export function removeTerminalFromLayout(root: LayoutNode | null, terminalId: st
       return node
     }
 
-    if (node.type === 'browser' || node.type === 'editor') return node
+    if (node.type === 'browser' || node.type === 'editor' || node.type === 'kubernetes') return node
 
     if (node.type === 'split') {
       const newChildren = node.children.map(traverseAndRemove).filter(Boolean) as LayoutNode[]
@@ -136,7 +142,7 @@ export function swapTerminalsInLayout(root: LayoutNode | null, sourceTerminalId:
       }
       return node
     }
-    if (node.type === 'browser' || node.type === 'editor') return node
+    if (node.type === 'browser' || node.type === 'editor' || node.type === 'kubernetes') return node
     if (node.type === 'split') {
       return { ...node, children: node.children.map(traverseAndSwap) }
     }
@@ -150,13 +156,24 @@ export function updateSplitSizes(root: LayoutNode | null, splitId: string, sizes
   if (!root) return null
 
   function traverseAndUpdate(node: LayoutNode): LayoutNode {
-    if (node.type === 'pane') return node
-    if (node.type === 'browser' || node.type === 'editor') return node
+    if (node.type === 'pane' || node.type === 'browser' || node.type === 'editor' || node.type === 'kubernetes') return node
     if (node.type === 'split') {
       if (node.id === splitId) {
-        return { ...node, sizes, children: node.children.map(traverseAndUpdate) }
+        const isSame = node.sizes && node.sizes.length === sizes.length && 
+                       node.sizes.every((s, i) => Math.abs(s - sizes[i]) < 0.1)
+        if (isSame) return node
+        return { ...node, sizes, children: node.children }
       }
-      return { ...node, children: node.children.map(traverseAndUpdate) }
+      
+      let changed = false
+      const newChildren = node.children.map(child => {
+        const newChild = traverseAndUpdate(child)
+        if (newChild !== child) changed = true
+        return newChild
+      })
+      
+      if (!changed) return node
+      return { ...node, children: newChildren }
     }
     return node
   }
@@ -177,7 +194,7 @@ export function addBrowserPaneToLayout(
   }
 
   if (!targetId) {
-    if (root.type === 'pane' || root.type === 'browser' || root.type === 'editor') {
+    if (root.type === 'pane' || root.type === 'browser' || root.type === 'editor' || root.type === 'kubernetes') {
       return { type: 'split', id: ROOT_SPLIT_ID, direction, sizes: [50, 50], children: [root, newNode] }
     }
     // Already a split — append
@@ -209,6 +226,12 @@ export function addBrowserPaneToLayout(
       }
       return node
     }
+    if (node.type === 'kubernetes') {
+      if (node.kubernetesPaneId === targetId) {
+        return { type: 'split', id: splitId, direction, sizes: [50, 50], children: splitChildren }
+      }
+      return node
+    }
     if (node.type === 'split') {
       return { ...node, children: node.children.map(traverseAndAdd) }
     }
@@ -225,7 +248,7 @@ export function removeBrowserPaneFromLayout(root: LayoutNode | null, browserPane
     if (node.type === 'browser') {
       return node.browserPaneId === browserPaneId ? null : node
     }
-    if (node.type === 'pane' || node.type === 'editor') return node
+    if (node.type === 'pane' || node.type === 'editor' || node.type === 'kubernetes') return node
     if (node.type === 'split') {
       const newChildren = node.children.map(traverseAndRemove).filter(Boolean) as LayoutNode[]
       if (newChildren.length === 0) return null
@@ -262,7 +285,7 @@ export function addEditorPaneToLayout(
   }
 
   if (!targetId) {
-    if (root.type === 'pane' || root.type === 'browser' || root.type === 'editor') {
+    if (root.type === 'pane' || root.type === 'browser' || root.type === 'editor' || root.type === 'kubernetes') {
       return { type: 'split', id: ROOT_SPLIT_ID, direction, sizes: [50, 50], children: [root, newNode] }
     }
     // Already a split — append
@@ -294,6 +317,12 @@ export function addEditorPaneToLayout(
       }
       return node
     }
+    if (node.type === 'kubernetes') {
+      if (node.kubernetesPaneId === targetId) {
+        return { type: 'split', id: splitId, direction, sizes: [50, 50], children: splitChildren }
+      }
+      return node
+    }
     if (node.type === 'split') {
       return { ...node, children: node.children.map(traverseAndAdd) }
     }
@@ -310,11 +339,101 @@ export function removeEditorPaneFromLayout(root: LayoutNode | null, editorPaneId
     if (node.type === 'editor') {
       return node.editorPaneId === editorPaneId ? null : node
     }
-    if (node.type === 'pane' || node.type === 'browser') return node
+    if (node.type === 'pane' || node.type === 'browser' || node.type === 'kubernetes') return node
     if (node.type === 'split') {
       const newChildren = node.children.map(traverseAndRemove).filter(Boolean) as LayoutNode[]
       if (newChildren.length === 0) return null
       // Don't collapse 1-child splits — keeps react-resizable-panels component tree stable
+      const removedCount = node.children.length - newChildren.length
+      if (removedCount === 0) return { ...node, children: newChildren }
+      const removedIndices = new Set(
+        node.children
+          .map((child, i) => ({ child, i }))
+          .filter(({ child }) => !newChildren.includes(child))
+          .map(({ i }) => i)
+      )
+      const survivingOriginalSizes = node.sizes.filter((_, i) => !removedIndices.has(i))
+      const total = survivingOriginalSizes.reduce((a, b) => a + b, 0)
+      const normalizedSizes = survivingOriginalSizes.map(s => total > 0 ? (s / total) * 100 : 100 / newChildren.length)
+      return { ...node, children: newChildren, sizes: normalizedSizes }
+    }
+    return node
+  }
+
+  return traverseAndRemove(root)
+}
+
+export function addKubernetesPaneToLayout(
+  root: LayoutNode | null,
+  kubernetesPaneId: string,
+  targetId?: string,
+  direction: LayoutDirection = 'horizontal'
+): LayoutNode {
+  const newNode: LayoutNode = { type: 'kubernetes', id: `k8s-${kubernetesPaneId}`, kubernetesPaneId }
+
+  if (!root) {
+    return { type: 'split', id: ROOT_SPLIT_ID, direction: 'horizontal', sizes: [100], children: [newNode] }
+  }
+
+  if (!targetId) {
+    if (root.type === 'pane' || root.type === 'browser' || root.type === 'editor' || root.type === 'kubernetes') {
+      return { type: 'split', id: ROOT_SPLIT_ID, direction, sizes: [50, 50], children: [root, newNode] }
+    }
+    // Already a split — append
+    const count = root.children.length + 1
+    const newSizes = root.children.map(() => 100 / count)
+    newSizes.push(100 / count)
+    return { ...root, id: ROOT_SPLIT_ID, children: [...root.children, newNode], sizes: newSizes }
+  }
+
+  function traverseAndAdd(node: LayoutNode): LayoutNode {
+    const splitChildren = [node, newNode]
+    const splitId = `split-${splitChildren.map(c => c.id).join('|')}`
+
+    if (node.type === 'pane') {
+      if (node.terminalId === targetId) {
+        return { type: 'split', id: splitId, direction, sizes: [50, 50], children: splitChildren }
+      }
+      return node
+    }
+    if (node.type === 'browser') {
+      if (node.browserPaneId === targetId) {
+        return { type: 'split', id: splitId, direction, sizes: [50, 50], children: splitChildren }
+      }
+      return node
+    }
+    if (node.type === 'editor') {
+      if (node.editorPaneId === targetId) {
+        return { type: 'split', id: splitId, direction, sizes: [50, 50], children: splitChildren }
+      }
+      return node
+    }
+    if (node.type === 'kubernetes') {
+      if (node.kubernetesPaneId === targetId) {
+        return { type: 'split', id: splitId, direction, sizes: [50, 50], children: splitChildren }
+      }
+      return node
+    }
+    if (node.type === 'split') {
+      return { ...node, children: node.children.map(traverseAndAdd) }
+    }
+    return node
+  }
+
+  return traverseAndAdd(root)
+}
+
+export function removeKubernetesPaneFromLayout(root: LayoutNode | null, kubernetesPaneId: string): LayoutNode | null {
+  if (!root) return null
+
+  function traverseAndRemove(node: LayoutNode): LayoutNode | null {
+    if (node.type === 'kubernetes') {
+      return node.kubernetesPaneId === kubernetesPaneId ? null : node
+    }
+    if (node.type === 'pane' || node.type === 'browser' || node.type === 'editor') return node
+    if (node.type === 'split') {
+      const newChildren = node.children.map(traverseAndRemove).filter(Boolean) as LayoutNode[]
+      if (newChildren.length === 0) return null
       const removedCount = node.children.length - newChildren.length
       if (removedCount === 0) return { ...node, children: newChildren }
       const removedIndices = new Set(

@@ -6,6 +6,7 @@ export interface Workspace {
   position: number
   createdAt: number
   notificationCount?: number
+  groupName?: string
 }
 
 export interface Terminal {
@@ -19,6 +20,7 @@ export interface Terminal {
   createdAt: number
   scrollback?: string[]
   notificationCount?: number
+  executionState?: 'idle' | 'running' | 'stalled'
 }
 
 export interface BrowserPane {
@@ -42,6 +44,17 @@ export interface EditorPane {
   createdAt: number
   activeSidebarTab?: 'explorer' | 'git'
   diffViewEnabled?: boolean
+}
+
+export interface KubernetesPane {
+  id: string
+  workspaceId: string
+  position: number
+  createdAt: number
+  selectedContext?: string
+  selectedNamespace?: string
+  resourceType?: string
+  collapsedGroups?: string[]
 }
 
 export interface Keybindings {
@@ -69,6 +82,9 @@ export interface Settings {
   adblockEnabled?: boolean
   showTabBar?: boolean
   iconTheme?: 'plain' | 'colorful' | 'filled'
+  smoothCaret?: boolean
+  defaultTerminalType?: 'built-in' | 'ghostty'
+  terminalRenderer?: 'native' | 'xterm'
 }
 
 export type LayoutDirection = 'horizontal' | 'vertical'
@@ -77,6 +93,7 @@ export type LayoutNode =
   | { type: 'pane';    id: string; terminalId: string }
   | { type: 'browser'; id: string; browserPaneId: string }
   | { type: 'editor';  id: string; editorPaneId: string }
+  | { type: 'kubernetes'; id: string; kubernetesPaneId: string }
   | { type: 'split';   id: string; direction: LayoutDirection; sizes: number[]; children: LayoutNode[] }
 
 export interface GitStatus {
