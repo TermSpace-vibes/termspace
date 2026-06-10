@@ -27,9 +27,8 @@ fn get_mac_gpu_utilization() -> f32 {
     #[cfg(target_os = "macos")]
     {
         let output_res = {
-            let _lock = SPAWN_LOCK.lock().unwrap();
             std::process::Command::new("ioreg")
-                .args(&["-c", "AGXAccelerator", "-r", "-l"])
+                .args(&["-c", "IOGraphicsAccelerator2", "-r", "-l"])
                 .output()
         };
         if let Ok(output) = output_res {
@@ -176,6 +175,54 @@ pub fn delete_workspace(
 pub fn get_terminals(db: State<DbState>, workspace_id: String) -> Result<Vec<Terminal>, String> {
     println!(">>> RUST: get_terminals called for ws {}", workspace_id);
     db::get_terminals(&db.0.lock().unwrap(), &workspace_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_terminal_active_cwd(
+    ntm: State<NativeTerminalManager>,
+    state: State<SysInfoState>,
+    id: String,
+) -> Result<String, String> {
+    let shell_pid = match ntm.get_pid(&id) {
+        Some(pid) => pid,
+        None => return Err("Terminal not found".into()),
+    };
+
+    // First try sysinfo
+    {
+        let mut state_lock = state.0.lock().unwrap();
+        let sys = &mut state_lock.0;
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(shell_pid)]), true);
+        if let Some(process) = sys.process(sysinfo::Pid::from_u32(shell_pid)) {
+            if let Some(cwd) = process.cwd() {
+                if !cwd.as_os_str().is_empty() {
+                    return Ok(cwd.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+
+    // Fallback to lsof if sysinfo failed or returned empty
+    let output = std::process::Command::new("lsof")
+        .args(&["-p", &shell_pid.to_string(), "-a", "-d", "cwd", "-F", "n"])
+        .output();
+
+    if let Ok(out) = output {
+        let s = String::from_utf8_lossy(&out.stdout);
+        for line in s.lines() {
+            if line.starts_with("n") {
+                return Ok(line[1..].to_string());
+            }
+        }
+    }
+
+    // Fallback to stored cwd in ntm
+    let handles = ntm.handles.lock();
+    if let Some(h) = handles.get(&id) {
+        return Ok(h.cwd.lock().clone());
+    }
+
+    Err("Could not determine cwd".into())
 }
 
 #[tauri::command]
@@ -876,5 +923,56 @@ pub fn play_notification_sound(player: State<'_, crate::audio::AudioPlayer>) -> 
     // We can include a small beep.mp3 or wav here later.
     // For now we just log it or pass a tiny hardcoded beep.
     println!(">>> RUST: play_notification_sound called");
+    player.play_sound_bytes(&[]);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_k8s_resources(resource: String, namespace: String) -> Result<String, String> {
+    let mut args = vec!["get", &resource, "-o", "json"];
+    if !namespace.is_empty() && namespace != "all" {
+        args.push("-n");
+        args.push(&namespace);
+    } else if namespace == "all" {
+        args.push("-A");
+    }
+
+    let output = std::process::Command::new("kubectl")
+        .args(&args)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn get_k8s_contexts() -> Result<String, String> {
+    let output = std::process::Command::new("kubectl")
+        .args(&["config", "view", "-o", "json"])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn set_k8s_context(context_name: String) -> Result<(), String> {
+    let output = std::process::Command::new("kubectl")
+        .args(&["config", "use-context", &context_name])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
 }

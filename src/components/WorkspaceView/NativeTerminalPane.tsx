@@ -1,10 +1,22 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { invoke, listen } from '../../utils/tauri'
+import { DRAG_FORMAT_TERMINAL } from '../../utils/constants'
 import { useAppStore } from '../../store/useAppStore'
 import { CanvasRenderer } from './renderers/CanvasRenderer'
 import { WebGLRenderer } from './renderers/WebGLRenderer'
-import type { TerminalSnapshot, SnapshotCell, CursorState, SearchMatch } from './renderers/types'
+import { TerminalSnapshot, CursorState, SearchMatch, SelectionRange } from './renderers/types'
 import { useKeybindingHandler } from '../../hooks/useGlobalKeybindings'
+import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager'
+
+const writeTerminalChunked = async (terminalId: string, data: string) => {
+  const CHUNK_SIZE = 4096;
+  for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+    await invoke('write_terminal', { terminalId, data: data.slice(i, i + CHUNK_SIZE) });
+    if (i + CHUNK_SIZE < data.length) {
+      await new Promise(r => setTimeout(r, 1));
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -15,10 +27,10 @@ export interface NativeTerminalPaneProps {
   workspaceId: string
   isActive: boolean
   isMaximized: boolean
-  onFocus: () => void
-  onToggleMaximize: () => void
-  onClose: () => void
-  onSplit: (direction: 'horizontal' | 'vertical') => void
+  onFocus: (id: string) => void
+  onToggleMaximize: (id: string) => void
+  onClose: (id: string) => void
+  onSplit: (id: string, direction: 'horizontal' | 'vertical') => void
   isDragOver?: boolean
 }
 
@@ -26,8 +38,8 @@ export interface NativeTerminalPaneProps {
 // Constants
 // ---------------------------------------------------------------------------
 
-const ACCENT = '#e8a045'
-const BG_TERMINAL = '#161310'
+const ACCENT = 'var(--accent)'
+const BG_TERMINAL = 'var(--bg-terminal)'
 
 // ---------------------------------------------------------------------------
 // Component
@@ -46,7 +58,7 @@ const BG_TERMINAL = '#161310'
  * NOTE: This component does NOT call `spawn_terminal`. Spawning is the
  * responsibility of TerminalGrid (Task 11).
  */
-export function NativeTerminalPane({
+export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   terminalId,
   workspaceId,
   isActive,
@@ -60,16 +72,34 @@ export function NativeTerminalPane({
   // ── DOM refs ───────────────────────────────────────────────────────────────
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const scrollbarThumbRef = useRef<HTMLDivElement>(null)
+  
+  // Smooth caret animation state
+  const animatedCursorRef = useRef({ col: 0, row: 0, lastTime: 0, lastDisplayOffset: 0 })
+  const isAnimatingCursorRef = useRef(false)
+  
+  const pendingScrollDeltaRef = useRef(0)
+  const backendOffsetRef = useRef(0)
+  const lastWheelTimeRef = useRef(0)
+  
+  // ── Selection state ────────────────────────────────────────────────────────
+  const selectionRef = useRef<SelectionRange | null>(null)
+  const isDraggingRef = useRef(false)
 
   // ── Renderer + snapshot state (refs to avoid re-render on every frame) ────
   const rendererRef = useRef<CanvasRenderer | WebGLRenderer | null>(null)
-  const cellsRef = useRef<SnapshotCell[]>([])
+  const cellsRef = useRef<Uint32Array>(new Uint32Array())
   const colsRef = useRef(80)
   const rowsRef = useRef(24)
   const cursorRef = useRef<CursorState>({ col: 0, row: 0, visible: true })
   const frameQueued = useRef(false)
   const cwdRef = useRef('')
+  const titleRef = useRef('')
   const highlightsRef = useRef<SearchMatch[]>([])
+  
+  const isAlternateRef = useRef(false)
+  const displayOffsetRef = useRef(0)
+  const totalHistoryRef = useRef(0)
 
   // Cell dimensions derived from current font settings.
   const cellWRef = useRef(8.4)
@@ -95,6 +125,7 @@ export function NativeTerminalPane({
   const terminalIndex = useAppStore(s =>
     (s.terminalsByWorkspace[workspaceId]?.findIndex(t => t.id === terminalId) ?? -1) + 1
   )
+  const setDraggedTerminalId = useAppStore(s => s.setDraggedTerminalId)
   const renameTerminal = useAppStore(s => s.renameTerminal)
   const setTerminalNotification = useAppStore(s => s.setTerminalNotification)
 
@@ -143,19 +174,75 @@ export function NativeTerminalPane({
   const scheduleRender = useCallback(() => {
     if (frameQueued.current) return
     frameQueued.current = true
-    requestAnimationFrame(() => {
+    requestAnimationFrame((time) => {
       frameQueued.current = false
       if (!canvasRef.current || !rendererRef.current) return
+      
+      if (scrollbarThumbRef.current) {
+        const total = totalHistoryRef.current
+        const offset = displayOffsetRef.current
+        const rows = rowsRef.current
+        if (total > 0 && !isAlternateRef.current) {
+          scrollbarThumbRef.current.style.display = 'block'
+          const pctHeight = Math.max(1, (rows / (total + rows)) * 100)
+          const pctBottom = (offset / (total + rows)) * 100
+          scrollbarThumbRef.current.style.height = `${pctHeight}%`
+          scrollbarThumbRef.current.style.bottom = `${pctBottom}%`
+        } else {
+          scrollbarThumbRef.current.style.display = 'none'
+        }
+      }
+
+      // --- Cursor Animation Logic ---
+      const target = cursorRef.current;
+      const anim = animatedCursorRef.current;
+      
+      if (anim.lastTime === 0) anim.lastTime = time;
+      const dt = Math.min((time - anim.lastTime) / 1000, 0.1);
+      anim.lastTime = time;
+
+      const SPEED = 25.0;
+      
+      // Teleport condition: line wraps, enters, or scroll changes
+      const rowChanged = Math.abs(target.row - anim.row) >= 0.5;
+      const colChangedALot = Math.abs(target.col - anim.col) > 5;
+      const smoothCaretEnabled = useAppStore.getState().settings.smoothCaret ?? true;
+      
+      if (!smoothCaretEnabled || anim.lastDisplayOffset !== displayOffsetRef.current || (rowChanged && colChangedALot)) {
+         anim.col = target.col;
+         anim.row = target.row;
+      } else {
+         anim.col += (target.col - anim.col) * (1.0 - Math.exp(-SPEED * dt));
+         anim.row += (target.row - anim.row) * (1.0 - Math.exp(-SPEED * dt));
+      }
+      anim.lastDisplayOffset = displayOffsetRef.current;
+
+      if (smoothCaretEnabled && (Math.abs(anim.col - target.col) > 0.01 || Math.abs(anim.row - target.row) > 0.01)) {
+         isAnimatingCursorRef.current = true;
+      } else {
+         anim.col = target.col;
+         anim.row = target.row;
+         isAnimatingCursorRef.current = false;
+         anim.lastTime = 0;
+      }
+      
+      const renderCursor = { ...target, col: anim.col, row: anim.row };
+
       rendererRef.current.render(
         canvasRef.current,
         cellsRef.current,
         colsRef.current,
         rowsRef.current,
-        cursorRef.current,
+        renderCursor,
         cellWRef.current,
         cellHRef.current,
         highlightsRef.current,
+        selectionRef.current,
       )
+
+      if (isAnimatingCursorRef.current) {
+        scheduleRender()
+      }
     })
   }, [])
 
@@ -182,21 +269,29 @@ export function NativeTerminalPane({
     // Snapshot updates — primary paint source.
     const ul1 = listen<TerminalSnapshot>(`native-terminal-update-${terminalId}`, (e) => {
       const snap = e.payload
-      cellsRef.current = snap.cells
+      const b64 = snap.cells_b64 ?? (snap as any).cellsB64 ?? ''
+      const u8 = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
+      cellsRef.current = new Uint32Array(u8.buffer.slice(0, u8.byteLength))
       colsRef.current = snap.cols
       rowsRef.current = snap.rows
       cursorRef.current = {
-        col: snap.cursorCol,
-        row: snap.cursorRow,
-        visible: snap.cursorVisible,
+        col: snap.cursorCol ?? (snap as any).cursor_col,
+        row: snap.cursorRow ?? (snap as any).cursor_row,
+        visible: snap.cursorVisible ?? (snap as any).cursor_visible,
       }
+      isAlternateRef.current = snap.isAlternate ?? (snap as any).is_alternate ?? false
+      displayOffsetRef.current = snap.displayOffset ?? (snap as any).display_offset ?? 0
+      totalHistoryRef.current = snap.totalHistory ?? (snap as any).total_history ?? 0
       if (snap.cwd && snap.cwd !== cwdRef.current) {
         cwdRef.current = snap.cwd
         setCwd(snap.cwd)
         // Persist updated cwd to the store / database via Rust.
         invoke('update_terminal_cwd', { id: terminalId, cwd: snap.cwd }).catch(console.error)
       }
-      if (snap.title) setTitle(snap.title)
+      if (snap.title && snap.title !== titleRef.current) {
+        titleRef.current = snap.title
+        setTitle(snap.title)
+      }
       scheduleRender()
     })
 
@@ -208,6 +303,9 @@ export function NativeTerminalPane({
     // Terminal bell — increment the notification count so the tab badge
     // draws attention even when the pane is not focused.
     const ul3 = listen(`native-terminal-bell-${terminalId}`, () => {
+      // Do not show notifications if the terminal is actively focused
+      if (document.activeElement === canvasRef.current) return
+
       const current =
         useAppStore.getState().terminalsByWorkspace[workspaceId]
           ?.find(t => t.id === terminalId)
@@ -280,12 +378,12 @@ export function NativeTerminalPane({
     // Page scroll forwarded to Rust scrollback buffer.
     if (e.key === 'PageUp') {
       e.preventDefault()
-      invoke('scroll_terminal', { terminalId, delta: -(rowsRef.current - 1) }).catch(console.error)
+      invoke('scroll_terminal', { terminalId, delta: 1 }).catch(console.error)
       return
     }
     if (e.key === 'PageDown') {
       e.preventDefault()
-      invoke('scroll_terminal', { terminalId, delta: rowsRef.current - 1 }).catch(console.error)
+      invoke('scroll_terminal', { terminalId, delta: -1 }).catch(console.error)
       return
     }
 
@@ -294,7 +392,90 @@ export function NativeTerminalPane({
       e.preventDefault()
       invoke('write_terminal', { terminalId, data }).catch(console.error)
     }
+
   }, [terminalId])
+
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
+    // Only handle vertical scrolling
+    if (Math.abs(e.deltaY) < 1) return
+    
+    let physicalDelta = 0
+    if (e.deltaMode === 1) physicalDelta = e.deltaY * cellHRef.current
+    else if (e.deltaMode === 2) physicalDelta = e.deltaY * rowsRef.current * cellHRef.current
+    else physicalDelta = e.deltaY
+
+    backendOffsetRef.current += physicalDelta
+    lastWheelTimeRef.current = performance.now()
+
+    const lineThreshold = cellHRef.current > 0 ? cellHRef.current : 20
+    if (Math.abs(backendOffsetRef.current) >= lineThreshold) {
+      const lines = Math.trunc(backendOffsetRef.current / lineThreshold)
+      backendOffsetRef.current -= lines * lineThreshold
+      pendingScrollDeltaRef.current -= lines // backend needs negative for prompt, positive for history
+    }
+  }, [terminalId])
+
+  // ── Smooth scroll decay loop ───────────────────────────────────────────────
+  useEffect(() => {
+    let handle: number
+    const tick = () => {
+      if (pendingScrollDeltaRef.current !== 0) {
+        invoke('scroll_terminal', { terminalId, delta: pendingScrollDeltaRef.current }).catch(console.error)
+        pendingScrollDeltaRef.current = 0
+      }
+      handle = requestAnimationFrame(tick)
+    }
+    handle = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(handle)
+  }, [terminalId])
+
+  const getCellCoords = useCallback((e: MouseEvent | React.MouseEvent) => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return { row: 0, col: 0 }
+    const col = Math.max(0, Math.min(colsRef.current, Math.floor((e.clientX - rect.left) / cellWRef.current)))
+    const row = Math.max(0, Math.min(rowsRef.current - 1, Math.floor((e.clientY - rect.top) / cellHRef.current)))
+    return { row, col }
+  }, [])
+
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0) return
+    const { row, col } = getCellCoords(e)
+    selectionRef.current = { startRow: row, startCol: col, endRow: row, endCol: col }
+    isDraggingRef.current = true
+    scheduleRender()
+  }, [getCellCoords, scheduleRender])
+
+  useEffect(() => {
+    const handleWinMouseMove = (e: MouseEvent) => {
+      if (!isDraggingRef.current || !selectionRef.current) return
+      const { row, col } = getCellCoords(e)
+      selectionRef.current.endRow = row
+      selectionRef.current.endCol = col
+      scheduleRender()
+    }
+
+    const handleWinMouseUp = (e: MouseEvent) => {
+      if (!isDraggingRef.current) return
+      isDraggingRef.current = false
+      const { row, col } = getCellCoords(e)
+      if (selectionRef.current) {
+        selectionRef.current.endRow = row
+        selectionRef.current.endCol = col
+        if (selectionRef.current.startRow === selectionRef.current.endRow && 
+            selectionRef.current.startCol === selectionRef.current.endCol) {
+          selectionRef.current = null
+        }
+      }
+      scheduleRender()
+    }
+
+    window.addEventListener('mousemove', handleWinMouseMove)
+    window.addEventListener('mouseup', handleWinMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleWinMouseMove)
+      window.removeEventListener('mouseup', handleWinMouseUp)
+    }
+  }, [getCellCoords, scheduleRender])
 
   // ── Title editing ──────────────────────────────────────────────────────────
   const handleTitleSave = () => {
@@ -314,7 +495,78 @@ export function NativeTerminalPane({
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div
-      onClick={onFocus}
+      onClick={() => onFocus(terminalId)}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        
+        const menuItems: any[] = []
+        
+        const selectedText = getSelectedText(cellsRef.current, colsRef.current, rowsRef.current, selectionRef.current)
+        if (selectedText) {
+          menuItems.push({
+            label: 'Copy',
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>,
+            onClick: () => {
+              if (selectedText) {
+                writeText(selectedText)
+                selectionRef.current = null
+                scheduleRender()
+              }
+            }
+          })
+        }
+        
+        menuItems.push({
+          label: 'Paste',
+          icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>,
+          onClick: () => {
+            readText().then(text => {
+              if (text) {
+                const sanitizedText = text.replace(/\r?\n/g, '\r');
+                writeTerminalChunked(terminalId, sanitizedText).catch(e => {
+                  console.error('Write terminal error:', e);
+                  useAppStore.getState().addToast('Write error: ' + String(e), 'error');
+                })
+              } else {
+                useAppStore.getState().addToast('Clipboard is empty or could not be read.', 'error');
+              }
+            }).catch(e => {
+              console.error('readText error:', e);
+              useAppStore.getState().addToast('Paste error: ' + String(e), 'error');
+            })
+          }
+        })
+        
+        menuItems.push({ separator: true, label: '', onClick: () => {} })
+
+        menuItems.push(
+          {
+            label: 'Split Down',
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="12" x2="21" y2="12"></line></svg>,
+            onClick: () => onSplit(terminalId, 'vertical')
+          },
+          {
+            label: 'Split Right',
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg>,
+            onClick: () => onSplit(terminalId, 'horizontal')
+          },
+          { separator: true, label: '', onClick: () => {} },
+          {
+            label: isMaximized ? 'Restore' : 'Maximize',
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>,
+            onClick: () => onToggleMaximize(terminalId)
+          },
+          {
+            label: 'Close Terminal',
+            danger: true,
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>,
+            onClick: () => onClose(terminalId)
+          }
+        )
+
+        useAppStore.getState().showContextMenu(e.clientX, e.clientY, menuItems)
+      }}
       style={{
         width: '100%',
         height: '100%',
@@ -326,10 +578,13 @@ export function NativeTerminalPane({
           : isActive
             ? '2px solid color-mix(in srgb, var(--accent) 40%, transparent)'
             : '2px solid transparent',
+        boxShadow: isDragOver
+          ? `0 0 15px color-mix(in srgb, ${ACCENT} 40%, transparent) inset`
+          : 'none',
         background: BG_TERMINAL,
         cursor: 'text',
         position: 'relative',
-        transition: 'border 0.2s',
+        transition: 'border 0.2s, box-shadow 0.2s',
         opacity: isDragOver ? 0.7 : 1,
       }}
     >
@@ -443,9 +698,27 @@ export function NativeTerminalPane({
 
           {/* Action buttons */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+            <div
+              draggable
+              onDragStart={(e) => {
+                e.stopPropagation()
+                e.dataTransfer.setData(DRAG_FORMAT_TERMINAL, terminalId)
+                e.dataTransfer.effectAllowed = 'move'
+                setDraggedTerminalId(terminalId)
+              }}
+              onDragEnd={() => {
+                setDraggedTerminalId(null)
+              }}
+              title="Drag to reorder"
+              style={{ color: 'var(--text-dim)', cursor: 'grab', display: 'flex', marginRight: 4 }}
+              onMouseEnter={e => e.currentTarget.style.color = 'var(--text-active)'}
+              onMouseLeave={e => e.currentTarget.style.color = 'var(--text-dim)'}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+            </div>
             <HeaderButton
               title="Split Right"
-              onClick={e => { e.stopPropagation(); onSplit('vertical') }}
+              onClick={e => { e.stopPropagation(); onSplit(terminalId, 'horizontal') }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -455,7 +728,7 @@ export function NativeTerminalPane({
 
             <HeaderButton
               title="Split Down"
-              onClick={e => { e.stopPropagation(); onSplit('horizontal') }}
+              onClick={e => { e.stopPropagation(); onSplit(terminalId, 'vertical') }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -465,7 +738,7 @@ export function NativeTerminalPane({
 
             <HeaderButton
               title={isMaximized ? 'Restore' : 'Maximize'}
-              onClick={e => { e.stopPropagation(); onToggleMaximize() }}
+              onClick={e => { e.stopPropagation(); onToggleMaximize(terminalId) }}
               hoverColor={ACCENT}
               style={{ fontSize: 14, lineHeight: '1' }}
             >
@@ -474,7 +747,7 @@ export function NativeTerminalPane({
 
             <HeaderButton
               title="Close"
-              onClick={e => { e.stopPropagation(); onClose() }}
+              onClick={e => { e.stopPropagation(); onClose(terminalId) }}
               hoverColor="#e07b7b"
               style={{ fontSize: 16, lineHeight: '1', paddingBottom: 2 }}
             >
@@ -567,16 +840,34 @@ export function NativeTerminalPane({
           ref={canvasRef}
           tabIndex={0}
           onKeyDown={handleKeyDown}
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onCopy={(e) => {
+            const text = getSelectedText(cellsRef.current, colsRef.current, rowsRef.current, selectionRef.current)
+            if (text) {
+              e.clipboardData.setData('text/plain', text)
+              e.preventDefault()
+            }
+          }}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData('text/plain')
+            if (text) {
+              const sanitizedText = text.replace(/\r?\n/g, '\r');
+              writeTerminalChunked(terminalId, sanitizedText).catch(console.error)
+              e.preventDefault()
+            }
+          }}
           onFocus={() => {
             // Clear notification badge when the pane receives focus.
             setTerminalNotification(workspaceId, terminalId, 0)
+            onFocus(terminalId)
           }}
           style={{ display: 'block', outline: 'none', cursor: 'text' }}
         />
       </div>
     </div>
   )
-}
+})
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -678,4 +969,44 @@ function keyEventToData(e: React.KeyboardEvent): string | null {
   if (fKeys[key]) return fKeys[key]
 
   return null
+}
+
+/**
+ * Extracts the text content from a rectangular selection.
+ */
+function getSelectedText(cells: Uint32Array, cols: number, rows: number, selection: SelectionRange | null): string {
+  if (!selection) return ''
+  let r1 = selection.startRow, c1 = selection.startCol
+  let r2 = selection.endRow, c2 = selection.endCol
+  if (r1 > r2 || (r1 === r2 && c1 > c2)) {
+    r1 = selection.endRow; c1 = selection.endCol
+    r2 = selection.startRow; c2 = selection.startCol
+  }
+  r1 = Math.max(0, Math.min(rows - 1, r1))
+  r2 = Math.max(0, Math.min(rows - 1, r2))
+
+  const lines: string[] = []
+  for (let r = r1; r <= r2; r++) {
+    let sc = (r === r1) ? c1 : 0
+    let ec = (r === r2) ? c2 : cols
+    sc = Math.max(0, Math.min(cols, sc))
+    ec = Math.max(0, Math.min(cols, ec))
+
+    let line = ''
+    for (let c = sc; c < ec; c++) {
+      const ci = r * cols + c;
+      const ch_u32 = cells[ci * 4];
+      if (ch_u32 && ch_u32 !== 0 && ch_u32 !== 32) {
+        line += String.fromCodePoint(ch_u32);
+      } else {
+        line += ' ';
+      }
+    }
+    // Trim trailing spaces for intermediate lines or if selection goes to the end
+    if (r < r2 || ec === cols) {
+      line = line.replace(/\s+$/, '')
+    }
+    lines.push(line)
+  }
+  return lines.join('\n')
 }

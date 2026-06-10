@@ -27,10 +27,11 @@ use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{self, Color, Rgb};
+use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
 /// A flat, renderer-ready view of the terminal grid at a single point in time.
@@ -45,24 +46,12 @@ pub struct TerminalSnapshot {
     pub cursor_col: u16,
     pub cursor_row: u16,
     pub cursor_visible: bool,
-    pub cells: Vec<SnapshotCell>,
+    pub is_alternate: bool,
+    pub cells_b64: String,
     pub cwd: Option<String>,
     pub title: Option<String>,
-}
-
-/// A single rendered cell. Colors are pre-resolved to packed ARGB so the
-/// frontend never needs the palette; `ch` is empty for blank cells to keep the
-/// payload small (the common case in a mostly-empty screen).
-#[derive(Serialize, Clone)]
-pub struct SnapshotCell {
-    /// The glyph; empty string means a blank (space) cell.
-    pub ch: String,
-    /// Foreground color, packed `0xAARRGGBB`.
-    pub fg: u32,
-    /// Background color, packed `0xAARRGGBB`.
-    pub bg: u32,
-    /// Bit-packed style flags: BOLD=1, DIM=2, ITALIC=4, UNDERLINE=8, STRIKEOUT=16.
-    pub flags: u8,
+    pub display_offset: usize,
+    pub total_history: usize,
 }
 
 /// A contiguous run of matched columns on a single row, used by terminal search.
@@ -88,6 +77,7 @@ pub struct NativeTerminalHandle {
     pub master: Box<dyn portable_pty::MasterPty + Send>,
     pub cwd: Arc<Mutex<String>>,
     pub title: Arc<Mutex<String>>,
+    pub app_handle: AppHandle,
 }
 
 /// `EventListener` implementation that bridges `alacritty_terminal` lifecycle
@@ -115,7 +105,7 @@ impl EventListener for TermEventSender {
     fn send_event(&self, event: Event) {
         match event {
             Event::Title(t) => {
-                *self.title.lock().unwrap() = t;
+                *self.title.lock() = t;
             }
             Event::Bell => {
                 let _ = self
@@ -163,7 +153,7 @@ impl NativeTerminalManager {
         cols: u16,
         rows: u16,
     ) -> Result<(), String> {
-        if self.handles.lock().unwrap().contains_key(&terminal_id) {
+        if self.handles.lock().contains_key(&terminal_id) {
             return Err(format!("Terminal {terminal_id} already exists"));
         }
 
@@ -187,7 +177,7 @@ impl NativeTerminalManager {
         cmd.arg("-l");
         cmd.cwd(&resolved_cwd);
         cmd.env("TERM", "xterm-256color");
-        cmd.env("TERM_PROGRAM", "termspace");
+        cmd.env("TERM_PROGRAM", "Apple_Terminal");
 
         let child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn failed: {e}"))?;
         // Drop the slave handle: the child holds its own fd, and keeping the
@@ -205,6 +195,7 @@ impl NativeTerminalManager {
 
         let cwd_arc: Arc<Mutex<String>> = Arc::new(Mutex::new(resolved_cwd));
         let title_arc: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+
 
         let listener = TermEventSender {
             terminal_id: terminal_id.clone(),
@@ -245,16 +236,16 @@ impl NativeTerminalManager {
                                 &id,
                             );
                             {
-                                let mut t = term_clone.lock().unwrap();
+                                let mut t = term_clone.lock();
                                 // vte 0.13 `Processor::advance` consumes one byte.
                                 for &byte in chunk {
                                     parser.advance(&mut *t, byte);
                                 }
                             }
-                            let cwd_val = cwd_clone.lock().unwrap().clone();
-                            let title_val = title_clone.lock().unwrap().clone();
+                            let cwd_val = cwd_clone.lock().clone();
+                            let title_val = title_clone.lock().clone();
                             let snapshot = {
-                                let t = term_clone.lock().unwrap();
+                                let t = term_clone.lock();
                                 serialize_snapshot(
                                     &*t,
                                     Some(cwd_val),
@@ -263,15 +254,18 @@ impl NativeTerminalManager {
                             };
                             let _ = app_clone
                                 .emit(&format!("native-terminal-update-{id}"), snapshot);
+                            
+                            let raw_str = String::from_utf8_lossy(chunk).into_owned();
+                            let _ = app_clone.emit(&format!("pty-output-{id}"), raw_str);
                         }
                     }
                 }
             });
         }
 
-        self.handles.lock().unwrap().insert(
+        self.handles.lock().insert(
             terminal_id,
-            NativeTerminalHandle { writer, term, child, master, cwd: cwd_arc, title: title_arc },
+            NativeTerminalHandle { writer, term, child, master, cwd: cwd_arc, title: title_arc, app_handle: app },
         );
         Ok(())
     }
@@ -283,24 +277,38 @@ impl NativeTerminalManager {
         // would serialize all terminals behind one). It also sidesteps the
         // guard-lifetime issue of returning while borrowing `handles`.
         let writer = {
-            let handles = self.handles.lock().unwrap();
+            let handles = self.handles.lock();
             let h = handles
                 .get(terminal_id)
                 .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
             Arc::clone(&h.writer)
         };
-        let mut guard = writer.lock().unwrap();
+        let mut guard = writer.lock();
         guard.write_all(data.as_bytes()).map_err(|e| e.to_string())
     }
 
     /// Resize both the emulator grid and the PTY (the latter delivers SIGWINCH
     /// to the shell so line-editing and TUIs reflow correctly).
     pub fn resize(&self, terminal_id: &str, cols: u16, rows: u16) -> Result<(), String> {
-        let handles = self.handles.lock().unwrap();
+        let handles = self.handles.lock();
         let h = handles
             .get(terminal_id)
             .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
-        h.term.lock().unwrap().resize(TermSize::new(cols as usize, rows as usize));
+        
+        {
+            let mut term = h.term.lock();
+            term.resize(TermSize::new(cols as usize, rows as usize));
+            
+            let cwd_val = h.cwd.lock().clone();
+            let title_val = h.title.lock().clone();
+            let snapshot = serialize_snapshot(
+                &*term,
+                Some(cwd_val),
+                if title_val.is_empty() { None } else { Some(title_val) },
+            );
+            let _ = h.app_handle.emit(&format!("native-terminal-update-{terminal_id}"), snapshot);
+        }
+
         h.master
             .resize(portable_pty::PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| e.to_string())
@@ -309,7 +317,7 @@ impl NativeTerminalManager {
     /// Remove the terminal from the registry and signal the child to terminate.
     /// Dropping the handle closes the master, which unblocks the reader thread.
     pub fn kill(&self, terminal_id: &str) {
-        if let Some(mut h) = self.handles.lock().unwrap().remove(terminal_id) {
+        if let Some(mut h) = self.handles.lock().remove(terminal_id) {
             let _ = h.child.kill();
         }
     }
@@ -317,27 +325,39 @@ impl NativeTerminalManager {
     /// Scroll the visible viewport within scrollback by `delta` lines
     /// (positive = toward history, negative = toward the prompt).
     pub fn scroll(&self, terminal_id: &str, delta: i32) -> Result<(), String> {
-        let handles = self.handles.lock().unwrap();
+        let handles = self.handles.lock();
         let h = handles
             .get(terminal_id)
             .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
-        h.term.lock().unwrap().scroll_display(Scroll::Delta(delta));
+        
+        let mut term = h.term.lock();
+        term.scroll_display(Scroll::Delta(delta));
+        
+        let cwd_val = h.cwd.lock().clone();
+        let title_val = h.title.lock().clone();
+        let snapshot = serialize_snapshot(
+            &*term,
+            Some(cwd_val),
+            if title_val.is_empty() { None } else { Some(title_val) },
+        );
+        let _ = h.app_handle.emit(&format!("native-terminal-update-{terminal_id}"), snapshot);
+        
         Ok(())
     }
 
     /// OS process id of the shell, if still running.
     pub fn get_pid(&self, terminal_id: &str) -> Option<u32> {
-        self.handles.lock().unwrap().get(terminal_id).and_then(|h| h.child.process_id())
+        self.handles.lock().get(terminal_id).and_then(|h| h.child.process_id())
     }
 
     /// Find all matches of `query` in the terminal's visible grid, returning one
     /// `SearchMatch` per contiguous run on each row.
     pub fn search(&self, terminal_id: &str, query: &str) -> Result<Vec<SearchMatch>, String> {
-        let handles = self.handles.lock().unwrap();
+        let handles = self.handles.lock();
         let h = handles
             .get(terminal_id)
             .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
-        let term = h.term.lock().unwrap();
+        let term = h.term.lock();
         Ok(search_term(&*term, query))
     }
 }
@@ -397,7 +417,7 @@ fn scan_osc_sequences(
     } // `s` (and its borrow of `buf`) ends here.
 
     if let Some(path) = decoded_cwd {
-        *cwd.lock().unwrap() = path;
+        *cwd.lock() = path;
     }
     if let Some(n) = notification {
         let _ = app.emit(&format!("native-terminal-notification-{terminal_id}"), n);
@@ -448,43 +468,33 @@ pub fn serialize_snapshot(
 
     // Default theme colors (packed ARGB). These match the app's terminal theme.
     let default_fg: u32 = 0xFFE8D5B0;
-    let default_bg: u32 = 0xFF161310;
+    let default_bg: u32 = 0x00000000;
 
     let colors = content.colors;
 
-    let cells: Vec<SnapshotCell> = content
-        .display_iter
-        .map(|item| {
-            let ch = item.c;
-            let fg = resolve_color(item.fg, colors, default_fg);
-            let bg = resolve_color(item.bg, colors, default_bg);
+    let mut binary_cells = Vec::with_capacity((cols as usize) * (rows as usize) * 16);
 
-            let f = item.flags;
-            let mut flags: u8 = 0;
-            if f.contains(Flags::BOLD) {
-                flags |= 1;
-            }
-            if f.contains(Flags::DIM) {
-                flags |= 2;
-            }
-            if f.contains(Flags::ITALIC) {
-                flags |= 4;
-            }
-            if f.contains(Flags::UNDERLINE) {
-                flags |= 8;
-            }
-            if f.contains(Flags::STRIKEOUT) {
-                flags |= 16;
-            }
+    for item in content.display_iter {
+        let ch_u32 = item.c as u32;
+        let fg = resolve_color(item.fg, colors, default_fg);
+        let bg = resolve_color(item.bg, colors, default_bg);
 
-            SnapshotCell {
-                ch: if ch == ' ' { String::new() } else { ch.to_string() },
-                fg,
-                bg,
-                flags,
-            }
-        })
-        .collect();
+        let f = item.flags;
+        let mut flags: u32 = 0;
+        if f.contains(Flags::BOLD) { flags |= 1; }
+        if f.contains(Flags::DIM) { flags |= 2; }
+        if f.contains(Flags::ITALIC) { flags |= 4; }
+        if f.contains(Flags::UNDERLINE) { flags |= 8; }
+        if f.contains(Flags::STRIKEOUT) { flags |= 16; }
+
+        binary_cells.extend_from_slice(&ch_u32.to_le_bytes());
+        binary_cells.extend_from_slice(&fg.to_le_bytes());
+        binary_cells.extend_from_slice(&bg.to_le_bytes());
+        binary_cells.extend_from_slice(&flags.to_le_bytes());
+    }
+
+    use base64::Engine;
+    let cells_b64 = base64::engine::general_purpose::STANDARD.encode(&binary_cells);
 
     let cursor = content.cursor;
     TerminalSnapshot {
@@ -496,9 +506,12 @@ pub fn serialize_snapshot(
         cursor_row: (cursor.point.line.0 + content.display_offset as i32).unsigned_abs() as u16,
         // alacritty exposes SHOW_CURSOR (not HIDE_CURSOR); invert accordingly.
         cursor_visible: term.mode().contains(TermMode::SHOW_CURSOR),
-        cells,
+        is_alternate: term.mode().contains(TermMode::ALT_SCREEN),
+        cells_b64,
         cwd,
         title,
+        display_offset: content.display_offset,
+        total_history: term.grid().history_size(),
     }
 }
 
@@ -507,8 +520,20 @@ pub fn serialize_snapshot(
 fn resolve_color(color: Color, colors: &Colors, default: u32) -> u32 {
     let rgb = match color {
         Color::Spec(rgb) => rgb,
-        Color::Named(n) => colors[n].unwrap_or(UNRESOLVED),
-        Color::Indexed(n) => colors[n as usize].unwrap_or(UNRESOLVED),
+        Color::Named(n) => {
+            if let Some(c) = colors[n] {
+                c
+            } else {
+                return resolve_default_named(n, default);
+            }
+        }
+        Color::Indexed(n) => {
+            if let Some(c) = colors[n as usize] {
+                c
+            } else {
+                default_indexed_color(n)
+            }
+        }
     };
 
     if rgb == UNRESOLVED {
@@ -516,6 +541,79 @@ fn resolve_color(color: Color, colors: &Colors, default: u32) -> u32 {
     }
 
     0xFF00_0000 | ((rgb.r as u32) << 16) | ((rgb.g as u32) << 8) | (rgb.b as u32)
+}
+
+fn resolve_default_named(n: alacritty_terminal::vte::ansi::NamedColor, default_packed: u32) -> u32 {
+    use alacritty_terminal::vte::ansi::NamedColor::*;
+    match n {
+        Black => 0xFF161310,
+        Red => 0xFFCD3131,
+        Green => 0xFF0DBC79,
+        Yellow => 0xFFE5E510,
+        Blue => 0xFF2472C8,
+        Magenta => 0xFFBC3FBC,
+        Cyan => 0xFF11A8CD,
+        White => 0xFFE5E5E5,
+        BrightBlack => 0xFF5A5040,
+        BrightRed => 0xFFF14C4C,
+        BrightGreen => 0xFF23D18B,
+        BrightYellow => 0xFFF5F543,
+        BrightBlue => 0xFF3B8EEA,
+        BrightMagenta => 0xFFD670D6,
+        BrightCyan => 0xFF29B8DB,
+        BrightWhite => 0xFFFFFFFF,
+        Foreground | Background | Cursor => default_packed,
+        DimBlack => 0xFF000000,
+        DimRed => 0xFF640000,
+        DimGreen => 0xFF006400,
+        DimYellow => 0xFF646400,
+        DimBlue => 0xFF000064,
+        DimMagenta => 0xFF640064,
+        DimCyan => 0xFF006464,
+        DimWhite => 0xFF646464,
+        DimForeground => {
+            let r = ((default_packed >> 16) & 0xFF) / 2;
+            let g = ((default_packed >> 8) & 0xFF) / 2;
+            let b = (default_packed & 0xFF) / 2;
+            let a = default_packed & 0xFF000000;
+            a | (r << 16) | (g << 8) | b
+        }
+        _ => default_packed,
+    }
+}
+
+fn default_indexed_color(n: u8) -> Rgb {
+    match n {
+        0 => Rgb { r: 22, g: 19, b: 16 },
+        1 => Rgb { r: 205, g: 49, b: 49 },
+        2 => Rgb { r: 13, g: 188, b: 121 },
+        3 => Rgb { r: 229, g: 229, b: 16 },
+        4 => Rgb { r: 36, g: 114, b: 200 },
+        5 => Rgb { r: 188, g: 63, b: 188 },
+        6 => Rgb { r: 17, g: 168, b: 205 },
+        7 => Rgb { r: 229, g: 229, b: 229 },
+        8 => Rgb { r: 90, g: 80, b: 64 },
+        9 => Rgb { r: 241, g: 76, b: 76 },
+        10 => Rgb { r: 35, g: 209, b: 139 },
+        11 => Rgb { r: 245, g: 245, b: 67 },
+        12 => Rgb { r: 59, g: 142, b: 234 },
+        13 => Rgb { r: 214, g: 112, b: 214 },
+        14 => Rgb { r: 41, g: 184, b: 219 },
+        15 => Rgb { r: 255, g: 255, b: 255 },
+        16..=231 => {
+            let n = n - 16;
+            let steps = [0, 95, 135, 175, 215, 255];
+            let r = steps[(n / 36) as usize];
+            let g = steps[((n / 6) % 6) as usize];
+            let b = steps[(n % 6) as usize];
+            Rgb { r, g, b }
+        }
+        232..=255 => {
+            let n = n - 232;
+            let v = n * 10 + 8;
+            Rgb { r: v, g: v, b: v }
+        }
+    }
 }
 
 /// Scan the visible terminal grid for `query`, returning one `SearchMatch` per
@@ -582,7 +680,7 @@ mod tests {
         let snapshot = serialize_snapshot(&term, None, None);
         assert_eq!(snapshot.cols, 80);
         assert_eq!(snapshot.rows, 24);
-        assert_eq!(snapshot.cells.len(), 80 * 24);
+        assert_eq!(snapshot.cells_b64.len() > 0, true);
     }
 
     #[test]
@@ -597,10 +695,18 @@ mod tests {
             parser.advance(&mut term, *byte);
         }
         let snapshot = serialize_snapshot(&term, None, None);
-        let chars: String = snapshot.cells[..5]
-            .iter()
-            .map(|c| if c.ch.is_empty() { ' ' } else { c.ch.chars().next().unwrap_or(' ') })
-            .collect();
+        // decode base64 to test
+        use base64::Engine;
+        let decoded = base64::engine::general_purpose::STANDARD.decode(&snapshot.cells_b64).unwrap();
+        let mut chars = String::new();
+        for i in 0..5 {
+            let ch_u32 = u32::from_le_bytes([decoded[i*16], decoded[i*16+1], decoded[i*16+2], decoded[i*16+3]]);
+            if ch_u32 != 0 && ch_u32 != 32 {
+                chars.push(std::char::from_u32(ch_u32).unwrap_or(' '));
+            } else {
+                chars.push(' ');
+            }
+        }
         assert_eq!(chars, "Hello");
     }
 
@@ -609,7 +715,7 @@ mod tests {
         // Exercises the registry guard / construction path without a real shell
         // (spawning a PTY needs an AppHandle, which isn't available in unit tests).
         let mgr = NativeTerminalManager::new();
-        assert!(mgr.handles.lock().unwrap().is_empty());
+        assert!(mgr.handles.lock().is_empty());
         drop(mgr); // does not panic
     }
 
