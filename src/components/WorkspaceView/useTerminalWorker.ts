@@ -80,6 +80,13 @@ export function useTerminalWorker(
       try { return !!new OffscreenCanvas(1, 1).getContext('webgl2') } catch { return false }
     })()
 
+    // Pin the canvas to its container via CSS so the OffscreenCanvas pixel buffer
+    // (which is set to container × dpr for Retina) doesn't expand the element.
+    // The fallback (non-worker) path overrides these with explicit px values on every render.
+    canvasRef.current.style.width = '100%'
+    canvasRef.current.style.height = '100%'
+    canvasRef.current.style.display = 'block'
+
     // Transfer the canvas — after this the main thread can no longer touch it
     const offscreen = canvasRef.current.transferControlToOffscreen()
 
