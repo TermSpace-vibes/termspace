@@ -149,6 +149,15 @@ describe('normalizeAbsSel', () => {
     expect(n.cTop).toBe(3)
     expect(n.cBottom).toBe(7)
   })
+
+  it('same row zero-width (cTop === cBottom): absTop === absBottom and cTop === cBottom', () => {
+    const sel = { startAbsRow: 10, startCol: 5, endAbsRow: 10, endCol: 5 }
+    const n = normalizeAbsSel(sel)
+    expect(n.absTop).toBe(10)
+    expect(n.absBottom).toBe(10)
+    expect(n.cTop).toBe(5)
+    expect(n.cBottom).toBe(5)
+  })
 })
 
 describe('extractTextFromLines', () => {
@@ -276,6 +285,7 @@ export function normalizeAbsSel(sel: AbsSelection): NormalisedSel {
  * @param absBottom Abs row of selection bottom (newer, lower abs value).
  * @param cBottom   Column where the bottom line ends (exclusive).
  */
+// precondition: absTop >= absBottom (call normalizeAbsSel first)
 export function extractTextFromLines(
   lines: string[],
   absTop: number,
@@ -307,7 +317,7 @@ export function extractTextFromLines(
 npm run test -- selectionUtils
 ```
 
-Expected: all 14 tests pass.
+Expected: all 15 tests pass.
 
 - [ ] **Step 5: Commit**
 
@@ -715,8 +725,13 @@ if (selectionRef.current) {
     label: 'Copy',
     icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>,
     onClick: () => {
+      // Capture and clear selection synchronously so a subsequent drag or
+      // scroll between click and promise resolution doesn't null a different selection.
+      const snapSel = selectionRef.current
+      selectionRef.current = null
+      scheduleRender()
       getSelectedText(
-        selectionRef.current,
+        snapSel,
         cellsRef.current,
         colsRef.current,
         rowsRef.current,
@@ -724,11 +739,7 @@ if (selectionRef.current) {
         totalHistoryRef.current,
         terminalId,
       ).then(text => {
-        if (text) {
-          writeText(text).catch(console.error)
-          selectionRef.current = null
-          scheduleRender()
-        }
+        if (text) writeText(text).catch(console.error)
       }).catch(console.error)
     }
   })
