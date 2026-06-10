@@ -14,6 +14,8 @@ import {
 } from './selectionUtils'
 import { useKeybindingHandler } from '../../hooks/useGlobalKeybindings'
 import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager'
+import { useTerminalWorker } from './useTerminalWorker'
+import type { WorkerMetadata } from './useTerminalWorker'
 
 const writeTerminalChunked = async (terminalId: string, data: string) => {
   const CHUNK_SIZE = 4096;
@@ -147,6 +149,58 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   const fontSize = settings.fontSize ?? 14
   const fontFamily = settings.terminalFontFamily ?? '"JetBrains Mono", "Fira Code", Menlo, monospace'
 
+  // ── Scrollbar update (used by both worker and fallback paths) ──────────────
+  const scheduleScrollbar = useCallback(() => {
+    if (!scrollbarThumbRef.current) return
+    requestAnimationFrame(() => {
+      if (!scrollbarThumbRef.current) return
+      const total = totalHistoryRef.current
+      const offset = displayOffsetRef.current
+      const r = rowsRef.current
+      if (total > 0 && !isAlternateRef.current) {
+        scrollbarThumbRef.current.style.display = 'block'
+        const pctHeight = Math.max(1, (r / (total + r)) * 100)
+        const pctBottom = (offset / (total + r)) * 100
+        scrollbarThumbRef.current.style.height = `${pctHeight}%`
+        scrollbarThumbRef.current.style.bottom = `${pctBottom}%`
+      } else {
+        scrollbarThumbRef.current.style.display = 'none'
+      }
+    })
+  }, [])
+
+  // ── Worker metadata callback ───────────────────────────────────────────────
+  const onWorkerMetadata = useCallback((m: WorkerMetadata) => {
+    displayOffsetRef.current = m.displayOffset
+    totalHistoryRef.current = m.totalHistory
+    if (m.cwd && m.cwd !== cwdRef.current) {
+      cwdRef.current = m.cwd
+      setCwd(m.cwd)
+      // Debounce the DB write — under heavy log output the worker fires metadata on
+      // every snapshot; without debounce this hammers the Tauri backend with IPC.
+      if (cwdPersistTimer.current) clearTimeout(cwdPersistTimer.current)
+      cwdPersistTimer.current = setTimeout(() => {
+        invoke('update_terminal_cwd', { id: terminalId, cwd: cwdRef.current }).catch(console.error)
+      }, 300)
+    }
+    if (m.title && m.title !== titleRef.current) {
+      titleRef.current = m.title
+      setTitle(m.title)
+    }
+    scheduleScrollbar()
+  }, [terminalId, scheduleScrollbar])
+
+  // ── Terminal renderer worker ───────────────────────────────────────────────
+  const {
+    workerActiveRef,
+    sendSnapshot,
+    sendHighlights,
+    sendSelection,
+    sendTheme: _sendTheme,
+    sendFont,
+    sendCursorAnim: _sendCursorAnim,
+  } = useTerminalWorker(canvasRef, fontSize, fontFamily, cellWRef.current, cellHRef.current, onWorkerMetadata)
+
   // ── Cell dimension measurement ─────────────────────────────────────────────
   // Re-measure whenever the font configuration changes so cols/rows calculations
   // remain accurate and the ResizeObserver sends correct dimensions to Rust.
@@ -156,25 +210,29 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     ctx.font = `normal normal ${fontSize}px ${fontFamily}`
     cellWRef.current = ctx.measureText('M').width
     cellHRef.current = fontSize * 1.4
-    // Replace renderer so it uses the new font metrics on the next frame.
-    // Re-use WebGL if the existing renderer is already a WebGLRenderer;
-    // otherwise fall back to Canvas 2D (mirrors the mount logic below).
-    rendererRef.current?.dispose()
-    if (canvasRef.current?.getContext('webgl2')) {
-      try {
-        rendererRef.current = new WebGLRenderer(
-          canvasRef.current,
-          cellWRef.current,
-          cellHRef.current,
-          fontSize,
-          fontFamily,
-        )
-      } catch (e) {
-        console.warn('WebGL2 re-init failed on font change, falling back to Canvas 2D:', e)
+    // Forward new font metrics to worker
+    sendFont(cellWRef.current, cellHRef.current, fontSize, fontFamily)
+    if (!workerActiveRef.current) {
+      // Replace renderer so it uses the new font metrics on the next frame.
+      // Re-use WebGL if the existing renderer is already a WebGLRenderer;
+      // otherwise fall back to Canvas 2D (mirrors the mount logic below).
+      rendererRef.current?.dispose()
+      if (canvasRef.current?.getContext('webgl2')) {
+        try {
+          rendererRef.current = new WebGLRenderer(
+            canvasRef.current,
+            cellWRef.current,
+            cellHRef.current,
+            fontSize,
+            fontFamily,
+          )
+        } catch (e) {
+          console.warn('WebGL2 re-init failed on font change, falling back to Canvas 2D:', e)
+          rendererRef.current = new CanvasRenderer(fontSize, fontFamily)
+        }
+      } else {
         rendererRef.current = new CanvasRenderer(fontSize, fontFamily)
       }
-    } else {
-      rendererRef.current = new CanvasRenderer(fontSize, fontFamily)
     }
   }, [fontSize, fontFamily])
 
@@ -186,21 +244,8 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     requestAnimationFrame((time) => {
       frameQueued.current = false
       if (!canvasRef.current || !rendererRef.current) return
-      
-      if (scrollbarThumbRef.current) {
-        const total = totalHistoryRef.current
-        const offset = displayOffsetRef.current
-        const rows = rowsRef.current
-        if (total > 0 && !isAlternateRef.current) {
-          scrollbarThumbRef.current.style.display = 'block'
-          const pctHeight = Math.max(1, (rows / (total + rows)) * 100)
-          const pctBottom = (offset / (total + rows)) * 100
-          scrollbarThumbRef.current.style.height = `${pctHeight}%`
-          scrollbarThumbRef.current.style.bottom = `${pctBottom}%`
-        } else {
-          scrollbarThumbRef.current.style.display = 'none'
-        }
-      }
+
+      scheduleScrollbar()
 
       // --- Cursor Animation Logic ---
       const target = cursorRef.current;
@@ -260,29 +305,42 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   // ── Tauri event subscriptions ──────────────────────────────────────────────
   useEffect(() => {
     // Auto-select WebGL2 when available; fall back to Canvas 2D otherwise.
-    if (canvasRef.current?.getContext('webgl2')) {
-      try {
-        rendererRef.current = new WebGLRenderer(
-          canvasRef.current,
-          cellWRef.current,
-          cellHRef.current,
-          fontSize,
-          fontFamily,
-        )
-      } catch (e) {
-        console.warn('WebGL2 init failed, falling back to Canvas 2D:', e)
+    // Only create a renderer on the main thread when the worker is NOT active.
+    if (!workerActiveRef.current) {
+      if (canvasRef.current?.getContext('webgl2')) {
+        try {
+          rendererRef.current = new WebGLRenderer(
+            canvasRef.current,
+            cellWRef.current,
+            cellHRef.current,
+            fontSize,
+            fontFamily,
+          )
+        } catch (e) {
+          console.warn('WebGL2 init failed, falling back to Canvas 2D:', e)
+          rendererRef.current = new CanvasRenderer(fontSize, fontFamily)
+        }
+      } else {
         rendererRef.current = new CanvasRenderer(fontSize, fontFamily)
       }
-    } else {
-      rendererRef.current = new CanvasRenderer(fontSize, fontFamily)
     }
 
     // Snapshot updates — primary paint source.
     const ul1 = listen<TerminalSnapshot>(`native-terminal-update-${terminalId}`, (e) => {
       const snap = e.payload
+
+      // Read .current here, not a snapshot from render time — the worker sends 'ready'
+      // asynchronously and a boolean captured at render time is always false initially.
+      if (workerActiveRef.current) {
+        // Fast path: forward raw payload to worker — decode + render happen off main thread
+        sendSnapshot(snap)
+        return
+      }
+
+      // Fallback path: decode and render on main thread (OffscreenCanvas not available)
       const b64 = snap.cells_b64 ?? (snap as any).cellsB64 ?? ''
       const u8 = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
-      cellsRef.current = new Uint32Array(u8.buffer)
+      cellsRef.current = new Uint32Array(u8.buffer.slice(0, u8.byteLength))
       colsRef.current = snap.cols
       rowsRef.current = snap.rows
       cursorRef.current = {
@@ -346,7 +404,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     return () => {
       unlistenCleanups.current.forEach(fn => fn())
       unlistenCleanups.current = []
-      rendererRef.current?.dispose()
+      rendererRef.current?.dispose()  // no-op if null (worker path)
       rendererRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -375,17 +433,19 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   const handleSearch = useCallback(async (query: string) => {
     if (!query) {
       highlightsRef.current = []
-      scheduleRender()
+      sendHighlights([])   // worker path
+      scheduleRender()     // fallback path
       return
     }
     try {
       const matches = await invoke<SearchMatch[]>('search_terminal', { terminalId, query })
       highlightsRef.current = matches
-      scheduleRender()
+      sendHighlights(matches)  // worker path
+      scheduleRender()         // fallback path
     } catch (err) {
       console.error('search_terminal failed', err)
     }
-  }, [terminalId, scheduleRender])
+  }, [terminalId, scheduleRender, sendHighlights])
 
   // ── Keyboard input ─────────────────────────────────────────────────────────
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLCanvasElement>) => {
@@ -477,8 +537,9 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     const absRow = viewportRowToAbs(row, displayOffsetRef.current, rowsRef.current)
     selectionRef.current = { startAbsRow: absRow, startCol: col, endAbsRow: absRow, endCol: col }
     isDraggingRef.current = true
+    sendSelection(absSelToViewport(selectionRef.current, displayOffsetRef.current, rowsRef.current, colsRef.current))
     scheduleRender()
-  }, [getCellCoords, scheduleRender])
+  }, [getCellCoords, scheduleRender, sendSelection])
 
   useEffect(() => {
     const EDGE_ZONE = 30 // px
@@ -503,6 +564,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
         edgeScrollDeltaRef.current = 0
       }
 
+      sendSelection(absSelToViewport(selectionRef.current, displayOffsetRef.current, rowsRef.current, colsRef.current))
       scheduleRender()
     }
 
@@ -516,6 +578,9 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
         const { absTop, cTop, absBottom, cBottom } = normalizeAbsSel(selectionRef.current)
         if (absTop === absBottom && cTop === cBottom) {
           selectionRef.current = null
+          sendSelection(null)
+        } else {
+          sendSelection(absSelToViewport(selectionRef.current, displayOffsetRef.current, rowsRef.current, colsRef.current))
         }
       }
       edgeScrollDeltaRef.current = 0
@@ -529,7 +594,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       window.removeEventListener('mouseup', handleWinMouseUp)
       edgeScrollDeltaRef.current = 0
     }
-  }, [getCellCoords, scheduleRender])
+  }, [getCellCoords, scheduleRender, sendSelection])
 
   // ── Title editing ──────────────────────────────────────────────────────────
   const handleTitleSave = () => {
@@ -870,6 +935,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
               if (e.key === 'Escape') {
                 setShowSearch(false)
                 highlightsRef.current = []
+                sendHighlights([])   // worker path
                 scheduleRender()
                 canvasRef.current?.focus()
               }
@@ -889,6 +955,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
               setShowSearch(false)
               setSearchQuery('')
               highlightsRef.current = []
+              sendHighlights([])   // worker path
               scheduleRender()
               canvasRef.current?.focus()
             }}
