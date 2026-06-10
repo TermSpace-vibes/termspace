@@ -3,6 +3,7 @@ use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+#[allow(dead_code)]
 pub struct AudioPlayer {
     sink: Arc<Mutex<Option<Sink>>>,
 }
@@ -29,6 +30,7 @@ impl AudioPlayer {
         Self { sink: sink_mutex }
     }
 
+    #[allow(dead_code)]
     pub fn play_sound_bytes(&self, bytes: &[u8]) {
         let lock = self.sink.lock().unwrap();
         if let Some(sink) = lock.as_ref() {

@@ -41,11 +41,12 @@ pub fn run() {
                 }
             }
             
-            let mut data_dir = app.path().app_data_dir().expect("no app data dir");
-            #[cfg(debug_assertions)]
-            {
-                data_dir.push("dev");
-            }
+            let data_dir = {
+                let mut d = app.path().app_data_dir().expect("no app data dir");
+                #[cfg(debug_assertions)]
+                d.push("dev");
+                d
+            };
             std::fs::create_dir_all(&data_dir).unwrap();
             let conn = db::init_db(&data_dir.join("state.db")).expect("db init failed");
             app.manage(DbState(Mutex::new(conn)));

@@ -924,7 +924,7 @@ pub fn git_commit(path: String, message: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn play_notification_sound(player: State<'_, crate::audio::AudioPlayer>) -> Result<(), String> {
+pub fn play_notification_sound(_player: State<'_, crate::audio::AudioPlayer>) -> Result<(), String> {
     // We can include a small beep.mp3 or wav here later.
     // For now we just log it or pass a tiny hardcoded beep.
     println!(">>> RUST: play_notification_sound called");
