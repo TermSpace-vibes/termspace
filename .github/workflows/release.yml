@@ -7,7 +7,23 @@ on:
       - 'v*'
 
 jobs:
+  create-release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: create github release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ github.ref_name }} \
+            --title "Termspace ${{ github.ref_name }}" \
+            --notes "See the assets to download this version and install." \
+            --repo ${{ github.repository }} || true
+
   release-macos-arm:
+    needs: create-release
     permissions:
       contents: write
     runs-on: macos-latest
@@ -33,20 +49,30 @@ jobs:
       - name: install frontend dependencies
         run: npm ci
 
-      - uses: tauri-apps/tauri-action@v0
+      - name: build arm
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Termspace ${{ github.ref_name }}'
-          releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: false
-          prerelease: false
-          args: --target aarch64-apple-darwin
+        run: npm run tauri build -- --target aarch64-apple-darwin
+
+      - name: upload arm artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BUNDLE="src-tauri/target/aarch64-apple-darwin/release/bundle"
+          TAG="${{ github.ref_name }}"
+
+          cp "${BUNDLE}/macos/Termspace.app.tar.gz"     Termspace_aarch64.app.tar.gz
+          cp "${BUNDLE}/macos/Termspace.app.tar.gz.sig" Termspace_aarch64.app.tar.gz.sig
+
+          gh release upload "$TAG" \
+            "${BUNDLE}/dmg/"*.dmg \
+            Termspace_aarch64.app.tar.gz \
+            Termspace_aarch64.app.tar.gz.sig \
+            --clobber
 
   release-macos-intel:
+    needs: create-release
     permissions:
       contents: write
     runs-on: macos-latest
@@ -72,15 +98,73 @@ jobs:
       - name: install frontend dependencies
         run: npm ci
 
-      - uses: tauri-apps/tauri-action@v0
+      - name: build intel
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Termspace ${{ github.ref_name }}'
-          releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: false
-          prerelease: false
-          args: --target x86_64-apple-darwin
+        run: npm run tauri build -- --target x86_64-apple-darwin
+
+      - name: upload intel artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BUNDLE="src-tauri/target/x86_64-apple-darwin/release/bundle"
+          TAG="${{ github.ref_name }}"
+
+          cp "${BUNDLE}/macos/Termspace.app.tar.gz"     Termspace_x64.app.tar.gz
+          cp "${BUNDLE}/macos/Termspace.app.tar.gz.sig" Termspace_x64.app.tar.gz.sig
+
+          gh release upload "$TAG" \
+            "${BUNDLE}/dmg/"*.dmg \
+            Termspace_x64.app.tar.gz \
+            Termspace_x64.app.tar.gz.sig \
+            --clobber
+
+  generate-updater-json:
+    needs: [release-macos-arm, release-macos-intel]
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: generate and upload latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir sigs
+          gh release download "$TAG" \
+            --pattern "Termspace_aarch64.app.tar.gz.sig" \
+            --pattern "Termspace_x64.app.tar.gz.sig" \
+            --dir sigs \
+            --repo "$REPO"
+
+          VERSION="${TAG#v}"
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
+
+          ARM_SIG=$(cat sigs/Termspace_aarch64.app.tar.gz.sig)
+          INTEL_SIG=$(cat sigs/Termspace_x64.app.tar.gz.sig)
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "https://github.com/${REPO}/releases/tag/${TAG}" \
+            --arg pub_date "$DATE" \
+            --arg arm_sig "$ARM_SIG" \
+            --arg arm_url "${BASE}/Termspace_aarch64.app.tar.gz" \
+            --arg intel_sig "$INTEL_SIG" \
+            --arg intel_url "${BASE}/Termspace_x64.app.tar.gz" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": { signature: $arm_sig, url: $arm_url },
+                "darwin-x86_64":  { signature: $intel_sig, url: $intel_url }
+              }
+            }' > latest.json
+
+          echo "=== latest.json ==="
+          cat latest.json
+
+          gh release upload "$TAG" latest.json --clobber --repo "$REPO"
