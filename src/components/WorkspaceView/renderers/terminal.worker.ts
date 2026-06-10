@@ -26,6 +26,10 @@ let frameQueued = false
 let cellW = 8.4
 let cellH = 19.6
 
+let currentAccent = 0xFFE8A045
+let currentBg = 0xFF161310
+let isAlternate = false
+
 // ── Render scheduling ─────────────────────────────────────────────────────────
 
 // rAF is available in dedicated workers on Chrome 69+ and Firefox.
@@ -99,6 +103,8 @@ self.onmessage = (e: MessageEvent<MainToWorker>) => {
       canvas = msg.canvas
       cellW = msg.cellW
       cellH = msg.cellH
+      currentAccent = msg.accentColor
+      currentBg = msg.bgColor
 
       if (msg.useWebGL) {
         try {
@@ -131,6 +137,7 @@ self.onmessage = (e: MessageEvent<MainToWorker>) => {
       rows = msg.rows
       cursor = { col: msg.cursorCol, row: msg.cursorRow, visible: msg.cursorVisible }
       displayOffset = msg.displayOffset
+      isAlternate = msg.isAlternate
 
       scheduleRender()
 
@@ -141,6 +148,7 @@ self.onmessage = (e: MessageEvent<MainToWorker>) => {
         title: msg.title,
         displayOffset: msg.displayOffset,
         totalHistory: msg.totalHistory,
+        isAlternate,
       }
       self.postMessage(meta)
       break
@@ -163,6 +171,8 @@ self.onmessage = (e: MessageEvent<MainToWorker>) => {
         renderer.updateTheme(msg.accentColor, msg.bgColor)
         scheduleRender()
       }
+      currentAccent = msg.accentColor
+      currentBg = msg.bgColor
       break
     }
 
@@ -179,6 +189,8 @@ self.onmessage = (e: MessageEvent<MainToWorker>) => {
               msg.cellH,
               msg.fontSize,
               msg.fontFamily,
+              currentAccent,
+              currentBg,
             )
           } catch {
             renderer = new CanvasRenderer(msg.fontSize, msg.fontFamily)

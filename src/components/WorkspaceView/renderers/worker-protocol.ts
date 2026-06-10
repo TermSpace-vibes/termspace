@@ -79,6 +79,7 @@ export interface MetadataMsg {
   title: string | null
   displayOffset: number
   totalHistory: number
+  isAlternate: boolean
 }
 
 export interface ReadyMsg {

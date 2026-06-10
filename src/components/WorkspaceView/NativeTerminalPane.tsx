@@ -173,6 +173,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   const onWorkerMetadata = useCallback((m: WorkerMetadata) => {
     displayOffsetRef.current = m.displayOffset
     totalHistoryRef.current = m.totalHistory
+    isAlternateRef.current = m.isAlternate
     if (m.cwd && m.cwd !== cwdRef.current) {
       cwdRef.current = m.cwd
       setCwd(m.cwd)

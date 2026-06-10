@@ -8,6 +8,7 @@ export interface WorkerMetadata {
   title: string | null
   displayOffset: number
   totalHistory: number
+  isAlternate: boolean
 }
 
 export interface UseTerminalWorkerResult {
