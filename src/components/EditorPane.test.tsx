@@ -1,5 +1,5 @@
 import React from 'react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { EditorPaneComponent } from './EditorPane'
 import { useAppStore } from '../store/useAppStore'
@@ -128,14 +128,17 @@ describe('EditorPaneComponent', () => {
   })
 
   it('calls updateEditorPaneLayout when panel is resized', () => {
+    vi.useFakeTimers()
     const updateEditorPaneLayout = vi.fn()
     useAppStore.setState({ updateEditorPaneLayout })
 
     render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
-    
+
     // Trigger resize on the first panel (FileTree panel)
     const panels = screen.getAllByTestId('resizable-panel')
     fireEvent.click(panels[0])
+    vi.runAllTimers()
+    vi.useRealTimers()
 
     expect(updateEditorPaneLayout).toHaveBeenCalledWith(workspaceId, editorPaneId, { fileTreeWidth: 25 })
   })

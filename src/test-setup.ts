@@ -21,6 +21,13 @@ Object.defineProperty(window, 'localStorage', {
   value: localStorageMock,
 })
 
+// ResizeObserver is not available in jsdom
+global.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
 // Mock Tauri APIs
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue({}),
