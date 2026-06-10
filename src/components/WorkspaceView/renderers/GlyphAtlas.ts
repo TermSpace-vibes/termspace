@@ -30,7 +30,11 @@ export class GlyphAtlas {
     private fontSize: number,
     private fontFamily: string,
   ) {
-    if (typeof OffscreenCanvas !== 'undefined' && typeof document === 'undefined') {
+    if (typeof document === 'undefined') {
+      // We are in a worker; OffscreenCanvas is required here
+      if (typeof OffscreenCanvas === 'undefined') {
+        throw new Error('GlyphAtlas: OffscreenCanvas is required in Worker environments')
+      }
       this.canvas = new OffscreenCanvas(ATLAS_SIZE, ATLAS_SIZE)
     } else {
       const c = document.createElement('canvas')
@@ -38,8 +42,9 @@ export class GlyphAtlas {
       c.height = ATLAS_SIZE
       this.canvas = c
     }
-    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true }) as
-      CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
+    const ctx = this.canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) throw new Error('GlyphAtlas: failed to get 2D context')
+    this.ctx = ctx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
     this.ctx.clearRect(0, 0, ATLAS_SIZE, ATLAS_SIZE)
   }
 
