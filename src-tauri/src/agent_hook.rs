@@ -7,12 +7,12 @@ pub fn start_server(app: AppHandle) {
         let server = match Server::http("127.0.0.1:1421") {
             Ok(s) => s,
             Err(e) => {
-                println!(">>> RUST: Failed to start agent hook server: {}", e);
+                #[cfg(debug_assertions)] println!(">>> RUST: Failed to start agent hook server: {}", e);
                 return;
             }
         };
 
-        println!(">>> RUST: Agent hook server listening on 127.0.0.1:1421");
+        #[cfg(debug_assertions)] println!(">>> RUST: Agent hook server listening on 127.0.0.1:1421");
 
         for mut request in server.incoming_requests() {
             if request.method() == &Method::Post && request.url() == "/hook" {

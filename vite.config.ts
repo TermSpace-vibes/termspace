@@ -22,7 +22,19 @@ export default defineConfig({
   clearScreen: false,
   server: { port: 1420, strictPort: true },
   envPrefix: ['VITE_', 'TAURI_'],
-  build: { target: ['es2021', 'safari14'], minify: !process.env.TAURI_DEBUG },
+  build: {
+    target: ['es2021', 'safari14'],
+    minify: !process.env.TAURI_DEBUG,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-tauri': ['@tauri-apps/api', '@tauri-apps/plugin-updater', '@tauri-apps/plugin-clipboard-manager'],
+          'vendor-monaco': ['@monaco-editor/react'],
+        },
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Termspace",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "identifier": "com.termspace",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "Termspace v0.6.0",
+        "title": "Termspace v0.6.1",
         "width": 800,
         "height": 600,
         "transparent": true,

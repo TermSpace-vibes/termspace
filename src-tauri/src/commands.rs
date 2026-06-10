@@ -118,7 +118,7 @@ pub fn get_system_stats(state: State<SysInfoState>) -> Result<SystemStats, Strin
 
 #[tauri::command]
 pub fn get_workspaces(db: State<DbState>) -> Result<Vec<Workspace>, String> {
-    println!(">>> RUST: get_workspaces called");
+    #[cfg(debug_assertions)] println!(">>> RUST: get_workspaces called");
     db::get_workspaces(&db.0.lock()).map_err(|e| e.to_string())
 }
 
@@ -129,7 +129,7 @@ pub fn create_workspace(
     emoji: String,
     color: String,
 ) -> Result<Workspace, String> {
-    println!(">>> RUST: create_workspace called for {}", name);
+    #[cfg(debug_assertions)] println!(">>> RUST: create_workspace called for {}", name);
     db::create_workspace(&db.0.lock(), &name, &emoji, &color).map_err(|e| e.to_string())
 }
 
@@ -173,7 +173,7 @@ pub fn delete_workspace(
 
 #[tauri::command]
 pub fn get_terminals(db: State<DbState>, workspace_id: String) -> Result<Vec<Terminal>, String> {
-    println!(">>> RUST: get_terminals called for ws {}", workspace_id);
+    #[cfg(debug_assertions)] println!(">>> RUST: get_terminals called for ws {}", workspace_id);
     db::get_terminals(&db.0.lock(), &workspace_id).map_err(|e| e.to_string())
 }
 
@@ -239,7 +239,7 @@ pub fn spawn_terminal(
     shell: String,
     cwd: String,
 ) -> Result<Terminal, String> {
-    println!(
+    #[cfg(debug_assertions)] println!(
         ">>> RUST: spawn_terminal called for ws {} (shell: {}, cwd: {})",
         workspace_id, shell, cwd
     );
@@ -299,7 +299,7 @@ pub fn respawn_terminal(
     shell: String,
     cwd: String,
 ) -> Result<(), String> {
-    println!(">>> RUST: respawn_terminal called for term {}", id);
+    #[cfg(debug_assertions)] println!(">>> RUST: respawn_terminal called for term {}", id);
     // If the backend is still running (e.g., from a Vite HMR or frontend reload),
     // kill the old terminal process so we can cleanly respawn and attach new listeners.
     ntm.kill(&id);
@@ -327,7 +327,7 @@ pub fn respawn_terminal(
             24,
         )?;
     }
-    println!(">>> RUST: respawn_terminal finished for term {}", id);
+    #[cfg(debug_assertions)] println!(">>> RUST: respawn_terminal finished for term {}", id);
     Ok(())
 }
 
@@ -424,7 +424,7 @@ pub fn create_browser_pane(
     browser
         .create(&window, &app, &id, &url, x, y, w, h, Some(&workspace_id), adblock_enabled)
         .map_err(|e| {
-            println!(">>> RUST: create_browser_pane failed: {}", e);
+            #[cfg(debug_assertions)] println!(">>> RUST: create_browser_pane failed: {}", e);
             e.to_string()
         })?;
     db::create_browser_pane(&db.0.lock(), &id, &workspace_id, &url).map_err(|e| {
@@ -446,7 +446,7 @@ pub fn spawn_ephemeral_browser_pane(
     adblock_enabled: bool,
 ) -> Result<(), String> {
     let keys: Vec<String> = app.windows().keys().cloned().collect();
-    println!(">>> RUST: spawn_ephemeral_browser_pane windows keys: {:?}", keys);
+    #[cfg(debug_assertions)] println!(">>> RUST: spawn_ephemeral_browser_pane windows keys: {:?}", keys);
 
     let window = app.get_window("main")
         .or_else(|| app.windows().into_values().next())
@@ -927,7 +927,7 @@ pub fn git_commit(path: String, message: String) -> Result<(), String> {
 pub fn play_notification_sound(_player: State<'_, crate::audio::AudioPlayer>) -> Result<(), String> {
     // We can include a small beep.mp3 or wav here later.
     // For now we just log it or pass a tiny hardcoded beep.
-    println!(">>> RUST: play_notification_sound called");
+    #[cfg(debug_assertions)] println!(">>> RUST: play_notification_sound called");
     Ok(())
 }
 
