@@ -94,6 +94,7 @@ export function useTerminalWorker(
         accentColor: accent,
         bgColor: bg,
         useWebGL,
+        dpr: window.devicePixelRatio || 1,
       },
       [offscreen],
     )

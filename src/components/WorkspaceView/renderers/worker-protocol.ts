@@ -21,6 +21,7 @@ export interface InitMsg {
   accentColor: number    // packed 0xAARRGGBB
   bgColor: number        // packed 0xAARRGGBB
   useWebGL: boolean
+  dpr: number            // window.devicePixelRatio — workers don't expose this
 }
 
 export interface SnapshotMsg {

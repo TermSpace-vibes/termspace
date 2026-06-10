@@ -105,6 +105,8 @@ self.onmessage = (e: MessageEvent<MainToWorker>) => {
       cellH = msg.cellH
       currentAccent = msg.accentColor
       currentBg = msg.bgColor
+      // Workers don't expose devicePixelRatio — inject it so renderers see the correct value.
+      ;(globalThis as any).devicePixelRatio = msg.dpr
 
       if (msg.useWebGL) {
         try {
