@@ -50,20 +50,28 @@ jobs:
         run: npm ci
 
       - name: build arm
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- --target aarch64-apple-darwin
 
-      - name: upload arm artifacts
+      - name: package, sign and upload arm
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           BUNDLE="src-tauri/target/aarch64-apple-darwin/release/bundle"
           TAG="${{ github.ref_name }}"
 
-          cp "${BUNDLE}/macos/Termspace.app.tar.gz"     Termspace_aarch64.app.tar.gz
-          cp "${BUNDLE}/macos/Termspace.app.tar.gz.sig" Termspace_aarch64.app.tar.gz.sig
+          # Package .app into updater tar.gz
+          tar czf Termspace_aarch64.app.tar.gz \
+            -C "${BUNDLE}/macos" Termspace.app
+
+          # Sign with tauri signer (accepts key content or base64 via -k flag)
+          npm run tauri -- signer sign \
+            -k "$TAURI_SIGNING_PRIVATE_KEY" \
+            -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
+            Termspace_aarch64.app.tar.gz
+
+          ls -la Termspace_aarch64.app.tar.gz*
 
           gh release upload "$TAG" \
             "${BUNDLE}/dmg/"*.dmg \
@@ -99,20 +107,28 @@ jobs:
         run: npm ci
 
       - name: build intel
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- --target x86_64-apple-darwin
 
-      - name: upload intel artifacts
+      - name: package, sign and upload intel
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           BUNDLE="src-tauri/target/x86_64-apple-darwin/release/bundle"
           TAG="${{ github.ref_name }}"
 
-          cp "${BUNDLE}/macos/Termspace.app.tar.gz"     Termspace_x64.app.tar.gz
-          cp "${BUNDLE}/macos/Termspace.app.tar.gz.sig" Termspace_x64.app.tar.gz.sig
+          # Package .app into updater tar.gz
+          tar czf Termspace_x64.app.tar.gz \
+            -C "${BUNDLE}/macos" Termspace.app
+
+          # Sign with tauri signer
+          npm run tauri -- signer sign \
+            -k "$TAURI_SIGNING_PRIVATE_KEY" \
+            -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
+            Termspace_x64.app.tar.gz
+
+          ls -la Termspace_x64.app.tar.gz*
 
           gh release upload "$TAG" \
             "${BUNDLE}/dmg/"*.dmg \
