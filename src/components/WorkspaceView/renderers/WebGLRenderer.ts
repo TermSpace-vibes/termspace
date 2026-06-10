@@ -2,33 +2,6 @@ import type { CursorState, SearchMatch, TerminalRenderer, SelectionRange } from 
 import { FLAG_BOLD, FLAG_ITALIC, FLAG_DIM } from './types'
 import { GlyphAtlas } from './GlyphAtlas'
 
-let cachedAccent = 0xFFE8A045
-let cachedBg = 0xFF161310
-let lastCheck = 0
-
-function getThemeColors() {
-  const now = performance.now()
-  if (now - lastCheck < 1000) return { accent: cachedAccent, bg: cachedBg }
-  lastCheck = now
-  if (typeof document === 'undefined') return { accent: cachedAccent, bg: cachedBg }
-  
-  const style = getComputedStyle(document.documentElement)
-  const parseHex = (val: string, fallback: number) => {
-    val = val.trim()
-    if (val.startsWith('#') && (val.length === 7 || val.length === 9)) {
-      const r = parseInt(val.slice(1, 3), 16) || 0
-      const g = parseInt(val.slice(3, 5), 16) || 0
-      const b = parseInt(val.slice(5, 7), 16) || 0
-      return (0xFF000000 | (r << 16) | (g << 8) | b) >>> 0
-    }
-    return fallback
-  }
-  
-  cachedAccent = parseHex(style.getPropertyValue('--accent'), 0xFFE8A045)
-  cachedBg = parseHex(style.getPropertyValue('--bg-terminal'), 0xFF161310)
-  
-  return { accent: cachedAccent, bg: cachedBg }
-}
 
 // ---------------------------------------------------------------------------
 // Shaders
@@ -219,14 +192,20 @@ export class WebGLRenderer implements TerminalRenderer {
   private bgInstBuf: WebGLBuffer
   private glyphVao: WebGLVertexArrayObject
   private bgVao: WebGLVertexArrayObject
+  private accentColor: number
+  private bgColor: number
 
   constructor(
-    canvas: HTMLCanvasElement,
+    canvas: HTMLCanvasElement | OffscreenCanvas,
     cellW: number,
     cellH: number,
     fontSize: number,
     fontFamily: string,
+    accentColor = 0xFFE8A045,
+    bgColor = 0xFF161310,
   ) {
+    this.accentColor = accentColor
+    this.bgColor = bgColor
     const gl = canvas.getContext('webgl2')
     if (!gl) throw new Error('WebGL2 not available')
     this.gl = gl
@@ -305,6 +284,11 @@ export class WebGLRenderer implements TerminalRenderer {
     // Standard alpha blending: glyph coverage blends over background.
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+  }
+
+  updateTheme(accentColor: number, bgColor: number) {
+    this.accentColor = accentColor
+    this.bgColor = bgColor
   }
 
   render(
@@ -411,8 +395,9 @@ export class WebGLRenderer implements TerminalRenderer {
       glyphF32[gi++] = uv.v0
       glyphF32[gi++] = uv.u1
       glyphF32[gi++] = uv.v1
-      const theme = getThemeColors()
-      glyphU32[gi++] = theme.accent  // accent
+      const accent = this.accentColor
+      const bg = this.bgColor
+      glyphU32[gi++] = accent  // accent
       glyphU32[gi++] = cells[base + 2] ?? 0x00000000
       glyphCount++
 
@@ -428,7 +413,7 @@ export class WebGLRenderer implements TerminalRenderer {
         glyphF32[gi++] = charUv.v0
         glyphF32[gi++] = charUv.u1
         glyphF32[gi++] = charUv.v1
-        glyphU32[gi++] = theme.bg  // dark fg over amber cursor
+        glyphU32[gi++] = bg  // dark fg over amber cursor
         glyphU32[gi++] = 0x00000000  // transparent bg (cursor block already drawn)
         glyphCount++
       }
