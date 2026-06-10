@@ -201,7 +201,7 @@ git commit -m "fix(renderer): use OffscreenCanvas for glyph atlas when document 
 
 ## Task 3: Remove `getComputedStyle` from WebGLRenderer
 
-`WebGLRenderer` calls `getComputedStyle(document.documentElement)` to read CSS vars — unavailable in Workers. Instead, accept colors as constructor params and expose an `updateTheme()` method.
+`WebGLRenderer` calls `getComputedStyle(document.documentElement)` to read CSS vars. The existing `getThemeColors()` function already guards `typeof document === 'undefined'` and returns module-level cached values in workers — so it won't throw, but it will serve stale colors that never update with theme changes. Instead, accept colors as constructor params and expose an `updateTheme()` method. Also widen the `canvas` constructor param to `HTMLCanvasElement | OffscreenCanvas` so the worker can instantiate the renderer directly with the transferred canvas.
 
 **Files:**
 - Modify: `src/components/WorkspaceView/renderers/WebGLRenderer.ts`
@@ -220,7 +220,7 @@ function getThemeColors() { ... }
 
 - [ ] **Step 2: Add constructor params and `updateTheme` method**
 
-In the `WebGLRenderer` class, change the constructor to accept optional theme colors:
+In the `WebGLRenderer` class, change the constructor: widen `canvas` to `HTMLCanvasElement | OffscreenCanvas` (required so the worker can pass an OffscreenCanvas) and add optional `accentColor`/`bgColor` params:
 ```typescript
 export class WebGLRenderer implements TerminalRenderer {
   private accentColor: number
@@ -326,7 +326,30 @@ render(
   ...
 ```
 
-Inside `render()`, the `canvas.getContext('2d')` call already works on both types — no further change needed.
+Inside `render()`, two additional changes are needed for worker compatibility:
+
+**Fix `window.devicePixelRatio`:** Workers have no `window` — this throws `ReferenceError` at the first render. Replace the DPR lookup:
+```typescript
+// BEFORE:
+const dpr = window.devicePixelRatio || 1
+
+// AFTER:
+const dpr = globalThis.devicePixelRatio ?? 1
+```
+`globalThis` resolves to `window` on the main thread and `self` in a worker — both expose `devicePixelRatio`.
+
+**Fix `canvas.style` mutations:** `OffscreenCanvas` has no `.style` property. Guard both CSS size assignments that follow the canvas resize block:
+```typescript
+// BEFORE:
+canvas.style.width = `${w / dpr}px`
+canvas.style.height = `${h / dpr}px`
+
+// AFTER:
+if ('style' in canvas) {
+  canvas.style.width = `${w / dpr}px`
+  canvas.style.height = `${h / dpr}px`
+}
+```
 
 - [ ] **Step 3: Run tests**
 
@@ -388,10 +411,18 @@ let cellH = 19.6
 
 // ── Render scheduling ─────────────────────────────────────────────────────────
 
+// rAF is available in dedicated workers on Chrome 69+ and Firefox.
+// Safari added it in 16.4 alongside OffscreenCanvas but support is inconsistent
+// — fall back to setTimeout so the worker still renders on Safari.
+const raf: (cb: (t: number) => void) => void =
+  typeof requestAnimationFrame !== 'undefined'
+    ? (cb) => requestAnimationFrame(cb)
+    : (cb) => setTimeout(() => cb(performance.now()), 16)
+
 function scheduleRender() {
   if (frameQueued) return
   frameQueued = true
-  requestAnimationFrame(tick)
+  raf(tick)
 }
 
 function tick(time: number) {
@@ -438,7 +469,7 @@ function tick(time: number) {
     selection,
   )
 
-  if (isAnimating) scheduleRender()
+  if (isAnimating) scheduleRender() // uses raf() internally, Safari-safe
 }
 
 // ── Message handler ───────────────────────────────────────────────────────────
@@ -594,8 +625,8 @@ export interface WorkerMetadata {
 }
 
 export interface UseTerminalWorkerResult {
-  /** true when OffscreenCanvas is supported and worker is ready */
-  workerActive: boolean
+  /** ref whose .current is true once the worker sends 'ready'. Use .current inside callbacks — reading the value at render time will always be false on the first render. */
+  workerActiveRef: React.MutableRefObject<boolean>
   sendSnapshot: (snap: TerminalSnapshot) => void
   sendHighlights: (matches: SearchMatch[]) => void
   sendSelection: (sel: SelectionRange | null) => void
@@ -654,10 +685,16 @@ export function useTerminalWorker(
       }
     }
 
-    // Transfer the canvas — after this the main thread can no longer use it
-    const offscreen = canvasRef.current.transferControlToOffscreen()
     const { accent, bg } = readThemeColors()
-    const useWebGL = !!canvasRef.current.getContext('webgl2')
+
+    // Detect WebGL2 support via a throwaway OffscreenCanvas — never call getContext()
+    // on canvasRef.current before transferControlToOffscreen(), the spec throws InvalidStateError.
+    const useWebGL = (() => {
+      try { return !!new OffscreenCanvas(1, 1).getContext('webgl2') } catch { return false }
+    })()
+
+    // Transfer the canvas — after this the main thread can no longer touch it
+    const offscreen = canvasRef.current.transferControlToOffscreen()
 
     worker.postMessage(
       {
@@ -720,7 +757,7 @@ export function useTerminalWorker(
   }, [])
 
   return {
-    workerActive: workerActiveRef.current,
+    workerActiveRef,  // return the ref object, not .current — callers read it inside event callbacks where a snapshot would always be false
     sendSnapshot,
     sendHighlights,
     sendSelection,
@@ -763,7 +800,12 @@ const onWorkerMetadata = useCallback((m: WorkerMetadata) => {
   if (m.cwd && m.cwd !== cwdRef.current) {
     cwdRef.current = m.cwd
     setCwd(m.cwd)
-    invoke('update_terminal_cwd', { id: terminalId, cwd: m.cwd }).catch(console.error)
+    // Debounce the DB write — under heavy log output the worker fires metadata on
+    // every snapshot; without debounce this hammers the Tauri backend with IPC.
+    if (cwdPersistTimer.current) clearTimeout(cwdPersistTimer.current)
+    cwdPersistTimer.current = setTimeout(() => {
+      invoke('update_terminal_cwd', { id: terminalId, cwd: cwdRef.current }).catch(console.error)
+    }, 300)
   }
   if (m.title && m.title !== titleRef.current) {
     titleRef.current = m.title
@@ -773,7 +815,7 @@ const onWorkerMetadata = useCallback((m: WorkerMetadata) => {
 }, [terminalId])
 
 const {
-  workerActive,
+  workerActiveRef,
   sendSnapshot,
   sendHighlights,
   sendSelection,
@@ -818,7 +860,9 @@ Inside the `listen<TerminalSnapshot>(...)` callback, replace the current decode 
 const ul1 = listen<TerminalSnapshot>(`native-terminal-update-${terminalId}`, (e) => {
   const snap = e.data ?? (e as any).payload ?? e
 
-  if (workerActive) {
+  // Read .current here, not a snapshot from render time — the worker sends 'ready'
+  // asynchronously and a boolean captured at render time is always false initially.
+  if (workerActiveRef.current) {
     // Fast path: forward raw payload to worker — decode + render happen off main thread
     sendSnapshot(snap)
     return
@@ -876,10 +920,10 @@ sendFont(cellWRef.current, cellHRef.current, fontSize, fontFamily)
 
 - [ ] **Step 7: Guard fallback renderer creation**
 
-The `useEffect` that mounts `rendererRef` and the font `useEffect` that re-creates it should only run when the worker is NOT active:
+The `useEffect` that mounts `rendererRef` and the font `useEffect` that re-creates it should only run when the worker is NOT active. Use `workerActiveRef.current` (not `workerActive`) — this runs inside an effect, and if the canvas has already been transferred the main thread cannot obtain a new context:
 ```typescript
 // Renderer mount (inside the Tauri subscriptions useEffect):
-if (!workerActive) {
+if (!workerActiveRef.current) {
   if (canvasRef.current?.getContext('webgl2')) {
     try {
       rendererRef.current = new WebGLRenderer(...)
@@ -938,22 +982,26 @@ git push origin main
 ## Self-Review
 
 **Spec coverage:**
-- OffscreenCanvas transfer ✅ Task 6
-- Worker rAF loop with smooth caret ✅ Task 5
+- OffscreenCanvas transfer ✅ Task 6 (detection via throwaway canvas, not getContext on real canvas)
+- Worker rAF loop with smooth caret ✅ Task 5 (with Safari `setTimeout` fallback)
 - Snapshot decode off main thread ✅ Task 5
 - React state (title/cwd/scrollbar) stays on main thread ✅ Task 7
-- Theme color injection (no `getComputedStyle` in worker) ✅ Task 3
+- Theme color injection (no stale-cache path in worker) ✅ Task 3
 - GlyphAtlas OffscreenCanvas compat ✅ Task 2
-- Fallback when OffscreenCanvas unavailable ✅ Task 7 step 3
+- `window.devicePixelRatio` / `canvas.style` worker compat ✅ Task 4 step 2
+- Fallback when OffscreenCanvas unavailable ✅ Task 7 step 3 (uses `workerActiveRef.current`)
 - Selection forwarded to worker ✅ Task 7 step 5
 - Search highlights forwarded ✅ Task 7 step 4
 - Font changes forwarded ✅ Task 7 step 6
+- cwd IPC debounce in worker metadata callback ✅ Task 7 step 1
 
 **Type consistency check:**
 - `SnapshotMsg.cells_b64` used in Task 5 → defined in Task 1 ✅
 - `WorkerMetadata` returned by hook → consumed in Task 7 `onWorkerMetadata` ✅
 - `WebGLRenderer.updateTheme()` added in Task 3 → called in Task 5 `case 'theme'` ✅
+- `WebGLRenderer` constructor widens canvas to `HTMLCanvasElement | OffscreenCanvas` ✅ Task 3 step 2
 - `TerminalRenderer` widened in Task 4 → `CanvasRenderer` implements it ✅
 - `sendSnapshot` takes `TerminalSnapshot` from `types.ts` ✅
+- `workerActiveRef` (ref object) returned by hook → `.current` read inside callbacks ✅ Tasks 6 & 7
 
 **No placeholders found.**

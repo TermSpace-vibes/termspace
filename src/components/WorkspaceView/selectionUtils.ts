@@ -29,8 +29,10 @@ export function absSelToViewport(
   let vpR2 = toVp(sel.endAbsRow),   c2 = sel.endCol
 
   // Normalise top-to-bottom (vpR1 <= vpR2)
-  if (vpR1 > vpR2 || (vpR1 === vpR2 && c1 > c2)) {
+  if (vpR1 > vpR2) {
     ;[vpR1, vpR2] = [vpR2, vpR1]
+    ;[c1, c2] = [c2, c1]
+  } else if (vpR1 === vpR2 && c1 > c2) {
     ;[c1, c2] = [c2, c1]
   }
 
@@ -53,7 +55,7 @@ export function absRowToLineIndex(absRow: number, totalHistory: number, rows: nu
   return totalHistory + rows - 1 - absRow
 }
 
-export interface NormalisedSel {
+export interface NormalizedSel {
   absTop: number    // older / higher on screen (larger absRow)
   cTop: number
   absBottom: number // newer / lower on screen (smaller absRow)
@@ -64,7 +66,7 @@ export interface NormalisedSel {
  * Normalise an AbsSelection so absTop >= absBottom (reading order: top-to-bottom).
  * For same-row selections, cTop <= cBottom (left-to-right).
  */
-export function normalizeAbsSel(sel: AbsSelection): NormalisedSel {
+export function normalizeAbsSel(sel: AbsSelection): NormalizedSel {
   const { startAbsRow: sA, startCol: sC, endAbsRow: eA, endCol: eC } = sel
   if (sA > eA || (sA === eA && sC <= eC)) {
     return { absTop: sA, cTop: sC, absBottom: eA, cBottom: eC }
@@ -101,9 +103,16 @@ export function extractTextFromLines(
   if (selected.length === 1) {
     return (selected[0] ?? '').slice(cTop, cBottom)
   }
-  selected[0] = (selected[0] ?? '').slice(cTop)
-  selected[selected.length - 1] = (selected[selected.length - 1] ?? '').slice(0, cBottom)
-  return selected
-    .map((l, i) => (i > 0 && i < selected.length - 1 ? l.trimEnd() : l))
-    .join('\n')
+  // multi-row: build from sliced+trimmed parts
+  const parts = selected.map((l, i) => {
+    const s = l ?? ''
+    if (i === 0) return s.slice(cTop).trimEnd()
+    if (i === selected.length - 1) {
+      const sliced = s.slice(0, cBottom)
+      // only trim if selection goes to end of line (user didn't explicitly select trailing spaces)
+      return cBottom >= s.length ? sliced.trimEnd() : sliced
+    }
+    return s.trimEnd()
+  })
+  return parts.join('\n')
 }

@@ -73,6 +73,16 @@ describe('absSelToViewport', () => {
     expect(vp?.endRow).toBe(rows - 1)
     expect(vp?.endCol).toBe(cols)  // clamped to cols when bottom is off-screen
   })
+
+  it('clamps both ends when selection spans entire viewport plus beyond', () => {
+    // absRow 50 → vpRow = 23-(50-10) = -17 (above); absRow 0 → vpRow = 23-(0-10) = 33 (below)
+    const sel = { startAbsRow: 50, startCol: 5, endAbsRow: 0, endCol: 3 }
+    const vp = absSelToViewport(sel, 10, rows, cols)
+    expect(vp?.startRow).toBe(0)
+    expect(vp?.startCol).toBe(0)
+    expect(vp?.endRow).toBe(rows - 1)
+    expect(vp?.endCol).toBe(cols)
+  })
 })
 
 describe('absRowToLineIndex', () => {
@@ -136,10 +146,18 @@ describe('extractTextFromLines', () => {
     // totalHistory=0, rows=3: lineIndex=2-absRow
     // absTop=2→lineIndex 0, absBottom=0→lineIndex 2
     const result = extractTextFromLines(spaced, 2, 0, 0, 3, 0, 3)
-    expect(result).toBe('aaa   \nbbb\nccc')
+    // first line is also trimmed now
+    expect(result).toBe('aaa\nbbb\nccc')
   })
 
   it('clamps out-of-range indices', () => {
     expect(extractTextFromLines(lines, 99, 0, 99, 5, 0, 5)).toBe('line0')
+  })
+
+  it('cBottom=0 on last line produces trailing newline-free result', () => {
+    // absTop=3→lineIndex 1='line1', absBottom=2→lineIndex 2='line2', cBottom=0 → slice(0,0)=''
+    const result = extractTextFromLines(lines, 3, 0, 2, 0, 0, 5)
+    // last line sliced to col 0 = '', result ends without trailing \n
+    expect(result).toBe('line1\n')
   })
 })

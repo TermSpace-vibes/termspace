@@ -621,6 +621,14 @@ pub fn scroll_terminal(
     ntm.scroll(&terminal_id, delta)
 }
 
+#[tauri::command]
+pub fn get_terminal_text(
+    ntm: State<NativeTerminalManager>,
+    terminal_id: String,
+) -> Result<String, String> {
+    ntm.get_all_text(&terminal_id)
+}
+
 /// No-op retained for frontend compatibility. Scrollback is owned by the native
 /// terminal's in-memory grid and is not persisted, so there is nothing to load.
 #[tauri::command]

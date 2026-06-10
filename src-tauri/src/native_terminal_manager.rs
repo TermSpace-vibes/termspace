@@ -343,6 +343,16 @@ impl NativeTerminalManager {
         self.handles.lock().get(terminal_id).and_then(|h| h.child.process_id())
     }
 
+    /// Return all terminal text (scrollback + visible viewport) as plain text.
+    pub fn get_all_text(&self, terminal_id: &str) -> Result<String, String> {
+        let handles = self.handles.lock();
+        let h = handles
+            .get(terminal_id)
+            .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
+        let term = h.term.lock();
+        Ok(get_all_text(&*term))
+    }
+
     /// Find all matches of `query` in the terminal's visible grid, returning one
     /// `SearchMatch` per contiguous run on each row.
     pub fn search(&self, terminal_id: &str, query: &str) -> Result<Vec<SearchMatch>, String> {
@@ -607,6 +617,39 @@ fn default_indexed_color(n: u8) -> Rgb {
             Rgb { r: v, g: v, b: v }
         }
     }
+}
+
+/// Extract all terminal text — scrollback history followed by the visible
+/// viewport — as a newline-separated string. Trailing spaces on every line are
+/// trimmed; trailing blank lines at the end are dropped.
+///
+/// Complexity: O((history + rows) * cols) time and space — bounded by the
+/// configured `scrolling_history` limit (10 000 lines by default).
+pub fn get_all_text(term: &Term<impl EventListener>) -> String {
+    let cols = term.columns();
+    let rows = term.screen_lines();
+    let history = term.grid().history_size();
+    let grid = term.grid();
+
+    let total = history + rows;
+    let mut lines: Vec<String> = Vec::with_capacity(total);
+
+    // Oldest history line first (Line(-(history as i32))), then visible rows.
+    for row_idx in -(history as i32)..(rows as i32) {
+        let mut line = String::with_capacity(cols);
+        for col in 0..cols {
+            let ch = grid[Line(row_idx)][Column(col)].c;
+            line.push(if ch == '\0' { ' ' } else { ch });
+        }
+        lines.push(line.trim_end().to_string());
+    }
+
+    // Strip trailing blank lines so we don't copy a wall of empty space.
+    while lines.last().map_or(false, |l: &String| l.is_empty()) {
+        lines.pop();
+    }
+
+    lines.join("\n")
 }
 
 /// Scan the visible terminal grid for `query`, returning one `SearchMatch` per

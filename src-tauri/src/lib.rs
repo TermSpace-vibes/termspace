@@ -110,6 +110,7 @@ pub fn run() {
             commands::resize_terminal,
             commands::search_terminal,
             commands::scroll_terminal,
+            commands::get_terminal_text,
             commands::load_scrollback,
             commands::save_scrollback,
             commands::create_browser_pane,
