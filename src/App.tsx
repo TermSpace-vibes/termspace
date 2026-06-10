@@ -10,6 +10,7 @@ import { UsernameModal } from './components/UsernameModal/UsernameModal'
 import { ContextMenu } from './components/ui/ContextMenu'
 import { ToastContainer } from './components/ui/ToastContainer'
 import { CommandPalette } from './components/CommandPalette/CommandPalette'
+import { DictationButton } from './components/ui/DictationButton'
 import { useGlobalKeybindings } from './hooks/useGlobalKeybindings'
 import { Workspace, Terminal, EditorPane, BrowserPane } from './types'
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
@@ -340,6 +341,7 @@ export default function App() {
         />
       )}
       <ToastContainer />
+      <DictationButton />
       <CommandPalette
         onNewWorkspace={() => setShowCreateModal(true)}
         onOpenSettings={() => setShowSettingsModal(true)}

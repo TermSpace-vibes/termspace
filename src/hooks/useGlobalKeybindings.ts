@@ -174,6 +174,13 @@ export function useKeybindingHandler() {
       return true
     }
 
+    if (matchShortcut(e, keybindings.toggleDictation || 'CmdOrCtrl+Shift+M')) {
+      if (e.repeat) return false
+      e.preventDefault()
+      window.dispatchEvent(new CustomEvent('termspace:toggle-dictation'))
+      return true
+    }
+
     return false
   }, [activeWorkspaceId, activeTerminalId, settings, terminals, addTerminal, removeTerminal, setTerminalToCloseId, setActiveTerminalId])
 

@@ -36,6 +36,7 @@ tiny_http = "0.12"
 base64 = "0.22.1"
 parking_lot = "0.12"
 tauri-plugin-clipboard-manager = "2"
+whisper-rs = "0.16.0"
 
 [patch.crates-io]
 portable-pty = { path = "portable-pty-0.9.0" }

@@ -11,6 +11,8 @@ use commands::DbState;
 use native_terminal_manager::NativeTerminalManager;
 use parking_lot::Mutex;
 use tauri::Manager;
+use std::sync::Arc;
+use whisper_rs::{WhisperContext, WhisperContextParameters};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -54,6 +56,15 @@ pub fn run() {
             app.manage(NativeTerminalManager::new());
             app.manage(BrowserPaneManager::new());
             app.manage(audio::AudioPlayer::new());
+
+            let resource_path = app.path().resolve("resources/ggml-base.en.bin", tauri::path::BaseDirectory::Resource);
+            let ctx = if let Ok(path) = resource_path {
+                let params = WhisperContextParameters::default();
+                WhisperContext::new_with_params(&*path.to_string_lossy(), params).ok()
+            } else {
+                None
+            };
+            app.manage(commands::WhisperState(Arc::new(Mutex::new(ctx))));
 
             // Start local HTTP hook server
             agent_hook::start_server(app.handle().clone());
@@ -122,10 +133,12 @@ pub fn run() {
             commands::get_username,
             commands::set_username,
             commands::clear_database,
+            commands::open_mic_settings,
             commands::play_notification_sound,
             commands::get_k8s_resources,
             commands::get_k8s_contexts,
             commands::set_k8s_context,
+            commands::transcribe_chunk,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

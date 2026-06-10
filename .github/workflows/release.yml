@@ -49,6 +49,12 @@ jobs:
       - name: install frontend dependencies
         run: npm ci
 
+      - name: download whisper models
+        run: |
+          mkdir -p src-tauri/resources
+          curl -L -o src-tauri/resources/ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+          curl -L -o src-tauri/resources/ggml-tiny.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+
       - name: build arm
         run: npm run tauri build -- --target aarch64-apple-darwin
 
@@ -105,6 +111,12 @@ jobs:
 
       - name: install frontend dependencies
         run: npm ci
+
+      - name: download whisper models
+        run: |
+          mkdir -p src-tauri/resources
+          curl -L -o src-tauri/resources/ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+          curl -L -o src-tauri/resources/ggml-tiny.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
 
       - name: build intel
         run: npm run tauri build -- --target x86_64-apple-darwin

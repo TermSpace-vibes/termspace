@@ -5,9 +5,12 @@ use rusqlite::Connection;
 use std::collections::HashMap;
 use parking_lot::Mutex;
 use tauri::{AppHandle, Manager, State};
+use std::sync::Arc;
+use whisper_rs::{WhisperContext, WhisperContextParameters, FullParams};
 
 pub struct DbState(pub Mutex<Connection>);
 pub struct SysInfoState(pub Mutex<(sysinfo::System, sysinfo::Networks)>);
+pub struct WhisperState(pub Arc<Mutex<Option<WhisperContext>>>);
 
 // macOS concurrent fork/posix_spawn workaround
 static SPAWN_LOCK: Mutex<()> = Mutex::new(());
@@ -781,6 +784,57 @@ pub fn get_username(db: State<DbState>) -> Result<Option<String>, String> {
 pub fn set_username(db: State<DbState>, username: String) -> Result<(), String> {
     let conn = db.0.lock();
     db::set_setting(&conn, "username", &username).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn open_mic_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn transcribe_chunk(
+    state: State<'_, WhisperState>,
+    audio_samples: Vec<f32>,
+    prompt: Option<String>,
+) -> Result<String, String> {
+    let context_opt = state.0.lock();
+    let ctx = match &*context_opt {
+        Some(c) => c,
+        None => return Err("Whisper context not initialized".into()),
+    };
+
+    let mut state = ctx.create_state().map_err(|e| e.to_string())?;
+    let mut params = FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 1 });
+    params.set_language(Some("en"));
+    params.set_print_special(false);
+    params.set_print_progress(false);
+    params.set_print_realtime(false);
+    params.set_print_timestamps(false);
+
+    if let Some(ref p) = prompt {
+        params.set_initial_prompt(p);
+    }
+
+    state.full(params, &audio_samples).map_err(|e| e.to_string())?;
+
+    let num_segments = state.full_n_segments();
+    let mut result = String::new();
+    for i in 0..num_segments {
+        if let Some(segment) = state.get_segment(i) {
+            if let Ok(text) = segment.to_str() {
+                result.push_str(text);
+            }
+        }
+    }
+
+    Ok(result.trim().to_string())
 }
 
 #[derive(serde::Serialize)]

@@ -45,6 +45,7 @@ export function SettingsModal({ onClose }: Props) {
     switchTab: settings.keybindings?.switchTab || 'Ctrl+Tab',
     splitEditor: settings.keybindings?.splitEditor || 'CmdOrCtrl+\\',
     openSettings: settings.keybindings?.openSettings || 'CmdOrCtrl+,',
+    toggleDictation: settings.keybindings?.toggleDictation || 'CmdOrCtrl+Shift+M',
   })
 
   const [appVersion, setAppVersion] = useState<string>('Loading...')
@@ -302,6 +303,70 @@ export function SettingsModal({ onClose }: Props) {
                       </div>
                       Enable smooth caret animation
                     </div>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border-inactive)', margin: '4px 0' }} />
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-inactive)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dictation</div>
+                  <div style={{ display: 'flex', gap: 16 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
+                      <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Provider</label>
+                      <select
+                        value={settings.dictationProvider || 'local'}
+                        onChange={(e) => updateSettings({ dictationProvider: e.target.value as 'local' | 'openai' | 'groq' })}
+                        style={{
+                          padding: '10px 14px', background: 'var(--bg-sidebar)',
+                          border: '1px solid var(--border-inactive)', borderRadius: 6,
+                          color: 'var(--text-active)', outline: 'none', fontSize: 14,
+                          transition: 'border 0.2s', width: '100%'
+                        }}
+                      >
+                        <option value="local">Local Native (Offline)</option>
+                        <option value="openai">OpenAI (Whisper API)</option>
+                        <option value="groq">Groq (Whisper API)</option>
+                      </select>
+                    </div>
+
+                    {(settings.dictationProvider === 'openai' || settings.dictationProvider === 'groq') && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 2 }}>
+                        <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>API Key</label>
+                        <input
+                          type="password"
+                          value={settings.dictationApiKey || ''}
+                          onChange={(e) => updateSettings({ dictationApiKey: e.target.value })}
+                          placeholder={`Enter ${settings.dictationProvider === 'openai' ? 'OpenAI' : 'Groq'} API Key`}
+                          style={{
+                            padding: '10px 14px', background: 'var(--bg-sidebar)',
+                            border: '1px solid var(--border-inactive)', borderRadius: 6,
+                            color: 'var(--text-active)', outline: 'none', fontSize: 14,
+                            transition: 'border 0.2s', width: '100%'
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                    <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>
+                      Dictation Context Prompt (Optional)
+                    </label>
+                    <textarea
+                      value={settings.dictationPrompt || ''}
+                      onChange={(e) => updateSettings({ dictationPrompt: e.target.value })}
+                      placeholder="e.g. 'This transcript is in English, spoken with an Asian accent. The user often says termspace, tauri, rust, and react.'"
+                      style={{
+                        padding: '10px 14px', background: 'var(--bg-sidebar)',
+                        border: '1px solid var(--border-inactive)', borderRadius: 6,
+                        color: 'var(--text-active)', outline: 'none', fontSize: 13,
+                        transition: 'border 0.2s', width: '100%', minHeight: 60, resize: 'vertical',
+                        fontFamily: 'inherit', lineHeight: 1.4
+                      }}
+                    />
+                    <p style={{ fontSize: 12, color: 'var(--text-dim)', margin: 0 }}>
+                      Provide a cheat sheet to force the AI to correctly spell specific names, jargon, or to hint at your accent.
+                    </p>
                   </div>
                 </div>
 

@@ -162,7 +162,7 @@ npm test                 # Run vitest tests
 
 - Drag-to-resize between terminal panes (lost when CSS grid replaced react-resizable-panels)
 - App icon (using default Tauri placeholder icons)
-- Terminal tabs overlay (floating glassmorphic tab bar — planned)
+- ✅ Terminal tabs overlay (floating glassmorphic tab bar)
 - Loading indicator for lazy workspace activation
 - Scrollback restoration may reflow on first resize
 

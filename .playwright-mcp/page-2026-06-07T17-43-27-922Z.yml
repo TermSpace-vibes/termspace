@@ -1,0 +1,79 @@
+- generic [ref=e4]:
+  - generic [ref=e7]:
+    - generic [ref=e9]: v0.5.0
+    - generic [ref=e10]:
+      - generic [ref=e11]: Workspaces
+      - button "Collapse sidebar" [ref=e12] [cursor=pointer]:
+        - img [ref=e13]
+    - generic [ref=e16] [cursor=pointer]:
+      - img [ref=e19]
+      - generic [ref=e25]: Main
+      - generic [ref=e26]: "1"
+    - button "new workspace" [ref=e28] [cursor=pointer]:
+      - generic [ref=e30]: +
+      - generic [ref=e31]: New env
+    - generic [ref=e33]:
+      - generic [ref=e34]: T
+      - generic [ref=e36]: test
+      - button "Settings" [ref=e37] [cursor=pointer]:
+        - img [ref=e38]
+  - separator [ref=e41]:
+    - img [ref=e43]
+  - generic [ref=e50]:
+    - generic [ref=e51]:
+      - generic [ref=e52]:
+        - generic [ref=e53] [cursor=pointer]:
+          - generic [ref=e55]: "01"
+          - generic [ref=e56]: Terminal
+          - button [ref=e57]:
+            - img [ref=e58]
+        - button "+" [ref=e61] [cursor=pointer]:
+          - generic [ref=e62]: +
+      - generic [ref=e63]:
+        - button "Quick actions ⌘K" [ref=e64]:
+          - img [ref=e65]
+          - text: Quick actions ⌘K
+        - button "[ ] Browser" [ref=e68] [cursor=pointer]:
+          - generic [ref=e69]: "[ ]"
+          - text: Browser
+        - button "</> Editor" [ref=e70] [cursor=pointer]:
+          - generic [ref=e71]: </>
+          - text: Editor
+    - generic [ref=e72]:
+      - generic [ref=e79]:
+        - generic [ref=e81]: Terminal 1
+        - generic [ref=e82]:
+          - button "Split Right" [ref=e83] [cursor=pointer]:
+            - img [ref=e84]
+          - button "Split Down" [ref=e86] [cursor=pointer]:
+            - img [ref=e87]
+          - button "Maximize" [ref=e89] [cursor=pointer]: ↗
+          - button "Close" [ref=e90] [cursor=pointer]: ×
+      - generic [ref=e93]:
+        - generic [ref=e94]:
+          - generic [ref=e95]:
+            - img [ref=e96]
+            - text: CPU
+            - generic [ref=e99]: 0.0%
+          - generic [ref=e100]:
+            - img [ref=e101]
+            - text: RAM
+            - generic [ref=e103]: 0.0 / 0 GB
+          - generic [ref=e104]:
+            - img [ref=e105]
+            - text: GPU
+            - generic [ref=e109]: 0.0%
+          - generic [ref=e110]:
+            - img [ref=e111]
+            - text: UP
+            - generic [ref=e113]: 0.0 KB/s
+          - generic [ref=e114]:
+            - img [ref=e115]
+            - text: DOWN
+            - generic [ref=e117]: 0.0 KB/s
+        - generic [ref=e118]:
+          - generic [ref=e119]:
+            - img [ref=e120]
+            - generic [ref=e124]: 0 ms
+          - generic [ref=e125]: UTF-8
+          - generic [ref=e126]: 23:28:26

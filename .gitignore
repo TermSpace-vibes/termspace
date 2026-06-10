@@ -1,6 +1,9 @@
 # Tauri build artifacts
 src-tauri/target/
 
+# AI Models
+*.bin
+
 # Signing keys (never commit these)
 tauri.updater.key
 tauri.updater.key.pub

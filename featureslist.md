@@ -16,3 +16,10 @@
 ## In Progress
 
 ## Planned
+### Potential Features to Port (Inspired by VibeTerm)
+- **Agent State Sniffing (OSC 133/633):** Implement parsing of OSC escape sequences in the terminal to understand when a command starts, finishes, and its exit code. This enables "Stalled detection" and better integration for AI agent workflows.
+- **Local HTTP Hook Server:** Run a lightweight local HTTP server (e.g., using `tiny_http` in Rust) to intercept and forward stop hooks or state updates from AI agents (like Claude/Codex) directly to the terminal manager.
+- **Robust Notification Sounds:** Use a dedicated audio library like `rodio` to play notification sounds reliably in-process, avoiding the overhead and bugs associated with spawning `afplay` processes multiple times.
+- **Native File & Directory Dialogs:** Integrate native OS dialogs (via `tauri-plugin-dialog`) for smoother file path selection, such as picking workspaces or configuring paths.
+- **Smart Image Pasting:** Utilize clipboard manager plugins (`tauri-plugin-clipboard-manager`) and image encoding crates (`image`) combined with hashing (`blake3`) to implement duplicate-free, native image pasting directly into the terminal environment.
+- **Process Guarding:** Use single-instance locking (`tauri-plugin-single-instance`) to prevent multiple app instances from overwriting the database (like SQLite state) concurrently.

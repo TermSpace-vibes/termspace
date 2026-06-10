@@ -90,6 +90,9 @@ interface AppState {
 
   draggedTerminalId: string | null
   setDraggedTerminalId: (id: string | null) => void
+
+  dictationButtonPosition: { x: number, y: number } | null
+  setDictationButtonPosition: (pos: { x: number, y: number } | null) => void
 }
 
 export const useAppStore = create<AppState>()(
@@ -115,8 +118,10 @@ export const useAppStore = create<AppState>()(
       terminalToCloseId: null,
       tasksCollapsed: false,
       draggedTerminalId: null,
+      dictationButtonPosition: null,
       username: null,
       setUsername: (name) => set({ username: name }),
+      setDictationButtonPosition: (pos) => set({ dictationButtonPosition: pos }),
       settings: {
         theme: 'warm-dark',
         fontSize: 13,
@@ -139,6 +144,7 @@ export const useAppStore = create<AppState>()(
           switchTab: 'Ctrl+Tab',
           splitEditor: 'CmdOrCtrl+\\',
           openSettings: 'CmdOrCtrl+,',
+          toggleDictation: 'CmdOrCtrl+Shift+M',
         }
       },
 
@@ -670,7 +676,8 @@ export const useAppStore = create<AppState>()(
         editorPanesByWorkspace: state.editorPanesByWorkspace,
         kubernetesPanesByWorkspace: state.kubernetesPanesByWorkspace,
         gitStatusByWorkspace: state.gitStatusByWorkspace,
-        tasksCollapsed: state.tasksCollapsed
+        tasksCollapsed: state.tasksCollapsed,
+        dictationButtonPosition: state.dictationButtonPosition
       }),
     }
   )

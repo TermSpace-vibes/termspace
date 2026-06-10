@@ -69,6 +69,7 @@ export interface Keybindings {
   switchTab: string
   splitEditor: string
   openSettings: string
+  toggleDictation: string
 }
 
 export interface Settings {
@@ -85,6 +86,9 @@ export interface Settings {
   smoothCaret?: boolean
   defaultTerminalType?: 'built-in' | 'ghostty'
   terminalRenderer?: 'native' | 'xterm'
+  dictationProvider?: 'local' | 'openai' | 'groq'
+  dictationApiKey?: string
+  dictationPrompt?: string
 }
 
 export type LayoutDirection = 'horizontal' | 'vertical'
