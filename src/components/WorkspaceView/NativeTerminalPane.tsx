@@ -298,11 +298,11 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
         if (edgeScrollDeltaRef.current > 0) {
           // Scrolled up into history — selection end = top of new viewport, full line
           selectionRef.current.endAbsRow = displayOffsetRef.current + rowsRef.current - 1
-          selectionRef.current.endCol = colsRef.current   // full line end
+          selectionRef.current.endCol = 0                 // cTop=0 → include full top line
         } else {
-          // Scrolled down toward present — selection end = bottom of new viewport, line start
+          // Scrolled down toward present — selection end = bottom of new viewport, line end
           selectionRef.current.endAbsRow = displayOffsetRef.current
-          selectionRef.current.endCol = 0                 // line start
+          selectionRef.current.endCol = colsRef.current   // cBottom=cols → include full bottom line
         }
       }
       if (snap.cwd && snap.cwd !== cwdRef.current) {
@@ -562,7 +562,6 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
           const snapCols    = colsRef.current
           const snapRows    = rowsRef.current
           const snapOffset  = displayOffsetRef.current
-          const snapHistory = totalHistoryRef.current
           menuItems.push({
             label: 'Copy',
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>,
@@ -575,7 +574,6 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
                 snapCols,
                 snapRows,
                 snapOffset,
-                snapHistory,
                 terminalId,
               ).then(text => {
                 if (text) writeText(text).catch(console.error)
@@ -952,8 +950,8 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
                 const text = lines.join('\n')
                 if (text) {
                   e.clipboardData.setData('text/plain', text)
-                  e.preventDefault()
                 }
+                e.preventDefault()
               }
               return
             }
@@ -966,11 +964,13 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
               colsRef.current,
               rowsRef.current,
               displayOffsetRef.current,
-              totalHistoryRef.current,
               terminalId,
             ).then(text => {
               if (text) writeText(text).catch(console.error)
-            }).catch(console.error)
+            }).catch((err: unknown) => {
+              console.error('Copy failed:', err)
+              useAppStore.getState().addToast('Copy failed: ' + String(err), 'error')
+            })
           }}
           onPaste={(e) => {
             const text = e.clipboardData.getData('text/plain')
@@ -1105,7 +1105,6 @@ async function getSelectedText(
   cols: number,
   rows: number,
   displayOffset: number,
-  totalHistory: number,
   terminalId: string,
 ): Promise<string> {
   if (!sel) return ''
@@ -1137,5 +1136,8 @@ async function getSelectedText(
   // Slow path: selection crosses viewport boundary — fetch full buffer from Rust.
   const allText = await invoke<string>('get_terminal_text', { terminalId })
   const allLines = allText.split('\n')
-  return extractTextFromLines(allLines, absTop, cTop, absBottom, cBottom, totalHistory, rows)
+  // Re-derive totalHistory from returned lines so index math is consistent even if
+  // new output arrived during the IPC round-trip.
+  const derivedHistory = Math.max(0, allLines.length - rows)
+  return extractTextFromLines(allLines, absTop, cTop, absBottom, cBottom, derivedHistory, rows)
 }
