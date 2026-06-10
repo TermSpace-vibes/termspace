@@ -295,13 +295,13 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       // Extend selection to follow the scrolling edge during drag
       if (isDraggingRef.current && edgeScrollDeltaRef.current !== 0 && selectionRef.current) {
         if (edgeScrollDeltaRef.current > 0) {
-          // Scrolled up — selection end tracks new top row (oldest visible)
+          // Scrolled up into history — selection end = top of new viewport, full line
           selectionRef.current.endAbsRow = displayOffsetRef.current + rowsRef.current - 1
-          selectionRef.current.endCol = 0
+          selectionRef.current.endCol = colsRef.current   // full line end
         } else {
-          // Scrolled down — selection end tracks new bottom row (newest visible)
+          // Scrolled down toward present — selection end = bottom of new viewport, line start
           selectionRef.current.endAbsRow = displayOffsetRef.current
-          selectionRef.current.endCol = colsRef.current
+          selectionRef.current.endCol = 0                 // line start
         }
       }
       if (snap.cwd && snap.cwd !== cwdRef.current) {
@@ -442,10 +442,15 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
 
   // ── Smooth scroll decay loop ───────────────────────────────────────────────
   useEffect(() => {
+    const EDGE_SCROLL_INTERVAL_MS = 50  // ~20 lines/sec max
     let handle: number
-    const tick = () => {
+    let lastEdgeScrollMs = 0
+    const tick = (now: number) => {
       if (isDraggingRef.current && edgeScrollDeltaRef.current !== 0) {
-        pendingScrollDeltaRef.current += edgeScrollDeltaRef.current
+        if (now - lastEdgeScrollMs >= EDGE_SCROLL_INTERVAL_MS) {
+          pendingScrollDeltaRef.current += edgeScrollDeltaRef.current
+          lastEdgeScrollMs = now
+        }
       }
       if (pendingScrollDeltaRef.current !== 0) {
         invoke('scroll_terminal', { terminalId, delta: pendingScrollDeltaRef.current }).catch(console.error)
@@ -484,8 +489,10 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
 
       const mouseY = e.clientY - rect.top
       const { row, col } = getCellCoords(e)
-      selectionRef.current.endAbsRow = viewportRowToAbs(row, displayOffsetRef.current, rowsRef.current)
-      selectionRef.current.endCol = col
+      if (edgeScrollDeltaRef.current === 0) {
+        selectionRef.current.endAbsRow = viewportRowToAbs(row, displayOffsetRef.current, rowsRef.current)
+        selectionRef.current.endCol = col
+      }
 
       if (mouseY < EDGE_ZONE) {
         edgeScrollDeltaRef.current = 1          // scroll up into history
@@ -519,6 +526,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     return () => {
       window.removeEventListener('mousemove', handleWinMouseMove)
       window.removeEventListener('mouseup', handleWinMouseUp)
+      edgeScrollDeltaRef.current = 0
     }
   }, [getCellCoords, scheduleRender])
 
