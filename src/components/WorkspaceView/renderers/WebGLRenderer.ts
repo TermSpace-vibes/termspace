@@ -210,7 +210,7 @@ export class WebGLRenderer implements TerminalRenderer {
     if (!gl) throw new Error('WebGL2 not available')
     this.gl = gl
 
-    const dpr = window.devicePixelRatio || 1
+    const dpr = globalThis.devicePixelRatio ?? 1
     this.atlas = new GlyphAtlas(gl, cellW * dpr, cellH * dpr, fontSize * dpr, fontFamily)
 
     // Compile and link both shader programs.
@@ -292,7 +292,7 @@ export class WebGLRenderer implements TerminalRenderer {
   }
 
   render(
-    canvas: HTMLCanvasElement,
+    canvas: HTMLCanvasElement | OffscreenCanvas,
     cells: Uint32Array,
     cols: number,
     rows: number,
@@ -303,8 +303,8 @@ export class WebGLRenderer implements TerminalRenderer {
     selection?: SelectionRange | null,
   ): void {
     const gl = this.gl
-    const dpr = window.devicePixelRatio || 1
-    
+    const dpr = globalThis.devicePixelRatio ?? 1
+
     const pCellW = cellW * dpr
     const pCellH = cellH * dpr
 
@@ -314,8 +314,10 @@ export class WebGLRenderer implements TerminalRenderer {
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w
       canvas.height = h
-      canvas.style.width = `${w / dpr}px`
-      canvas.style.height = `${h / dpr}px`
+      if ('style' in canvas) {
+        canvas.style.width = `${w / dpr}px`
+        canvas.style.height = `${h / dpr}px`
+      }
     }
     gl.viewport(0, 0, w, h)
 
