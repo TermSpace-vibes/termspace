@@ -104,6 +104,6 @@ export function extractTextFromLines(
   selected[0] = (selected[0] ?? '').slice(cTop)
   selected[selected.length - 1] = (selected[selected.length - 1] ?? '').slice(0, cBottom)
   return selected
-    .map((l, i) => (i === 0 || i === selected.length - 1 ? l.trimEnd() : l))
+    .map((l, i) => (i > 0 && i < selected.length - 1 ? l.trimEnd() : l))
     .join('\n')
 }

@@ -136,7 +136,7 @@ describe('extractTextFromLines', () => {
     // totalHistory=0, rows=3: lineIndex=2-absRow
     // absTop=2→lineIndex 0, absBottom=0→lineIndex 2
     const result = extractTextFromLines(spaced, 2, 0, 0, 3, 0, 3)
-    expect(result).toBe('aaa\nbbb   \nccc')
+    expect(result).toBe('aaa   \nbbb\nccc')
   })
 
   it('clamps out-of-range indices', () => {
