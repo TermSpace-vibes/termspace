@@ -48,6 +48,11 @@ export class GlyphAtlas {
     this.ctx.clearRect(0, 0, ATLAS_SIZE, ATLAS_SIZE)
   }
 
+  /** Physical pixel width of each atlas slot — equals Math.ceil(logicalCellW × dpr) */
+  get slotW(): number { return this.cellW }
+  /** Physical pixel height of each atlas slot — equals Math.ceil(logicalCellH × dpr) */
+  get slotH(): number { return this.cellH }
+
   /**
    * Returns the cached UV entry for a glyph, or rasterises the character and
    * inserts it into the atlas if not yet present.
@@ -103,8 +108,8 @@ export class GlyphAtlas {
     if (!this.texture) {
       this.texture = gl.createTexture()!
       gl.bindTexture(gl.TEXTURE_2D, this.texture)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
     }
