@@ -127,6 +127,14 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   const [title, setTitle] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitleValue, setEditTitleValue] = useState('')
+  const [dpr, setDpr] = useState(window.devicePixelRatio || 1)
+
+  useEffect(() => {
+    const updateDpr = () => setDpr(window.devicePixelRatio || 1)
+    const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+    mq.addEventListener('change', updateDpr)
+    return () => mq.removeEventListener('change', updateDpr)
+  }, [dpr])
 
   // ── Store selectors ────────────────────────────────────────────────────────
   const settings = useAppStore(s => s.settings)
@@ -209,10 +217,22 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     const offscreen = document.createElement('canvas')
     const ctx = offscreen.getContext('2d')!
     ctx.font = `normal normal ${fontSize}px ${fontFamily}`
-    cellWRef.current = ctx.measureText('M').width
-    cellHRef.current = fontSize * 1.4
+    
+    const rawW = ctx.measureText('M').width
+    const rawH = fontSize * 1.4
+    cellWRef.current = Math.ceil(rawW * dpr) / dpr
+    cellHRef.current = Math.ceil(rawH * dpr) / dpr
+    console.log(`[Terminal] snapped metrics: physical=${cellWRef.current * dpr}x${cellHRef.current * dpr}, dpr=${dpr}`)
+    if (import.meta.env.DEV) {
+      const pW = Math.round(cellWRef.current * dpr * 1e6) / 1e6
+      const pH = Math.round(cellHRef.current * dpr * 1e6) / 1e6
+      if (!Number.isInteger(pW) || !Number.isInteger(pH)) {
+        console.warn(`[Terminal] physical cell size not integer: ${pW}×${pH} at dpr=${dpr}`)
+      }
+    }
+
     // Forward new font metrics to worker
-    sendFont(cellWRef.current, cellHRef.current, fontSize, fontFamily)
+    sendFont(cellWRef.current, cellHRef.current, fontSize, fontFamily, dpr)
     if (typeof OffscreenCanvas === 'undefined') {
       // Replace renderer so it uses the new font metrics on the next frame.
       // Re-use WebGL if the existing renderer is already a WebGLRenderer;
@@ -236,7 +256,12 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fontSize, fontFamily])
+  }, [fontSize, fontFamily, dpr])
+
+  // ── Sync smoothCaret setting to worker ────────────────────────────────────
+  useEffect(() => {
+    _sendCursorAnim(settings.smoothCaret ?? false)
+  }, [settings.smoothCaret, _sendCursorAnim])
 
   // ── Render scheduling ──────────────────────────────────────────────────────
   /** Schedules a single rAF render, coalescing multiple calls in the same frame. */
@@ -262,7 +287,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       // Teleport condition: line wraps, enters, or scroll changes
       const rowChanged = Math.abs(target.row - anim.row) >= 0.5;
       const colChangedALot = Math.abs(target.col - anim.col) > 5;
-      const smoothCaretEnabled = useAppStore.getState().settings.smoothCaret ?? true;
+      const smoothCaretEnabled = useAppStore.getState().settings.smoothCaret ?? false;
       
       if (!smoothCaretEnabled || anim.lastDisplayOffset !== displayOffsetRef.current || (rowChanged && colChangedALot)) {
          anim.col = target.col;
@@ -421,11 +446,29 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   useEffect(() => {
     if (!containerRef.current) return
     const ro = new ResizeObserver(entries => {
-      const rect = entries[0]?.contentRect
-      if (!rect || rect.width === 0) return
-      const newCols = Math.max(1, Math.floor(rect.width / cellWRef.current))
-      const newRows = Math.max(1, Math.floor(rect.height / cellHRef.current))
-      invoke('resize_terminal', { terminalId, cols: newCols, rows: newRows }).catch(console.error)
+      const entry = entries[0]
+      if (!entry) return
+
+      // devicePixelContentBoxSize: supported in Chromium/WebView2 (Windows fractional DPR).
+      // NOT supported in WKWebView (macOS) — fallback path always runs there.
+      if ('devicePixelContentBoxSize' in entry && (entry as any).devicePixelContentBoxSize.length > 0) {
+        const physW = (entry as any).devicePixelContentBoxSize[0].inlineSize as number
+        const physH = (entry as any).devicePixelContentBoxSize[0].blockSize as number
+        if (physW === 0) return
+        // Compute directly in physical space — avoids a round-trip through logical units.
+        const dpr = window.devicePixelRatio || 1
+        const pCellW = Math.ceil(cellWRef.current * dpr)
+        const pCellH = Math.ceil(cellHRef.current * dpr)
+        const newCols = Math.max(1, Math.floor(physW / pCellW))
+        const newRows = Math.max(1, Math.floor(physH / pCellH))
+        invoke('resize_terminal', { terminalId, cols: newCols, rows: newRows }).catch(console.error)
+      } else {
+        const rect = entry.contentRect
+        if (rect.width === 0) return
+        const newCols = Math.max(1, Math.floor(rect.width / cellWRef.current))
+        const newRows = Math.max(1, Math.floor(rect.height / cellHRef.current))
+        invoke('resize_terminal', { terminalId, cols: newCols, rows: newRows }).catch(console.error)
+      }
     })
     ro.observe(containerRef.current)
     return () => ro.disconnect()
