@@ -211,7 +211,13 @@ export class WebGLRenderer implements TerminalRenderer {
     this.gl = gl
 
     const dpr = globalThis.devicePixelRatio ?? 1
-    this.atlas = new GlyphAtlas(gl, cellW * dpr, cellH * dpr, fontSize * dpr, fontFamily)
+    this.atlas = new GlyphAtlas(
+      gl,
+      Math.ceil(cellW * dpr),
+      Math.ceil(cellH * dpr),
+      Math.ceil(fontSize * dpr),
+      fontFamily,
+    )
 
     // Compile and link both shader programs.
     const glyphVs = compile(gl, gl.VERTEX_SHADER, VS)
@@ -305,15 +311,29 @@ export class WebGLRenderer implements TerminalRenderer {
     const gl = this.gl
     const dpr = globalThis.devicePixelRatio ?? 1
 
-    const pCellW = cellW * dpr
-    const pCellH = cellH * dpr
+    const pCellW = Math.ceil(cellW * dpr)   // integer physical pixels per cell
+    const pCellH = Math.ceil(cellH * dpr)
 
-    // Resize canvas backing store to match the physical terminal grid.
-    const w = Math.round(cols * pCellW)
-    const h = Math.round(rows * pCellH)
+    // Guard: pCellW must equal atlas slot size. If they diverge, NEAREST filtering produces
+    // jagged artifacts. This fires only if a DPR change races ahead of renderer reconstruction.
+    if (import.meta.env.DEV && (pCellW !== this.atlas.slotW || pCellH !== this.atlas.slotH)) {
+      console.warn(
+        `[WebGL] pCell ${pCellW}×${pCellH} !== atlas slot ${this.atlas.slotW}×${this.atlas.slotH}` +
+        ` — DPR changed without renderer reconstruction. Expect jagged glyphs.`
+      )
+    }
+
+    // Canvas size from cells × integer cell size — exact, no rounding drift.
+    const w = cols * pCellW
+    const h = rows * pCellH
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w
       canvas.height = h
+      // CSS size must match exactly: w/dpr gives back the exact logical size so the compositor
+      // doesn't rescale the backing store (which would defeat NEAREST filtering).
+      // Note: w/dpr at fractional DPR (e.g. 1.5) produces a repeating decimal like 693.333...px.
+      // Chromium quantizes to 1/64 CSS px, giving ~0.008px physical error — far below one texel.
+      // Do NOT round this value to a whole number; that would introduce a real compositor rescale.
       if ('style' in canvas) {
         canvas.style.width = `${w / dpr}px`
         canvas.style.height = `${h / dpr}px`
