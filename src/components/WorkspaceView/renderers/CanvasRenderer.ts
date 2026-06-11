@@ -50,9 +50,13 @@ export class CanvasRenderer implements TerminalRenderer {
     if (!ctx) return
     const dpr = globalThis.devicePixelRatio ?? 1
 
-    // Resize canvas to match the physical terminal dimensions.
-    const w = Math.round(cols * cellW * dpr)
-    const h = Math.round(rows * cellH * dpr)
+    // Integer physical cell size — matches how NativeTerminalPane snaps cellW.
+    const pCellW = Math.ceil(cellW * dpr)
+    const pCellH = Math.ceil(cellH * dpr)
+
+    // Backing store size from cells × integer physical cell size — no rounding drift.
+    const w = cols * pCellW
+    const h = rows * pCellH
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w
       canvas.height = h
@@ -61,9 +65,11 @@ export class CanvasRenderer implements TerminalRenderer {
         canvas.style.height = `${h / dpr}px`
       }
     }
-    
-    // Scale context so we can draw in logical coordinates
+
+    // Scale context so we can draw in logical coordinates.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    // Disable drawImage smoothing (defensive; does not affect fillText).
+    ctx.imageSmoothingEnabled = false
 
     // -----------------------------------------------------------------------
     // Pass 1: Background rectangles.
@@ -81,10 +87,10 @@ export class CanvasRenderer implements TerminalRenderer {
           if ((runBg >>> 24) !== 0) { // Only fill if not completely transparent
             ctx.fillStyle = colorToCss(runBg)
             ctx.fillRect(
-              Math.floor(runStart * cellW),
-              Math.floor(row * cellH),
-              Math.floor((col - runStart) * cellW),
-              Math.ceil(cellH),
+              runStart * cellW,
+              row * cellH,
+              (col - runStart) * cellW,
+              cellH,
             )
           }
           runStart = col
@@ -121,9 +127,9 @@ export class CanvasRenderer implements TerminalRenderer {
         if (!byStyle.has(key)) byStyle.set(key, [])
         byStyle.get(key)!.push({
           ch: String.fromCodePoint(chU32),
-          x: Math.floor(col * cellW),
+          x: col * cellW,
           // Baseline offset: position text so it sits within the cell box.
-          y: Math.floor(row * cellH + this.fontSize),
+          y: row * cellH + this.fontSize,
         })
       }
     }
@@ -166,17 +172,17 @@ export class CanvasRenderer implements TerminalRenderer {
 
         if (strikeout) {
           ctx.fillRect(
-            Math.floor(col * cellW),
-            Math.floor(row * cellH + cellH * 0.55),
-            Math.ceil(cellW),
+            col * cellW,
+            row * cellH + cellH * 0.55,
+            cellW,
             thickness
           )
         }
         if (underline) {
           ctx.fillRect(
-            Math.floor(col * cellW),
-            Math.floor(row * cellH + cellH * 0.85),
-            Math.ceil(cellW),
+            col * cellW,
+            row * cellH + cellH * 0.85,
+            cellW,
             thickness
           )
         }
@@ -190,10 +196,10 @@ export class CanvasRenderer implements TerminalRenderer {
       ctx.fillStyle = 'rgba(255, 200, 0, 0.35)'
       for (const h of highlights) {
         ctx.fillRect(
-          Math.floor(h.colStart * cellW),
-          Math.floor(h.row * cellH),
-          Math.floor((h.colEnd - h.colStart) * cellW),
-          Math.ceil(cellH),
+          h.colStart * cellW,
+          h.row * cellH,
+          (h.colEnd - h.colStart) * cellW,
+          cellH,
         )
       }
     }
@@ -207,10 +213,10 @@ export class CanvasRenderer implements TerminalRenderer {
       ctx.globalAlpha = 0.9
       ctx.fillStyle = 'var(--accent)'
       ctx.fillRect(
-        Math.floor(cursor.col * cellW),
-        Math.floor(cursor.row * cellH),
-        Math.ceil(cellW),
-        Math.ceil(cellH),
+        cursor.col * cellW,
+        cursor.row * cellH,
+        cellW,
+        cellH,
       )
       ctx.globalAlpha = 1.0
       const ci = cursor.row * cols + cursor.col
@@ -221,8 +227,8 @@ export class CanvasRenderer implements TerminalRenderer {
         ctx.font = `normal normal ${this.fontSize}px ${this.fontFamily}`
         ctx.fillText(
           String.fromCodePoint(chU32),
-          Math.floor(cursor.col * cellW),
-          Math.floor(cursor.row * cellH + this.fontSize),
+          cursor.col * cellW,
+          cursor.row * cellH + this.fontSize,
         )
       }
     }

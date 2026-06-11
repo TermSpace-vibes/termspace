@@ -87,4 +87,29 @@ describe('CanvasRenderer', () => {
     renderer.render(canvas, cells, 5, 1, { col: 0, row: 0, visible: false }, 8.4, 19.6, [])
     expect(ctx.fillRect).toHaveBeenCalled()
   })
+
+  it('canvas backing store width equals cols × Math.ceil(cellW × dpr)', () => {
+    // Simulate DPR = 1.5 (Windows 150% scaling).
+    // Pass the raw, unsnapped cellW so old code (Math.round) and new code (Math.ceil) differ.
+    ;(globalThis as any).devicePixelRatio = 1.5
+    try {
+      const ctx = patchCanvas(canvas)
+      Object.defineProperty(ctx, 'imageSmoothingEnabled', { writable: true, value: true })
+
+      const cols = 80
+      const rows = 24
+      // Raw measurement — NOT pre-snapped. Old: Math.round(80*8.4*1.5)=1008. New: 80*ceil(8.4*1.5)=1040.
+      const rawCellW = 8.4
+      const cells = makeGrid(cols, rows)
+
+      renderer.render(canvas, cells, cols, rows, { col: 0, row: 0, visible: false }, rawCellW, 19.6, [])
+
+      const expectedW = cols * Math.ceil(rawCellW * 1.5)  // 80 * 13 = 1040
+      expect(canvas.width).toBe(expectedW)
+      expect(Number.isInteger(canvas.width)).toBe(true)
+    } finally {
+      // Always restore DPR — an assertion failure must not pollute subsequent tests.
+      ;(globalThis as any).devicePixelRatio = 1
+    }
+  })
 })
