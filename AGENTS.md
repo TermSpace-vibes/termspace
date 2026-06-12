@@ -93,6 +93,25 @@ termspace/
 
 ---
 
+## Dependency Map
+
+`docs/dependency-map.md` — auto-generated import graph for all `src/` files.
+
+**Use it when:**
+- Changing a utility, hook, store, or type — check **Table 2 (Dependents)** to find all affected files
+- Adding a new file — check **Table 1 (Imports)** for patterns to follow
+- Debugging a regression — trace which consumers could be affected by an upstream change
+
+**High-ripple files** (many dependents — changes here have wide blast radius):
+- `src/types/index.ts` — shared TypeScript interfaces
+- `src/store/useAppStore.ts` — global Zustand state
+- `src/utils/tauri.ts` — Tauri invoke wrapper
+- `src/utils/constants.ts` — shared constants
+
+Regenerate after structural changes: `node scripts/gen-dep-map.js`
+
+---
+
 ## Features (Implemented)
 
 - ✅ **Workspaces** — Named sessions with emoji + color, stored in SQLite
