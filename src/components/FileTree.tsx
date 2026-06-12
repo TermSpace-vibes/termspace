@@ -479,8 +479,9 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
     if (!inlineInput) return base
 
     if (inlineInput.mode === 'rename' && inlineInput.node) {
+      const renameNode = inlineInput.node
       return base.map(item =>
-        item.kind === 'node' && item.data.path === inlineInput.node!.path
+        item.kind === 'node' && item.data.path === renameNode.path
           ? { kind: 'inline-input' as const, depth: item.data.depth, mode: inlineInput.mode, prefill: item.data.name, index: item.index }
           : item
       )
@@ -493,7 +494,7 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
     const insertAt = parentIdx >= 0 ? parentIdx + 1 : base.length
     const parentDepth = parentIdx >= 0 && base[parentIdx].kind === 'node'
       ? (base[parentIdx] as { kind: 'node'; data: FlatNode; index: number }).data.depth
-      : 0
+      : -1
     const sentinel: FlatItem = {
       kind: 'inline-input',
       depth: parentDepth + 1,
@@ -502,7 +503,7 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
       index: insertAt,
     }
     return [
-      ...base.slice(0, insertAt).map((item, i) => ({ ...item, index: i })),
+      ...base.slice(0, insertAt),
       { ...sentinel, index: insertAt },
       ...base.slice(insertAt).map((item, i) => ({ ...item, index: insertAt + 1 + i })),
     ]
@@ -644,18 +645,21 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
         )}
       </div>
 
-      {menu && (
-        <FileTreeContextMenu
-          menu={menu}
-          onClose={closeMenu}
-          onNewFile={() => { openCreateFile(menu.node.path); closeMenu() }}
-          onNewFolder={() => { openCreateFolder(menu.node.path); closeMenu() }}
-          onRename={() => { openRename(menu.node); closeMenu() }}
-          onDelete={() => { requestDelete(menu.node); closeMenu() }}
-          onCopyPath={() => { copyPath(menu.node.path); closeMenu() }}
-          onOpenInTerminal={() => { openInTerminal(menu.node.path); closeMenu() }}
-        />
-      )}
+      {menu && (() => {
+        const m = menu
+        return (
+          <FileTreeContextMenu
+            menu={m}
+            onClose={closeMenu}
+            onNewFile={() => { openCreateFile(m.node.path); closeMenu() }}
+            onNewFolder={() => { openCreateFolder(m.node.path); closeMenu() }}
+            onRename={() => { openRename(m.node); closeMenu() }}
+            onDelete={() => { requestDelete(m.node); closeMenu() }}
+            onCopyPath={() => { copyPath(m.node.path); closeMenu() }}
+            onOpenInTerminal={() => { openInTerminal(m.node.path); closeMenu() }}
+          />
+        )
+      })()}
 
       <AnimatePresence>
         {pendingDelete && (
