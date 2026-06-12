@@ -107,6 +107,7 @@ termspace/
 - `src/store/useAppStore.ts` — global Zustand state
 - `src/utils/tauri.ts` — Tauri invoke wrapper
 - `src/utils/constants.ts` — shared constants
+- `src/components/WorkspaceView/renderers/types.ts` — renderer type contracts (7 dependents)
 
 Regenerate after structural changes: `node scripts/gen-dep-map.js`
 
