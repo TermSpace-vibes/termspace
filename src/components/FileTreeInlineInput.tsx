@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { File, Folder } from 'lucide-react'
 
 const ITEM_HEIGHT = 28
@@ -15,17 +15,20 @@ interface Props {
 export function FileTreeInlineInput({ mode, prefill, depth, index, onCommit, onCancel }: Props) {
   const [value, setValue] = useState(prefill)
   const inputRef = useRef<HTMLInputElement>(null)
+  const committed = useRef(false)
 
   useEffect(() => {
     inputRef.current?.focus()
     inputRef.current?.select()
   }, [])
 
-  const commit = () => {
+  const commit = useCallback(() => {
+    if (committed.current) return
+    committed.current = true
     const trimmed = value.trim()
     if (trimmed) onCommit(trimmed)
     else onCancel()
-  }
+  }, [value, onCommit, onCancel])
 
   return (
     <div
