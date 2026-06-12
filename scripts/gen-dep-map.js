@@ -26,6 +26,7 @@ function walkDir(dir, results = []) {
 }
 
 const allFiles = walkDir(SRC_ROOT);
+const allFilesSet = new Set(allFiles);
 
 // Normalize to relative paths like "src/components/App.tsx"
 const rel = (abs) => path.relative(path.resolve(__dirname, '..'), abs);
@@ -42,7 +43,7 @@ function resolve(importerDir, spec) {
     path.resolve(importerDir, spec, 'index.tsx'),
   ];
   for (const c of candidates) {
-    if (fs.existsSync(c) && allFiles.includes(c)) return c;
+    if (fs.existsSync(c) && allFilesSet.has(c)) return c;
   }
   return null;
 }
@@ -62,7 +63,8 @@ for (const f of allFiles) {
   const importDir = path.dirname(f);
   const matches = src.matchAll(/from\s+['"](\.[^'"]+)['"]/g);
   for (const [, spec] of matches) {
-    const resolved = resolve(importDir, spec);
+    const cleanSpec = spec.replace(/\?.*$/, '');
+    const resolved = resolve(importDir, cleanSpec);
     if (resolved) {
       imports[f].add(resolved);
       if (!dependents[resolved]) dependents[resolved] = new Set();
@@ -129,6 +131,7 @@ if (highRisk.length) {
   lines.push(``);
 }
 
+fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true });
 fs.writeFileSync(OUT_FILE, lines.join('\n'));
 console.log(`Written: ${OUT_FILE}`);
 console.log(`Files scanned: ${allFiles.length}`);
