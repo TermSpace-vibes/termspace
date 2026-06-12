@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { ChevronRight, ChevronDown, File, Folder, FileJson, FileText, FileCode, Image, FileType, FileTerminal, FileArchive, Settings, Server, Monitor, Book, Ship, Package, ScrollText, Database, Layout, FlaskConical, Code2, GitBranch, Workflow, Wrench, Boxes, AppWindow, Type, Palette } from 'lucide-react'
+import { AnimatePresence } from 'framer-motion'
 import { FileNode, fetchDirectoryTree } from '../utils/fs'
 import { useAppStore } from '../store/useAppStore'
+import { useFileTreeContextMenu } from '../hooks/useFileTreeContextMenu'
+import { useFileTreeOperations } from '../hooks/useFileTreeOperations'
+import { FileTreeContextMenu } from './FileTreeContextMenu'
+import { FileTreeInlineInput } from './FileTreeInlineInput'
+import { ConfirmModal } from './ConfirmModal/ConfirmModal'
 
 interface FileTreeProps {
   workspaceId: string
@@ -18,6 +24,10 @@ interface FlatNode {
   isLoading: boolean
   status?: string
 }
+
+type FlatItem =
+  | { kind: 'node'; data: FlatNode; index: number }
+  | { kind: 'inline-input'; depth: number; mode: 'create-file' | 'create-folder' | 'rename'; prefill: string; index: number }
 
 const getStatusColor = (status?: string) => {
   switch (status) {
@@ -155,8 +165,9 @@ const TreeNode = React.memo<{
   iconTheme: 'plain' | 'colorful' | 'filled'
   onToggle: (node: FlatNode) => void
   onFocus: (node: FlatNode) => void
+  onContextMenu: (e: React.MouseEvent, node: FlatNode) => void
   style?: React.CSSProperties
-}>(({ node, isFocused, isSelected, iconTheme, onToggle, onFocus, style }) => {
+}>(({ node, isFocused, isSelected, iconTheme, onToggle, onFocus, onContextMenu, style }) => {
   const [isHovered, setIsHovered] = React.useState(false)
   const statusColor = getStatusColor(node.status)
   const ref = useRef<HTMLDivElement>(null)
@@ -180,7 +191,8 @@ const TreeNode = React.memo<{
         onFocus(node)
         onToggle(node)
       }}
-      style={{ 
+      onContextMenu={(e) => onContextMenu(e, node)}
+      style={{
         display: 'flex',
         alignItems: 'center',
         paddingRight: '8px',
@@ -292,6 +304,33 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
   const gitStatus = useAppStore(s => s.gitStatusByWorkspace[workspaceId])
   const activeFile = useAppStore(s => s.activeFileByWorkspace[workspaceId])
   const iconTheme = useAppStore(s => s.settings.iconTheme || 'colorful')
+
+  const { menu, openMenu, closeMenu } = useFileTreeContextMenu()
+
+  const handleRefreshDir = useCallback(async (dirPath: string) => {
+    const children = await fetchDirectoryTree(dirPath)
+    setLoadedChildren(prev => ({ ...prev, [dirPath]: children }))
+    if (dirPath === rootPath) {
+      setRootNodes(children)
+    }
+  }, [rootPath])
+
+  const {
+    inlineInput,
+    pendingDelete,
+    error,
+    openCreateFile,
+    openCreateFolder,
+    openRename,
+    closeInlineInput,
+    commitInlineInput,
+    requestDelete,
+    cancelDelete,
+    confirmDelete,
+    copyPath,
+    openInTerminal,
+    clearError,
+  } = useFileTreeOperations({ workspaceId, onRefreshDir: handleRefreshDir })
 
   useEffect(() => {
     if (activeFile && !focusedPath) {
@@ -434,15 +473,47 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
   }, [flatNodes, focusedPath, handleToggle])
 
   const BUFFER = 10
-  const visibleNodes = useMemo(() => {
+
+  const flatItems = useMemo((): FlatItem[] => {
+    const base: FlatItem[] = flatNodes.map((node, i) => ({ kind: 'node', data: node, index: i }))
+    if (!inlineInput) return base
+
+    if (inlineInput.mode === 'rename' && inlineInput.node) {
+      return base.map(item =>
+        item.kind === 'node' && item.data.path === inlineInput.node!.path
+          ? { kind: 'inline-input' as const, depth: item.data.depth, mode: inlineInput.mode, prefill: item.data.name, index: item.index }
+          : item
+      )
+    }
+
+    // create-file or create-folder: insert one row after the parent directory
+    const parentIdx = base.findIndex(
+      item => item.kind === 'node' && item.data.path === inlineInput.parentPath
+    )
+    const insertAt = parentIdx >= 0 ? parentIdx + 1 : base.length
+    const parentDepth = parentIdx >= 0 && base[parentIdx].kind === 'node'
+      ? (base[parentIdx] as { kind: 'node'; data: FlatNode; index: number }).data.depth
+      : 0
+    const sentinel: FlatItem = {
+      kind: 'inline-input',
+      depth: parentDepth + 1,
+      mode: inlineInput.mode,
+      prefill: '',
+      index: insertAt,
+    }
+    return [
+      ...base.slice(0, insertAt).map((item, i) => ({ ...item, index: i })),
+      { ...sentinel, index: insertAt },
+      ...base.slice(insertAt).map((item, i) => ({ ...item, index: insertAt + 1 + i })),
+    ]
+  }, [flatNodes, inlineInput])
+
+  const visibleItems = useMemo(() => {
+    const total = flatItems.length
     const startIndex = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER)
-    const endIndex = Math.min(flatNodes.length, Math.ceil((scrollTop + containerHeight) / ITEM_HEIGHT) + BUFFER)
-    
-    return flatNodes.slice(startIndex, endIndex).map((node, index) => ({
-      node,
-      index: startIndex + index
-    }))
-  }, [flatNodes, scrollTop, containerHeight])
+    const endIndex = Math.min(total, Math.ceil((scrollTop + containerHeight) / ITEM_HEIGHT) + BUFFER)
+    return flatItems.slice(startIndex, endIndex)
+  }, [flatItems, scrollTop, containerHeight])
 
   const folderName = rootPath.split('/').pop() || 'Workspace'
 
@@ -540,22 +611,91 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
             Folder is empty
           </div>
         ) : (
-          <div style={{ height: flatNodes.length * ITEM_HEIGHT, position: 'relative' }}>
-            {visibleNodes.map(({ node, index }) => (
-              <TreeNode 
-                key={node.path} 
-                node={node} 
-                isFocused={focusedPath === node.path}
-                isSelected={activeFile === node.path}
-                iconTheme={iconTheme}
-                onToggle={handleToggle}
-                onFocus={(n) => setFocusedPath(n.path)}
-                style={{ top: index * ITEM_HEIGHT }}
-              />
-            ))}
+          <div style={{ height: flatItems.length * ITEM_HEIGHT, position: 'relative' }}>
+            {visibleItems.map((item) => {
+              if (item.kind === 'inline-input') {
+                return (
+                  <FileTreeInlineInput
+                    key="inline-input"
+                    mode={item.mode}
+                    prefill={item.prefill}
+                    depth={item.depth}
+                    index={item.index}
+                    onCommit={commitInlineInput}
+                    onCancel={closeInlineInput}
+                  />
+                )
+              }
+              return (
+                <TreeNode
+                  key={item.data.path}
+                  node={item.data}
+                  isFocused={focusedPath === item.data.path}
+                  isSelected={activeFile === item.data.path}
+                  iconTheme={iconTheme}
+                  onToggle={handleToggle}
+                  onFocus={(n) => setFocusedPath(n.path)}
+                  onContextMenu={openMenu}
+                  style={{ top: item.index * ITEM_HEIGHT }}
+                />
+              )
+            })}
           </div>
         )}
       </div>
+
+      {menu && (
+        <FileTreeContextMenu
+          menu={menu}
+          onClose={closeMenu}
+          onNewFile={() => { openCreateFile(menu.node.path); closeMenu() }}
+          onNewFolder={() => { openCreateFolder(menu.node.path); closeMenu() }}
+          onRename={() => { openRename(menu.node); closeMenu() }}
+          onDelete={() => { requestDelete(menu.node); closeMenu() }}
+          onCopyPath={() => { copyPath(menu.node.path); closeMenu() }}
+          onOpenInTerminal={() => { openInTerminal(menu.node.path); closeMenu() }}
+        />
+      )}
+
+      <AnimatePresence>
+        {pendingDelete && (
+          <ConfirmModal
+            title={`Delete ${pendingDelete.isDirectory ? 'folder' : 'file'}`}
+            message={`Are you sure you want to delete "${pendingDelete.name}"? This cannot be undone.`}
+            confirmText="Delete"
+            isDestructive
+            onConfirm={confirmDelete}
+            onCancel={cancelDelete}
+          />
+        )}
+      </AnimatePresence>
+
+      {error && (
+        <div style={{
+          position: 'absolute',
+          bottom: 8,
+          left: 8,
+          right: 8,
+          background: 'rgba(224, 123, 123, 0.15)',
+          border: '1px solid #e07b7b',
+          borderRadius: 4,
+          padding: '6px 10px',
+          fontSize: 12,
+          color: '#e07b7b',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          zIndex: 10,
+        }}>
+          <span>{error}</span>
+          <button
+            onClick={clearError}
+            style={{ background: 'none', border: 'none', color: '#e07b7b', cursor: 'pointer', fontSize: 14, padding: 0 }}
+          >
+            ×
+          </button>
+        </div>
+      )}
     </div>
   )
 }

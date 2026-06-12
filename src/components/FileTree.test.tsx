@@ -29,6 +29,29 @@ vi.mock('../store/useAppStore', () => ({
   )
 }))
 
+vi.mock('../hooks/useFileTreeContextMenu', () => ({
+  useFileTreeContextMenu: () => ({ menu: null, openMenu: vi.fn(), closeMenu: vi.fn() }),
+}))
+
+vi.mock('../hooks/useFileTreeOperations', () => ({
+  useFileTreeOperations: () => ({
+    inlineInput: null,
+    pendingDelete: null,
+    error: null,
+    openCreateFile: vi.fn(),
+    openCreateFolder: vi.fn(),
+    openRename: vi.fn(),
+    closeInlineInput: vi.fn(),
+    commitInlineInput: vi.fn(),
+    requestDelete: vi.fn(),
+    cancelDelete: vi.fn(),
+    confirmDelete: vi.fn(),
+    copyPath: vi.fn(),
+    openInTerminal: vi.fn(),
+    clearError: vi.fn(),
+  }),
+}))
+
 describe('FileTree', () => {
   const workspaceId = 'ws-1'
   const rootPath = '/project'
