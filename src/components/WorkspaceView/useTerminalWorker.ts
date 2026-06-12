@@ -18,7 +18,7 @@ export interface UseTerminalWorkerResult {
   sendHighlights: (matches: SearchMatch[]) => void
   sendSelection: (sel: SelectionRange | null) => void
   sendTheme: (accent: number, bg: number) => void
-  sendFont: (cellW: number, cellH: number, fontSize: number, fontFamily: string) => void
+  sendFont: (cellW: number, cellH: number, fontSize: number, fontFamily: string, dpr: number) => void
   sendCursorAnim: (smoothCaret: boolean) => void
 }
 
@@ -143,8 +143,8 @@ export function useTerminalWorker(
     workerRef.current?.postMessage({ type: 'theme', accentColor, bgColor })
   }, [])
 
-  const sendFont = useCallback((cw: number, ch: number, fs: number, ff: string) => {
-    workerRef.current?.postMessage({ type: 'font', cellW: cw, cellH: ch, fontSize: fs, fontFamily: ff })
+  const sendFont = useCallback((cw: number, ch: number, fs: number, ff: string, dpr: number) => {
+    workerRef.current?.postMessage({ type: 'font', cellW: cw, cellH: ch, fontSize: fs, fontFamily: ff, dpr })
   }, [])
 
   const sendCursorAnim = useCallback((smoothCaret: boolean) => {

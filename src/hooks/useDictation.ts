@@ -120,37 +120,25 @@ export function useDictation({ onResult, onError }: UseDictationProps) {
           offset += 2;
         }
         
-        const blob = new Blob([view], { type: 'audio/wav' });
-        const formData = new FormData();
-        formData.append('file', blob, 'audio.wav');
-        formData.append('model', provider === 'groq' ? 'whisper-large-v3' : 'whisper-1');
-        
         const apiKey = settings.dictationApiKey || '';
         if (!apiKey) {
           throw new Error(`API key required for ${provider}`);
-        }
-        
-        if (settings.dictationPrompt) {
-          formData.append('prompt', settings.dictationPrompt);
         }
         
         const endpoint = provider === 'groq' 
           ? 'https://api.groq.com/openai/v1/audio/transcriptions'
           : 'https://api.openai.com/v1/audio/transcriptions';
           
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${apiKey}` },
-          body: formData
+        const model = provider === 'groq' ? 'whisper-large-v3' : 'whisper-1';
+        const bytes = Array.from(new Uint8Array(buffer));
+
+        text = await invoke<string>('transcribe_openai', {
+          audio: bytes,
+          prompt: settings.dictationPrompt || null,
+          apiKey,
+          endpoint,
+          model
         });
-        
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(`API Error: ${errData.error?.message || res.statusText}`);
-        }
-        
-        const data = await res.json();
-        text = data.text || '';
       }
       
       let formatted = text.trim();

@@ -61,6 +61,7 @@ export interface FontMsg {
   cellH: number
   fontSize: number
   fontFamily: string
+  dpr: number
 }
 
 export interface CursorAnimMsg {

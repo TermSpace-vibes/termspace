@@ -21,7 +21,24 @@ export function SettingsModal({ onClose }: Props) {
   const [theme, setTheme] = useState<Settings['theme']>(settings.theme)
   const [fontSize, setFontSize] = useState(settings.fontSize)
   const [uiFontFamily, setUiFontFamily] = useState(settings.uiFontFamily || 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif')
-  const [terminalFontFamily, setTerminalFontFamily] = useState(settings.terminalFontFamily || '"JetBrains Mono", "Fira Code", Menlo, monospace')
+  const PRESET_FONTS = [
+    { label: 'JetBrains Mono (Default)', value: '"JetBrains Mono", "Fira Code", Menlo, monospace' },
+    { label: 'Fira Code',                value: '"Fira Code", Menlo, Monaco, monospace' },
+    { label: 'Cascadia Code',            value: '"Cascadia Code", "Fira Code", monospace' },
+    { label: 'Source Code Pro',          value: '"Source Code Pro", Menlo, monospace' },
+    { label: 'Hack',                     value: '"Hack", "Fira Code", monospace' },
+    { label: 'Geist Mono',               value: '"Geist Mono", "JetBrains Mono", monospace' },
+    { label: 'Monaspace Neon',           value: '"Monaspace Neon", "JetBrains Mono", monospace' },
+    { label: 'IBM Plex Mono',            value: '"IBM Plex Mono", Menlo, monospace' },
+    { label: 'SF Mono',                  value: '"SF Mono", Menlo, monospace' },
+    { label: 'System Monospace',         value: 'Menlo, Monaco, "Courier New", monospace' },
+  ] as const
+  const CUSTOM_SENTINEL = '__custom__'
+  const storedFont = settings.terminalFontFamily || PRESET_FONTS[0].value
+  const isStoredCustom = !PRESET_FONTS.some(p => p.value === storedFont)
+  const [terminalFontFamily, setTerminalFontFamily] = useState(storedFont)
+  const [isCustomFont, setIsCustomFont] = useState(isStoredCustom)
+  const [customFontInput, setCustomFontInput] = useState(isStoredCustom ? storedFont : '')
   const [timeFormat, setTimeFormat] = useState<Settings['timeFormat']>(settings.timeFormat || '24h')
   const [autosave, setAutosave] = useState(settings.autosave || false)
   const [showTabBar, setShowTabBar] = useState(settings.showTabBar !== false)
@@ -194,8 +211,16 @@ export function SettingsModal({ onClose }: Props) {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Terminal/Editor Font</label>
                     <select
-                      value={terminalFontFamily}
-                      onChange={(e) => setTerminalFontFamily(e.target.value)}
+                      value={isCustomFont ? CUSTOM_SENTINEL : terminalFontFamily}
+                      onChange={(e) => {
+                        if (e.target.value === CUSTOM_SENTINEL) {
+                          setIsCustomFont(true)
+                          setTerminalFontFamily(customFontInput)
+                        } else {
+                          setIsCustomFont(false)
+                          setTerminalFontFamily(e.target.value)
+                        }
+                      }}
                       style={{
                         padding: '10px 14px', background: 'var(--bg-sidebar)',
                         border: '1px solid var(--border-inactive)', borderRadius: 6,
@@ -203,10 +228,28 @@ export function SettingsModal({ onClose }: Props) {
                         transition: 'border 0.2s', width: '100%'
                       }}
                     >
-                      <option value='"JetBrains Mono", "Fira Code", Menlo, monospace'>JetBrains Mono (Default)</option>
-                      <option value='"Fira Code", Menlo, Monaco, "Courier New", monospace'>Fira Code</option>
-                      <option value='Menlo, Monaco, "Courier New", monospace'>System Monospace</option>
+                      {PRESET_FONTS.map(p => (
+                        <option key={p.value} value={p.value}>{p.label}</option>
+                      ))}
+                      <option value={CUSTOM_SENTINEL}>Custom…</option>
                     </select>
+                    {isCustomFont && (
+                      <input
+                        type="text"
+                        placeholder='"Comic Code", monospace'
+                        value={customFontInput}
+                        onChange={(e) => {
+                          setCustomFontInput(e.target.value)
+                          setTerminalFontFamily(e.target.value)
+                        }}
+                        style={{
+                          padding: '10px 14px', background: 'var(--bg-sidebar)',
+                          border: '1px solid var(--border-inactive)', borderRadius: 6,
+                          color: 'var(--text-active)', outline: 'none', fontSize: 14,
+                          transition: 'border 0.2s', width: '100%', boxSizing: 'border-box'
+                        }}
+                      />
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

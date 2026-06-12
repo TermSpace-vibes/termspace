@@ -2,7 +2,7 @@
 import { CanvasRenderer } from './CanvasRenderer'
 import { WebGLRenderer } from './WebGLRenderer'
 import type { CursorState, SearchMatch, SelectionRange } from './types'
-import type { MainToWorker, MetadataMsg } from './worker-protocol'
+import type { MainToWorker, MetadataMsg, SnapshotMsg } from './worker-protocol'
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -16,9 +16,9 @@ let cursor: CursorState = { col: 0, row: 0, visible: true }
 let highlights: SearchMatch[] = []
 let selection: SelectionRange | null = null
 let displayOffset = 0
-let smoothCaret = true
+let smoothCaret = false
 
-// Animated cursor (smooth lerp, same logic as main thread had)
+// Animated cursor (smooth lerp)
 const anim = { col: 0, row: 0, lastTime: 0, lastDisplayOffset: 0 }
 let isAnimating = false
 let frameQueued = false
@@ -28,13 +28,40 @@ let cellH = 19.6
 
 let currentAccent = 0xFFE8A045
 let currentBg = 0xFF161310
-let isAlternate = false
+
+// ── Snapshot coalescing ───────────────────────────────────────────────────────
+// Multiple snapshots arriving in the same frame are collapsed to one — only
+// the latest is decoded and rendered. Intermediate states are discarded.
+let pendingSnap: SnapshotMsg | null = null
+
+// Reusable decode buffer — avoids per-snapshot allocation.
+let decodeBuf = new Uint8Array(0)
+
+// ── Render helpers ────────────────────────────────────────────────────────────
+
+function drawFrame(cur: CursorState) {
+  if (!canvas || !renderer) return
+  renderer.render(canvas, cells, cols, rows, cur, cellW, cellH, highlights, selection)
+}
+
+function applySnap(snap: SnapshotMsg) {
+  const binary = atob(snap.cells_b64)
+  const needed = binary.length
+  if (decodeBuf.length < needed) decodeBuf = new Uint8Array(needed)
+  for (let i = 0; i < needed; i++) decodeBuf[i] = binary.charCodeAt(i)
+  cells        = new Uint32Array(decodeBuf.buffer, 0, needed >>> 2)
+  cols         = snap.cols
+  rows         = snap.rows
+  cursor       = { col: snap.cursorCol, row: snap.cursorRow, visible: snap.cursorVisible }
+  displayOffset = snap.displayOffset
+  // Snap the animated cursor to the authoritative position so it doesn't
+  // drift to the wrong place after reconciliation.
+  anim.col = cursor.col
+  anim.row = cursor.row
+}
 
 // ── Render scheduling ─────────────────────────────────────────────────────────
 
-// rAF is available in dedicated workers on Chrome 69+ and Firefox.
-// Safari added it in 16.4 alongside OffscreenCanvas but support is inconsistent
-// — fall back to setTimeout so the worker still renders on Safari.
 const raf: (cb: (t: number) => void) => void =
   typeof requestAnimationFrame !== 'undefined'
     ? (cb) => requestAnimationFrame(cb)
@@ -49,6 +76,11 @@ function scheduleRender() {
 function tick(time: number) {
   frameQueued = false
   if (!canvas || !renderer) return
+
+  if (pendingSnap !== null) {
+    applySnap(pendingSnap)
+    pendingSnap = null
+  }
 
   if (anim.lastTime === 0) anim.lastTime = time
   const dt = Math.min((time - anim.lastTime) / 1000, 0.1)
@@ -76,21 +108,9 @@ function tick(time: number) {
     anim.lastTime = 0
   }
 
-  const renderCursor = { ...cursor, col: anim.col, row: anim.row }
+  drawFrame({ ...cursor, col: anim.col, row: anim.row })
 
-  renderer.render(
-    canvas,
-    cells,
-    cols,
-    rows,
-    renderCursor,
-    cellW,
-    cellH,
-    highlights,
-    selection,
-  )
-
-  if (isAnimating) scheduleRender() // uses raf() internally, Safari-safe
+  if (isAnimating) scheduleRender()
 }
 
 // ── Message handler ───────────────────────────────────────────────────────────
@@ -105,7 +125,6 @@ self.onmessage = (e: MessageEvent<MainToWorker>) => {
       cellH = msg.cellH
       currentAccent = msg.accentColor
       currentBg = msg.bgColor
-      // Workers don't expose devicePixelRatio — inject it so renderers see the correct value.
       ;(globalThis as any).devicePixelRatio = msg.dpr
 
       if (msg.useWebGL) {
@@ -131,28 +150,22 @@ self.onmessage = (e: MessageEvent<MainToWorker>) => {
     }
 
     case 'snapshot': {
-      // Decode b64 → Uint32Array
-      const u8 = Uint8Array.from(atob(msg.cells_b64), c => c.charCodeAt(0))
-      cells = new Uint32Array(u8.buffer.slice(0, u8.byteLength))
+      // Coalesce: store the latest, decode in tick() to skip stale intermediates.
+      pendingSnap = msg
 
-      cols = msg.cols
-      rows = msg.rows
-      cursor = { col: msg.cursorCol, row: msg.cursorRow, visible: msg.cursorVisible }
-      displayOffset = msg.displayOffset
-      isAlternate = msg.isAlternate
-
-      scheduleRender()
-
-      // Post metadata back so main thread can update React state
+      // Forward metadata immediately — main thread needs cwd/title/scroll
+      // position without waiting for the rAF cycle.
       const meta: MetadataMsg = {
         type: 'metadata',
         cwd: msg.cwd,
         title: msg.title,
         displayOffset: msg.displayOffset,
         totalHistory: msg.totalHistory,
-        isAlternate,
+        isAlternate: msg.isAlternate,
       }
       self.postMessage(meta)
+
+      scheduleRender()
       break
     }
 
@@ -181,6 +194,9 @@ self.onmessage = (e: MessageEvent<MainToWorker>) => {
     case 'font': {
       cellW = msg.cellW
       cellH = msg.cellH
+      if (msg.dpr !== undefined) {
+        (globalThis as any).devicePixelRatio = msg.dpr
+      }
       if (renderer) {
         renderer.dispose()
         if (renderer instanceof WebGLRenderer) {

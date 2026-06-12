@@ -140,6 +140,7 @@ pub fn run() {
             commands::get_k8s_contexts,
             commands::set_k8s_context,
             commands::transcribe_chunk,
+            commands::transcribe_openai,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

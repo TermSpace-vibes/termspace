@@ -209,6 +209,19 @@ impl NativeTerminalManager {
         )));
 
         // Reader thread: the sole producer of grid mutations and snapshots.
+        //
+        // Split into two threads so snapshot emission can be throttled without
+        // a non-blocking PTY read:
+        //   1. PTY-read thread: blocking read() → forwards raw chunks over an
+        //      mpsc channel. Never touches term.lock(), never serializes.
+        //   2. Parse/emit thread: drains the channel, parses all accumulated
+        //      bytes, and emits a snapshot at most once per EMIT_INTERVAL —
+        //      or as soon as the PTY goes quiet (QUIET_WINDOW with no bytes).
+        //
+        // Previously serialize_snapshot() (O(rows×cols) + base64, under
+        // term.lock()) ran after *every* read(); a single keystroke with a
+        // fancy shell prompt caused 3-5 serializes and 3-8ms of lock holds —
+        // the typing jitter.
         {
             let term_clone = Arc::clone(&term);
             let cwd_clone = Arc::clone(&cwd_arc);
@@ -216,42 +229,80 @@ impl NativeTerminalManager {
             let app_clone = app.clone();
             let id = terminal_id.clone();
 
-            std::thread::spawn(move || {
-                let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
-                let mut buf = [0u8; 4096];
-                let mut osc_buf: Vec<u8> = Vec::with_capacity(512);
+            let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
 
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 4096];
                 loop {
                     use std::io::Read;
                     match reader.read(&mut buf) {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
-                            let chunk = &buf[..n];
-                            scan_osc_sequences(
-                                chunk,
-                                &mut osc_buf,
-                                &cwd_clone,
-                                &app_clone,
-                                &id,
-                            );
-                            let cwd_val = cwd_clone.lock().clone();
-                            let title_val = title_clone.lock().clone();
-                            let snapshot = {
-                                let mut t = term_clone.lock();
-                                // vte 0.13 `Processor::advance` consumes one byte.
-                                for &byte in chunk {
-                                    parser.advance(&mut *t, byte);
-                                }
-                                serialize_snapshot(
-                                    &*t,
-                                    Some(cwd_val),
-                                    if title_val.is_empty() { None } else { Some(title_val) },
-                                )
-                            };
-                            let _ = app_clone
-                                .emit(&format!("native-terminal-update-{id}"), snapshot);
+                            if tx.send(buf[..n].to_vec()).is_err() {
+                                break;
+                            }
                         }
                     }
+                }
+            });
+
+            std::thread::spawn(move || {
+                use std::sync::mpsc::RecvTimeoutError;
+                use std::time::{Duration, Instant};
+
+                const EMIT_INTERVAL: Duration = Duration::from_millis(16); // ~60Hz cap
+                const QUIET_WINDOW: Duration = Duration::from_millis(2);
+
+                let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
+                let mut osc_buf: Vec<u8> = Vec::with_capacity(512);
+                let mut acc: Vec<u8> = Vec::with_capacity(8192);
+
+                'outer: loop {
+                    // Block until the PTY produces something.
+                    match rx.recv() {
+                        Ok(chunk) => acc.extend_from_slice(&chunk),
+                        Err(_) => break,
+                    }
+
+                    // Keep accumulating until the PTY goes quiet or the frame
+                    // budget elapses, whichever comes first.
+                    let deadline = Instant::now() + EMIT_INTERVAL;
+                    loop {
+                        let now = Instant::now();
+                        if now >= deadline {
+                            break;
+                        }
+                        let timeout = QUIET_WINDOW.min(deadline - now);
+                        match rx.recv_timeout(timeout) {
+                            Ok(chunk) => acc.extend_from_slice(&chunk),
+                            Err(RecvTimeoutError::Timeout) => break,
+                            Err(RecvTimeoutError::Disconnected) => {
+                                if acc.is_empty() {
+                                    break 'outer;
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    scan_osc_sequences(&acc, &mut osc_buf, &cwd_clone, &app_clone, &id);
+                    let cwd_val = cwd_clone.lock().clone();
+                    let title_val = title_clone.lock().clone();
+                    let snapshot = {
+                        let mut t = term_clone.lock();
+                        // vte 0.13 `Processor::advance` consumes one byte.
+                        for &byte in &acc {
+                            parser.advance(&mut *t, byte);
+                        }
+                        serialize_snapshot(
+                            &*t,
+                            Some(cwd_val),
+                            if title_val.is_empty() { None } else { Some(title_val) },
+                        )
+                    };
+                    acc.clear();
+                    let _ = app_clone
+                        .emit(&format!("native-terminal-update-{id}"), snapshot);
                 }
             });
         }
@@ -283,28 +334,42 @@ impl NativeTerminalManager {
     /// Resize both the emulator grid and the PTY (the latter delivers SIGWINCH
     /// to the shell so line-editing and TUIs reflow correctly).
     pub fn resize(&self, terminal_id: &str, cols: u16, rows: u16) -> Result<(), String> {
-        let handles = self.handles.lock();
-        let h = handles
-            .get(terminal_id)
-            .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
-        
-        {
-            let mut term = h.term.lock();
-            term.resize(TermSize::new(cols as usize, rows as usize));
-            
-            let cwd_val = h.cwd.lock().clone();
-            let title_val = h.title.lock().clone();
-            let snapshot = serialize_snapshot(
-                &*term,
+        // Clone Arcs while holding the handles lock, then release immediately.
+        // serialize_snapshot + app.emit take 5-10 ms; holding handles that long
+        // blocks write_terminal (which needs handles briefly to clone the writer
+        // Arc), causing keystroke lag.
+        let (term, cwd, title, app_handle) = {
+            let handles = self.handles.lock();
+            let h = handles
+                .get(terminal_id)
+                .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
+            (Arc::clone(&h.term), Arc::clone(&h.cwd), Arc::clone(&h.title), h.app_handle.clone())
+        }; // handles lock released here — write_terminal is unblocked
+
+        // Drop term lock before emit — IPC doesn't need the grid locked.
+        let snapshot = {
+            let mut t = term.lock();
+            t.resize(TermSize::new(cols as usize, rows as usize));
+            let cwd_val = cwd.lock().clone();
+            let title_val = title.lock().clone();
+            serialize_snapshot(
+                &*t,
                 Some(cwd_val),
                 if title_val.is_empty() { None } else { Some(title_val) },
-            );
-            let _ = h.app_handle.emit(&format!("native-terminal-update-{terminal_id}"), snapshot);
-        }
+            )
+        }; // term lock released before the IPC call below
+        let _ = app_handle.emit(&format!("native-terminal-update-{terminal_id}"), snapshot);
 
-        h.master
-            .resize(portable_pty::PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| e.to_string())
+        // Re-acquire handles briefly just to call master.resize (fast, no IPC).
+        let handles = self.handles.lock();
+        if let Some(h) = handles.get(terminal_id) {
+            h.master
+                .resize(portable_pty::PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+                .map_err(|e| e.to_string())?;
+        } else {
+            return Err(format!("Terminal '{terminal_id}' removed during resize"));
+        }
+        Ok(())
     }
 
     /// Remove the terminal from the registry and signal the child to terminate.
@@ -318,23 +383,28 @@ impl NativeTerminalManager {
     /// Scroll the visible viewport within scrollback by `delta` lines
     /// (positive = toward history, negative = toward the prompt).
     pub fn scroll(&self, terminal_id: &str, delta: i32) -> Result<(), String> {
-        let handles = self.handles.lock();
-        let h = handles
-            .get(terminal_id)
-            .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
-        
-        let mut term = h.term.lock();
-        term.scroll_display(Scroll::Delta(delta));
-        
-        let cwd_val = h.cwd.lock().clone();
-        let title_val = h.title.lock().clone();
-        let snapshot = serialize_snapshot(
-            &*term,
-            Some(cwd_val),
-            if title_val.is_empty() { None } else { Some(title_val) },
-        );
-        let _ = h.app_handle.emit(&format!("native-terminal-update-{terminal_id}"), snapshot);
-        
+        // Same Arc-clone-then-release pattern as resize() to avoid blocking write_terminal.
+        let (term, cwd, title, app_handle) = {
+            let handles = self.handles.lock();
+            let h = handles
+                .get(terminal_id)
+                .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
+            (Arc::clone(&h.term), Arc::clone(&h.cwd), Arc::clone(&h.title), h.app_handle.clone())
+        };
+
+        let snapshot = {
+            let mut t = term.lock();
+            t.scroll_display(Scroll::Delta(delta));
+            let cwd_val = cwd.lock().clone();
+            let title_val = title.lock().clone();
+            serialize_snapshot(
+                &*t,
+                Some(cwd_val),
+                if title_val.is_empty() { None } else { Some(title_val) },
+            )
+        }; // term lock released before emit
+        let _ = app_handle.emit(&format!("native-terminal-update-{terminal_id}"), snapshot);
+
         Ok(())
     }
 
@@ -641,14 +711,12 @@ pub fn get_all_text(term: &Term<impl EventListener>) -> String {
             let ch = grid[Line(row_idx)][Column(col)].c;
             line.push(if ch == '\0' { ' ' } else { ch });
         }
-        lines.push(line.trim_end().to_string());
+        lines.push(line);
     }
 
-    // Strip trailing blank lines so we don't copy a wall of empty space.
-    while lines.last().map_or(false, |l: &String| l.is_empty()) {
-        lines.pop();
-    }
-
+    // Do not strip trailing blank lines so `history + rows` perfectly matches `lines.length`.
+    // This allows the frontend to correctly map absolute rows to the output lines.
+    
     lines.join("\n")
 }
 

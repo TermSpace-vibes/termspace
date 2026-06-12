@@ -115,8 +115,11 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   const cellWRef = useRef(8.4)
   const cellHRef = useRef(19.6)
 
+  // Track last-set canvas CSS size to avoid redundant style mutations
+  const lastCanvasCSSColsRef = useRef(-1)
+  const lastCanvasCSSRowsRef = useRef(-1)
+
   // Tauri event unlisten callbacks – collected for cleanup.
-  const unlistenCleanups = useRef<Array<() => void>>([])
   const cwdPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── UI state ───────────────────────────────────────────────────────────────
@@ -359,7 +362,18 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       // Read .current here, not a snapshot from render time — the worker sends 'ready'
       // asynchronously and a boolean captured at render time is always false initially.
       if (workerActiveRef.current) {
-        // Fast path: forward raw payload to worker — decode + render happen off main thread
+        // Keep canvas CSS exactly at content size so the compositor renders at
+        // native DPR with no scaling.  The OffscreenCanvas buffer is
+        // cols×pCellW × rows×pCellH physical pixels; for crisp output the
+        // HTMLCanvasElement's CSS box must be cols×cellW × rows×cellH logical
+        // pixels.  Without this the canvas CSS stays at "100%" which lets the
+        // compositor stretch the buffer to fill the container — causing blur.
+        if (canvasRef.current && (snap.cols !== lastCanvasCSSColsRef.current || snap.rows !== lastCanvasCSSRowsRef.current)) {
+          canvasRef.current.style.width  = `${snap.cols * cellWRef.current}px`
+          canvasRef.current.style.height = `${snap.rows * cellHRef.current}px`
+          lastCanvasCSSColsRef.current = snap.cols
+          lastCanvasCSSRowsRef.current = snap.rows
+        }
         sendSnapshot(snap)
         return
       }
@@ -424,13 +438,22 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       setTerminalNotification(workspaceId, terminalId, current + 1)
     })
 
-    Promise.all([ul1, ul2, ul3]).then(([fn1, fn2, fn3]) => {
-      unlistenCleanups.current = [fn1, fn2, fn3]
+    let cancelled = false
+    let unlisteners: Array<() => void> = []
+
+    Promise.all([ul1, ul2, ul3]).then(fns => {
+      if (cancelled) {
+        fns.forEach(fn => fn())
+      } else {
+        unlisteners = fns
+      }
     })
 
     return () => {
-      unlistenCleanups.current.forEach(fn => fn())
-      unlistenCleanups.current = []
+      if (cwdPersistTimer.current) clearTimeout(cwdPersistTimer.current)
+      cancelled = true
+      unlisteners.forEach(fn => fn())
+      unlisteners = []
       rendererRef.current?.dispose()  // no-op if null (worker path)
       rendererRef.current = null
     }
@@ -493,6 +516,22 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   }, [terminalId, scheduleRender, sendHighlights])
 
   // ── Keyboard input ─────────────────────────────────────────────────────────
+  // Rapid keystrokes within one event-loop tick are coalesced into a single
+  // write_terminal invoke, cutting IPC round-trips during fast typing.
+  const pendingInputRef = useRef('')
+  const inputFlushScheduledRef = useRef(false)
+  const queueWrite = useCallback((data: string) => {
+    pendingInputRef.current += data
+    if (inputFlushScheduledRef.current) return
+    inputFlushScheduledRef.current = true
+    queueMicrotask(() => {
+      const batch = pendingInputRef.current
+      pendingInputRef.current = ''
+      inputFlushScheduledRef.current = false
+      if (batch) invoke('write_terminal', { terminalId, data: batch }).catch(console.error)
+    })
+  }, [terminalId])
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLCanvasElement>) => {
     // Let global keybindings (command palette, workspace nav, etc.) take priority.
     const handled = keybindingHandlerRef.current(e.nativeEvent)
@@ -505,6 +544,61 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       setTimeout(() => searchInputRef.current?.focus(), 50)
       return
     }
+
+    // Cmd+C / Cmd+V handled here directly: WKWebView never dispatches DOM
+    // copy/paste events to a focused canvas (non-editable, no DOM selection),
+    // so the onCopy/onPaste handlers below only fire from the context menu path.
+    if (e.metaKey && !e.ctrlKey && e.key.toLowerCase() === 'c') {
+      e.preventDefault()
+      const sel = selectionRef.current
+      if (sel) {
+        getSelectedText(
+          sel,
+          cellsRef.current,
+          colsRef.current,
+          rowsRef.current,
+          displayOffsetRef.current,
+          terminalId,
+          workerActiveRef.current,
+        ).then(text => {
+          if (!text) {
+            useAppStore.getState().addToast('Copy debug: selection resolved to empty text', 'error')
+            return
+          }
+          writeText(text).then(() => {
+            useAppStore.getState().addToast(`Copy debug: wrote ${text.length} chars to clipboard`, 'info')
+          }).catch((err: unknown) => {
+            console.error('writeText failed:', err)
+            useAppStore.getState().addToast('Copy debug: writeText failed: ' + String(err), 'error')
+          })
+        }).catch((err: unknown) => {
+          console.error('Copy failed:', err)
+          useAppStore.getState().addToast('Copy debug: getSelectedText failed: ' + String(err), 'error')
+        })
+      } else {
+        useAppStore.getState().addToast('Copy debug: no selection at Cmd+C', 'error')
+      }
+      return
+    }
+
+    if (e.metaKey && !e.ctrlKey && e.key.toLowerCase() === 'v') {
+      e.preventDefault()
+      readText().then((text: string | null) => {
+        if (text) {
+          const sanitizedText = text.replace(/\r?\n/g, '\r')
+          writeTerminalChunked(terminalId, sanitizedText).catch(err => {
+            console.error('Write terminal error:', err)
+            useAppStore.getState().addToast('Write error: ' + String(err), 'error')
+          })
+        }
+      }).catch((err: unknown) => {
+        console.error('readText error:', err)
+        useAppStore.getState().addToast('Paste error: ' + String(err), 'error')
+      })
+      return
+    }
+
+
 
     // Page scroll forwarded to Rust scrollback buffer.
     if (e.key === 'PageUp') {
@@ -521,10 +615,10 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     const data = keyEventToData(e)
     if (data) {
       e.preventDefault()
-      invoke('write_terminal', { terminalId, data }).catch(console.error)
+      queueWrite(data)
     }
 
-  }, [terminalId])
+  }, [terminalId, queueWrite, sendSelection, scheduleRender])
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
     // Only handle vertical scrolling
@@ -549,23 +643,41 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   // ── Smooth scroll decay loop ───────────────────────────────────────────────
   useEffect(() => {
     const EDGE_SCROLL_INTERVAL_MS = 50  // ~20 lines/sec max
-    let handle: number
+    let handle: ReturnType<typeof setTimeout> | number | null = null
     let lastEdgeScrollMs = 0
-    const tick = (now: number) => {
+    let useRaf = false
+
+    const tick = (now?: number) => {
+      handle = null
+      const t = now ?? performance.now()
       if (isDraggingRef.current && edgeScrollDeltaRef.current !== 0) {
-        if (now - lastEdgeScrollMs >= EDGE_SCROLL_INTERVAL_MS) {
+        if (t - lastEdgeScrollMs >= EDGE_SCROLL_INTERVAL_MS) {
           pendingScrollDeltaRef.current += edgeScrollDeltaRef.current
-          lastEdgeScrollMs = now
+          lastEdgeScrollMs = t
         }
       }
       if (pendingScrollDeltaRef.current !== 0) {
         invoke('scroll_terminal', { terminalId, delta: pendingScrollDeltaRef.current }).catch(console.error)
         pendingScrollDeltaRef.current = 0
       }
-      handle = requestAnimationFrame(tick)
+      const active = isDraggingRef.current || pendingScrollDeltaRef.current !== 0
+      if (active) {
+        handle = requestAnimationFrame(tick)
+        useRaf = true
+      } else {
+        handle = setTimeout(() => tick(), EDGE_SCROLL_INTERVAL_MS) as unknown as number
+        useRaf = false
+      }
     }
-    handle = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(handle)
+
+    handle = setTimeout(() => tick(), EDGE_SCROLL_INTERVAL_MS) as unknown as number
+
+    return () => {
+      if (handle !== null) {
+        if (useRaf) cancelAnimationFrame(handle as number)
+        else clearTimeout(handle as ReturnType<typeof setTimeout>)
+      }
+    }
   }, [terminalId])
 
   const getCellCoords = useCallback((e: MouseEvent | React.MouseEvent) => {
@@ -587,8 +699,6 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   }, [getCellCoords, scheduleRender, sendSelection])
 
   useEffect(() => {
-    const EDGE_ZONE = 30 // px
-
     const handleWinMouseMove = (e: MouseEvent) => {
       if (!isDraggingRef.current || !selectionRef.current) return
       const rect = canvasRef.current?.getBoundingClientRect()
@@ -596,14 +706,15 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
 
       const mouseY = e.clientY - rect.top
       const { row, col } = getCellCoords(e)
-      if (edgeScrollDeltaRef.current === 0) {
-        selectionRef.current.endAbsRow = viewportRowToAbs(row, displayOffsetRef.current, rowsRef.current)
-        selectionRef.current.endCol = col
-      }
+      // Always track the mouse — freezing the end while edge-scrolling made
+      // selections silently stop extending near the canvas edges.
+      selectionRef.current.endAbsRow = viewportRowToAbs(row, displayOffsetRef.current, rowsRef.current)
+      selectionRef.current.endCol = col
 
-      if (mouseY < EDGE_ZONE) {
+      // Auto-scroll only when the pointer leaves the canvas vertically.
+      if (mouseY < 0) {
         edgeScrollDeltaRef.current = 1          // scroll up into history
-      } else if (mouseY > rect.height - EDGE_ZONE) {
+      } else if (mouseY > rect.height) {
         edgeScrollDeltaRef.current = -1         // scroll back toward present
       } else {
         edgeScrollDeltaRef.current = 0
@@ -686,9 +797,20 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
                 snapRows,
                 snapOffset,
                 terminalId,
+                workerActiveRef.current,
               ).then(text => {
-                if (text) writeText(text).catch(console.error)
-              }).catch(console.error)
+                if (!text) {
+                  useAppStore.getState().addToast('Copy debug: selection resolved to empty text', 'error')
+                  return
+                }
+                writeText(text).then(() => {
+                  useAppStore.getState().addToast(`Copy debug: wrote ${text.length} chars to clipboard`, 'info')
+                }).catch((err: unknown) => {
+                  useAppStore.getState().addToast('Copy debug: writeText failed: ' + String(err), 'error')
+                })
+              }).catch((err: unknown) => {
+                useAppStore.getState().addToast('Copy debug: getSelectedText failed: ' + String(err), 'error')
+              })
             }
           })
         }
@@ -1041,7 +1163,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
             const vpTop    = (rowsRef.current - 1) - (absTop - displayOffsetRef.current)
             const vpBottom = (rowsRef.current - 1) - (absBottom - displayOffsetRef.current)
 
-            if (vpTop >= 0 && vpTop < rowsRef.current && vpBottom >= 0 && vpBottom < rowsRef.current) {
+            if (!workerActiveRef.current && vpTop >= 0 && vpTop < rowsRef.current && vpBottom >= 0 && vpBottom < rowsRef.current) {
               // Fast path: selection fully in viewport — synchronous, reliable
               const vpSel = absSelToViewport(sel, displayOffsetRef.current, rowsRef.current, colsRef.current)
               if (vpSel) {
@@ -1078,6 +1200,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
               rowsRef.current,
               displayOffsetRef.current,
               terminalId,
+              workerActiveRef.current,
             ).then(text => {
               if (text) writeText(text).catch(console.error)
             }).catch((err: unknown) => {
@@ -1219,6 +1342,7 @@ async function getSelectedText(
   rows: number,
   displayOffset: number,
   terminalId: string,
+  isWorkerActive: boolean,
 ): Promise<string> {
   if (!sel) return ''
 
@@ -1227,7 +1351,7 @@ async function getSelectedText(
   // Fast path: both ends are within the current viewport — use cellsRef, no IPC.
   const vpTop    = (rows - 1) - (absTop - displayOffset)
   const vpBottom = (rows - 1) - (absBottom - displayOffset)
-  if (vpTop >= 0 && vpTop < rows && vpBottom >= 0 && vpBottom < rows) {
+  if (!isWorkerActive && vpTop >= 0 && vpTop < rows && vpBottom >= 0 && vpBottom < rows) {
     const vpSel = absSelToViewport(sel, displayOffset, rows, cols)
     if (!vpSel) return ''
     const { startRow: r1, startCol: c1, endRow: r2, endCol: c2 } = vpSel

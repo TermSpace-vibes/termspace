@@ -120,6 +120,14 @@ export class GlyphAtlas {
 
   /** Releases the GPU texture. Call when the renderer is being torn down. */
   dispose(): void {
-    if (this.texture) this.gl.deleteTexture(this.texture)
+    if (this.texture) {
+      this.gl.deleteTexture(this.texture)
+      this.texture = null
+    }
+    // Release canvas backing store. Don't reference HTMLCanvasElement here —
+    // it doesn't exist in worker scope; both canvas types support width/height.
+    this.canvas.width = 0
+    this.canvas.height = 0
+    this.map.clear()
   }
 }

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use parking_lot::Mutex;
 use tauri::{AppHandle, Manager, State};
 use std::sync::Arc;
-use whisper_rs::{WhisperContext, WhisperContextParameters, FullParams};
+use whisper_rs::{WhisperContext, FullParams};
 
 pub struct DbState(pub Mutex<Connection>);
 pub struct SysInfoState(pub Mutex<(sysinfo::System, sysinfo::Networks)>);
@@ -70,8 +70,12 @@ fn get_mac_gpu_utilization() -> f32 {
     0.0
 }
 
+// Async: sync commands run on the native main thread, which also delivers
+// input events to the webview. This command blocks for 100-500ms (sysinfo
+// refresh + TCP latency probe + ioreg subprocess) — on the main thread that
+// froze typing for its full duration every 2s poll.
 #[tauri::command]
-pub fn get_system_stats(state: State<SysInfoState>) -> Result<SystemStats, String> {
+pub async fn get_system_stats(state: State<'_, SysInfoState>) -> Result<SystemStats, String> {
     let mut state_lock = state.0.lock();
     let state_data = &mut *state_lock;
     let sys = &mut state_data.0;
@@ -584,9 +588,12 @@ pub fn get_browser_panes(
     db::get_browser_panes(&db.0.lock(), &workspace_id).map_err(|e| e.to_string())
 }
 
+// The terminal hot path is async for the same reason as get_system_stats:
+// a sync command would run PTY writes / resize serialization on the native
+// main thread and stall input event delivery.
 #[tauri::command]
-pub fn write_terminal(
-    ntm: State<NativeTerminalManager>,
+pub async fn write_terminal(
+    ntm: State<'_, NativeTerminalManager>,
     terminal_id: String,
     data: String,
 ) -> Result<(), String> {
@@ -594,8 +601,8 @@ pub fn write_terminal(
 }
 
 #[tauri::command]
-pub fn resize_terminal(
-    ntm: State<NativeTerminalManager>,
+pub async fn resize_terminal(
+    ntm: State<'_, NativeTerminalManager>,
     terminal_id: String,
     cols: u16,
     rows: u16,
@@ -604,8 +611,8 @@ pub fn resize_terminal(
 }
 
 #[tauri::command]
-pub fn search_terminal(
-    ntm: State<NativeTerminalManager>,
+pub async fn search_terminal(
+    ntm: State<'_, NativeTerminalManager>,
     terminal_id: String,
     query: String,
 ) -> Result<Vec<crate::native_terminal_manager::SearchMatch>, String> {
@@ -613,8 +620,8 @@ pub fn search_terminal(
 }
 
 #[tauri::command]
-pub fn scroll_terminal(
-    ntm: State<NativeTerminalManager>,
+pub async fn scroll_terminal(
+    ntm: State<'_, NativeTerminalManager>,
     terminal_id: String,
     delta: i32,
 ) -> Result<(), String> {
@@ -844,6 +851,50 @@ pub async fn transcribe_chunk(
 
     Ok(result.trim().to_string())
 }
+
+#[derive(serde::Deserialize)]
+struct WhisperResponse {
+    text: String,
+}
+
+#[tauri::command]
+pub async fn transcribe_openai(
+    audio: Vec<u8>,
+    prompt: Option<String>,
+    api_key: String,
+    endpoint: String,
+    model: String,
+) -> Result<String, String> {
+    let part = reqwest::multipart::Part::bytes(audio)
+        .file_name("audio.wav")
+        .mime_str("audio/wav")
+        .map_err(|e| e.to_string())?;
+
+    let mut form = reqwest::multipart::Form::new()
+        .part("file", part)
+        .text("model", model);
+
+    if let Some(p) = prompt {
+        form = form.text("prompt", p);
+    }
+
+    let res = reqwest::Client::new()
+        .post(&endpoint)
+        .bearer_auth(api_key)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !res.status().is_success() {
+        let err = res.text().await.unwrap_or_default();
+        return Err(format!("API Error: {}", err));
+    }
+
+    let response = res.json::<WhisperResponse>().await.map_err(|e| e.to_string())?;
+    Ok(response.text)
+}
+
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

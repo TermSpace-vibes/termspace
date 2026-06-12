@@ -194,6 +194,24 @@ export class WebGLRenderer implements TerminalRenderer {
   private bgVao: WebGLVertexArrayObject
   private accentColor: number
   private bgColor: number
+  // Logical font config, kept so the atlas can be rebuilt when cell metrics
+  // or DPR change after construction (see render()).
+  private fontSize: number
+  private fontFamily: string
+
+  // Cached uniform locations — looked up once in the constructor.
+  private uBgCell: WebGLUniformLocation | null = null
+  private uBgCanvas: WebGLUniformLocation | null = null
+  private uGlyphCell: WebGLUniformLocation | null = null
+  private uGlyphCanvas: WebGLUniformLocation | null = null
+  private uGlyphAtlas: WebGLUniformLocation | null = null
+
+  // Pre-allocated instance buffers — resized only when the terminal grows.
+  private bgBufData: ArrayBuffer | null = null
+  private glyphBufData: ArrayBuffer | null = null
+  private bgU8: Uint8Array | null = null
+  private glyphU8: Uint8Array | null = null
+  private instanceBufCap = 0  // capacity in cells (+ 2 for cursor glyphs)
 
   constructor(
     canvas: HTMLCanvasElement | OffscreenCanvas,
@@ -206,6 +224,8 @@ export class WebGLRenderer implements TerminalRenderer {
   ) {
     this.accentColor = accentColor
     this.bgColor = bgColor
+    this.fontSize = fontSize
+    this.fontFamily = fontFamily
     const gl = canvas.getContext('webgl2')
     if (!gl) throw new Error('WebGL2 not available')
     this.gl = gl
@@ -290,6 +310,14 @@ export class WebGLRenderer implements TerminalRenderer {
     // Standard alpha blending: glyph coverage blends over background.
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+    // Cache uniform locations once — calling getUniformLocation every frame
+    // adds unnecessary GPU driver overhead at 60fps.
+    this.uBgCell   = gl.getUniformLocation(this.bgProg, 'u_cell')
+    this.uBgCanvas = gl.getUniformLocation(this.bgProg, 'u_canvas')
+    this.uGlyphCell   = gl.getUniformLocation(this.glyphProg, 'u_cell')
+    this.uGlyphCanvas = gl.getUniformLocation(this.glyphProg, 'u_canvas')
+    this.uGlyphAtlas  = gl.getUniformLocation(this.glyphProg, 'u_atlas')
   }
 
   updateTheme(accentColor: number, bgColor: number) {
@@ -314,12 +342,25 @@ export class WebGLRenderer implements TerminalRenderer {
     const pCellW = Math.ceil(cellW * dpr)   // integer physical pixels per cell
     const pCellH = Math.ceil(cellH * dpr)
 
-    // Guard: pCellW must equal atlas slot size. If they diverge, NEAREST filtering produces
-    // jagged artifacts. This fires only if a DPR change races ahead of renderer reconstruction.
-    if (import.meta.env.DEV && (pCellW !== this.atlas.slotW || pCellH !== this.atlas.slotH)) {
-      console.warn(
-        `[WebGL] pCell ${pCellW}×${pCellH} !== atlas slot ${this.atlas.slotW}×${this.atlas.slotH}` +
-        ` — DPR changed without renderer reconstruction. Expect jagged glyphs.`
+    // pCellW must equal atlas slot size or NEAREST filtering produces jagged
+    // glyphs (happens when cell metrics or DPR change after construction —
+    // e.g. the renderer was built from pre-measurement default metrics).
+    // Self-heal: rebuild the atlas with current metrics; glyphs re-rasterize
+    // lazily via getOrInsert, so this is a one-time cost per metric change.
+    if (pCellW !== this.atlas.slotW || pCellH !== this.atlas.slotH) {
+      if (import.meta.env.DEV) {
+        console.warn(
+          `[WebGL] pCell ${pCellW}×${pCellH} !== atlas slot ${this.atlas.slotW}×${this.atlas.slotH}` +
+          ` — rebuilding glyph atlas with current metrics.`
+        )
+      }
+      this.atlas.dispose()
+      this.atlas = new GlyphAtlas(
+        gl,
+        pCellW,
+        pCellH,
+        Math.ceil(this.fontSize * dpr),
+        this.fontFamily,
       )
     }
 
@@ -346,12 +387,19 @@ export class WebGLRenderer implements TerminalRenderer {
     gl.clear(gl.COLOR_BUFFER_BIT)
 
     const count = cols * rows
-    const bgBuf = new ArrayBuffer(count * BG_STRIDE * 4)
+    // +2 headroom for the two extra cursor glyph instances.
+    const needed = count + 2
+    if (needed > this.instanceBufCap) {
+      this.bgBufData    = new ArrayBuffer(needed * BG_STRIDE * 4)
+      this.glyphBufData = new ArrayBuffer(needed * GLYPH_STRIDE * 4)
+      this.bgU8         = new Uint8Array(this.bgBufData)
+      this.glyphU8      = new Uint8Array(this.glyphBufData)
+      this.instanceBufCap = needed
+    }
+    const bgBuf   = this.bgBufData!
+    const glyphBuf = this.glyphBufData!
     const bgF32 = new Float32Array(bgBuf)
     const bgU32 = new Uint32Array(bgBuf)
-
-    // Allocate for worst case (every cell has a glyph). We'll slice on upload.
-    const glyphBuf = new ArrayBuffer(count * GLYPH_STRIDE * 4)
     const glyphF32 = new Float32Array(glyphBuf)
     const glyphU32 = new Uint32Array(glyphBuf)
     let gi = 0, bi = 0, glyphCount = 0
@@ -446,23 +494,23 @@ export class WebGLRenderer implements TerminalRenderer {
 
     // ── Pass 1: Background ──────────────────────────────────────────────────
     gl.useProgram(this.bgProg)
-    gl.uniform2f(gl.getUniformLocation(this.bgProg, 'u_cell'),   pCellW, pCellH)
-    gl.uniform2f(gl.getUniformLocation(this.bgProg, 'u_canvas'), w,     h)
+    gl.uniform2f(this.uBgCell,   pCellW, pCellH)
+    gl.uniform2f(this.uBgCanvas, w,     h)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bgInstBuf)
-    gl.bufferData(gl.ARRAY_BUFFER, bgBuf, gl.DYNAMIC_DRAW)
+    gl.bufferData(gl.ARRAY_BUFFER, this.bgU8!.subarray(0, count * BG_STRIDE * 4), gl.DYNAMIC_DRAW)
     gl.bindVertexArray(this.bgVao)
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count)
 
     // ── Pass 2: Glyphs ──────────────────────────────────────────────────────
     if (glyphCount > 0) {
       gl.useProgram(this.glyphProg)
-      gl.uniform2f(gl.getUniformLocation(this.glyphProg, 'u_cell'),   pCellW, pCellH)
-      gl.uniform2f(gl.getUniformLocation(this.glyphProg, 'u_canvas'), w,     h)
+      gl.uniform2f(this.uGlyphCell,   pCellW, pCellH)
+      gl.uniform2f(this.uGlyphCanvas, w,     h)
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, this.atlas.texture)
-      gl.uniform1i(gl.getUniformLocation(this.glyphProg, 'u_atlas'), 0)
+      gl.uniform1i(this.uGlyphAtlas, 0)
       gl.bindBuffer(gl.ARRAY_BUFFER, this.glyphInstBuf)
-      gl.bufferData(gl.ARRAY_BUFFER, new Uint8Array(glyphBuf, 0, glyphCount * GLYPH_STRIDE * 4), gl.DYNAMIC_DRAW)
+      gl.bufferData(gl.ARRAY_BUFFER, this.glyphU8!.subarray(0, glyphCount * GLYPH_STRIDE * 4), gl.DYNAMIC_DRAW)
       gl.bindVertexArray(this.glyphVao)
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, glyphCount)
     }
@@ -481,5 +529,10 @@ export class WebGLRenderer implements TerminalRenderer {
     gl.deleteVertexArray(this.bgVao)
     gl.deleteProgram(this.glyphProg)
     gl.deleteProgram(this.bgProg)
+    this.bgBufData = null
+    this.glyphBufData = null
+    this.bgU8 = null
+    this.glyphU8 = null
+    this.instanceBufCap = 0
   }
 }
