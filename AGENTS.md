@@ -109,7 +109,12 @@ termspace/
 - `src/utils/constants.ts` — shared constants
 - `src/components/WorkspaceView/renderers/types.ts` — renderer type contracts (7 dependents)
 
-Regenerate after structural changes: `node scripts/gen-dep-map.js`
+**IMPORTANT — keep the map current:** Run `node scripts/gen-dep-map.js` and commit the updated `docs/dependency-map.md` whenever you:
+- Add a new `.ts` or `.tsx` file to `src/`
+- Delete or rename an existing `src/` file
+- Move a file to a different directory
+
+The map goes stale silently — an outdated map gives agents wrong ripple-risk information.
 
 ---
 
