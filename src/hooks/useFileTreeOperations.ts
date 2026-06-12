@@ -54,13 +54,18 @@ export function useFileTreeOperations({ workspaceId, onRefreshDir }: UseFileTree
   const commitInlineInput = useCallback(async (name: string) => {
     if (!inlineInput || !name.trim()) return
     const { mode, parentPath, node } = inlineInput
+    const trimmed = name.trim()
+    if (trimmed.includes('/') || trimmed.includes('\\') || trimmed === '..' || trimmed.startsWith('../')) {
+      setError('Invalid filename: cannot contain path separators or traversal sequences')
+      return
+    }
     try {
       if (mode === 'create-file') {
-        await writeTextFile(`${parentPath}/${name}`, '')
+        await writeTextFile(`${parentPath}/${trimmed}`, '')
       } else if (mode === 'create-folder') {
-        await mkdir(`${parentPath}/${name}`)
+        await mkdir(`${parentPath}/${trimmed}`)
       } else if (mode === 'rename' && node) {
-        await rename(node.path, `${parentPath}/${name}`)
+        await rename(node.path, `${parentPath}/${trimmed}`)
       }
       await onRefreshDir(parentPath)
       setInlineInput(null)

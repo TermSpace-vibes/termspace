@@ -219,4 +219,22 @@ describe('useFileTreeOperations', () => {
     act(() => result.current.clearError())
     expect(result.current.error).toBeNull()
   })
+
+  it('rejects filenames with path separators or traversal sequences', async () => {
+    const { result } = renderHook(() =>
+      useFileTreeOperations({ workspaceId: 'ws-1', onRefreshDir })
+    )
+    act(() => result.current.openCreateFile('/project/src'))
+
+    // path traversal
+    await act(() => result.current.commitInlineInput('../evil.ts'))
+    expect(result.current.error).toBeTruthy()
+    expect(pluginFs.writeTextFile).not.toHaveBeenCalled()
+
+    // path separator
+    act(() => result.current.clearError())
+    await act(() => result.current.commitInlineInput('nested/file.ts'))
+    expect(result.current.error).toBeTruthy()
+    expect(pluginFs.writeTextFile).not.toHaveBeenCalled()
+  })
 })
