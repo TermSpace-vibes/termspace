@@ -156,6 +156,17 @@ describe('useFileTreeOperations', () => {
     expect(onRefreshDir).toHaveBeenCalledWith('/project')
   })
 
+  it('sets error when confirmDelete fails', async () => {
+    vi.mocked(pluginFs.remove).mockRejectedValue(new Error('Cannot delete'))
+    const { result } = renderHook(() =>
+      useFileTreeOperations({ workspaceId: 'ws-1', onRefreshDir })
+    )
+    act(() => result.current.requestDelete(mockFileNode))
+    await act(() => result.current.confirmDelete())
+    expect(result.current.error).toBe('Cannot delete')
+    expect(result.current.pendingDelete).not.toBeNull()
+  })
+
   it('copyPath writes path to clipboard', async () => {
     Object.assign(navigator, {
       clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },

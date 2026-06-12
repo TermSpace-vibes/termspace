@@ -22,12 +22,14 @@ interface UseFileTreeOperationsParams {
   onRefreshDir: (dirPath: string) => Promise<void>
 }
 
+function parentOf(path: string) {
+  return path.split('/').slice(0, -1).join('/')
+}
+
 export function useFileTreeOperations({ workspaceId, onRefreshDir }: UseFileTreeOperationsParams) {
   const [inlineInput, setInlineInput] = useState<InlineInputState | null>(null)
   const [pendingDelete, setPendingDelete] = useState<NodeRef | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  const parentOf = (path: string) => path.split('/').slice(0, -1).join('/')
 
   const openCreateFile = useCallback((parentPath: string) => {
     setError(null)
