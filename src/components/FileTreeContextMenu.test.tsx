@@ -76,6 +76,13 @@ describe('FileTreeContextMenu', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('calls onClose on scroll', () => {
+    const onClose = vi.fn()
+    render(<FileTreeContextMenu {...defaultProps} onClose={onClose} />)
+    fireEvent.scroll(document)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('is positioned at menu coordinates', () => {
     const { container } = render(<FileTreeContextMenu {...defaultProps} />)
     const el = container.firstChild as HTMLElement
