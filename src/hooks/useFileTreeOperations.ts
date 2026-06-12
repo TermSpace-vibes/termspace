@@ -60,9 +60,9 @@ export function useFileTreeOperations({ workspaceId, onRefreshDir }: UseFileTree
       } else if (mode === 'rename' && node) {
         await rename(node.path, `${parentPath}/${name}`)
       }
+      await onRefreshDir(parentPath)
       setInlineInput(null)
       setError(null)
-      await onRefreshDir(parentPath)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
