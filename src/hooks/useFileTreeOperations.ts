@@ -12,7 +12,7 @@ export interface NodeRef {
 }
 
 export interface InlineInputState {
-  mode: 'create-file' | 'create-folder' | 'rename'
+  mode: 'create-file' | 'create-folder' | 'rename' | 'duplicate'
   parentPath: string
   node?: NodeRef
 }
@@ -46,6 +46,11 @@ export function useFileTreeOperations({ workspaceId, onRefreshDir }: UseFileTree
     setInlineInput({ mode: 'rename', parentPath: parentOf(node.path), node })
   }, [])
 
+  const openDuplicate = useCallback((node: NodeRef) => {
+    setError(null)
+    setInlineInput({ mode: 'duplicate', parentPath: parentOf(node.path), node })
+  }, [])
+
   const closeInlineInput = useCallback(() => {
     setInlineInput(null)
     setError(null)
@@ -66,6 +71,8 @@ export function useFileTreeOperations({ workspaceId, onRefreshDir }: UseFileTree
         await mkdir(`${parentPath}/${trimmed}`)
       } else if (mode === 'rename' && node) {
         await rename(node.path, `${parentPath}/${trimmed}`)
+      } else if (mode === 'duplicate' && node) {
+        await invoke('duplicate_file', { source: node.path, newPath: `${parentPath}/${trimmed}` })
       }
       await onRefreshDir(parentPath)
       setInlineInput(null)
@@ -125,6 +132,7 @@ export function useFileTreeOperations({ workspaceId, onRefreshDir }: UseFileTree
     openCreateFile,
     openCreateFolder,
     openRename,
+    openDuplicate,
     closeInlineInput,
     commitInlineInput,
     requestDelete,

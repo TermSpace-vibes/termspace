@@ -8,6 +8,7 @@ interface Props {
   onNewFile: () => void
   onNewFolder: () => void
   onRename: () => void
+  onDuplicate: () => void
   onDelete: () => void
   onCopyPath: () => void
   onOpenInTerminal: () => void
@@ -64,6 +65,7 @@ export function FileTreeContextMenu({
   onNewFile,
   onNewFolder,
   onRename,
+  onDuplicate,
   onDelete,
   onCopyPath,
   onOpenInTerminal,
@@ -115,6 +117,7 @@ export function FileTreeContextMenu({
         </>
       )}
       <MenuItem icon={<Pencil size={14} />} label="Rename" onClick={onRename} />
+      <MenuItem icon={<Copy size={14} />} label="Duplicate" onClick={onDuplicate} />
       <MenuItem icon={<Copy size={14} />} label="Copy Path" onClick={onCopyPath} />
       {node.isDirectory && (
         <MenuItem icon={<Terminal size={14} />} label="Open in Terminal" onClick={onOpenInTerminal} />

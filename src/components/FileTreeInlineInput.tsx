@@ -4,7 +4,7 @@ import { File, Folder } from 'lucide-react'
 const ITEM_HEIGHT = 28
 
 interface Props {
-  mode: 'create-file' | 'create-folder' | 'rename'
+  mode: 'create-file' | 'create-folder' | 'rename' | 'duplicate'
   prefill: string
   depth: number
   index: number

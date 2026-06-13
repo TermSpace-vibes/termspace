@@ -27,7 +27,7 @@ interface FlatNode {
 
 type FlatItem =
   | { kind: 'node'; data: FlatNode; index: number }
-  | { kind: 'inline-input'; depth: number; mode: 'create-file' | 'create-folder' | 'rename'; prefill: string; index: number }
+  | { kind: 'inline-input'; depth: number; mode: 'create-file' | 'create-folder' | 'rename' | 'duplicate'; prefill: string; index: number }
 
 const getStatusColor = (status?: string) => {
   switch (status) {
@@ -162,12 +162,17 @@ const TreeNode = React.memo<{
   node: FlatNode
   isFocused: boolean
   isSelected: boolean
+  isDragOver: boolean
   iconTheme: 'plain' | 'colorful' | 'filled'
   onToggle: (node: FlatNode) => void
   onFocus: (node: FlatNode) => void
   onContextMenu: (e: React.MouseEvent, node: FlatNode) => void
+  onDragStart: (e: React.DragEvent, node: FlatNode) => void
+  onDragOver: (e: React.DragEvent, node: FlatNode) => void
+  onDragLeave: (e: React.DragEvent, node: FlatNode) => void
+  onDrop: (e: React.DragEvent, node: FlatNode) => void
   style?: React.CSSProperties
-}>(({ node, isFocused, isSelected, iconTheme, onToggle, onFocus, onContextMenu, style }) => {
+}>(({ node, isFocused, isSelected, isDragOver, iconTheme, onToggle, onFocus, onContextMenu, onDragStart, onDragOver, onDragLeave, onDrop, style }) => {
   const [isHovered, setIsHovered] = React.useState(false)
   const statusColor = getStatusColor(node.status)
   const ref = useRef<HTMLDivElement>(null)
@@ -192,13 +197,19 @@ const TreeNode = React.memo<{
         onToggle(node)
       }}
       onContextMenu={(e) => onContextMenu(e, node)}
+      draggable={true}
+      onDragStart={(e) => onDragStart(e, node)}
+      onDragOver={(e) => onDragOver(e, node)}
+      onDragLeave={(e) => onDragLeave(e, node)}
+      onDrop={(e) => onDrop(e, node)}
       style={{
         display: 'flex',
         alignItems: 'center',
         paddingRight: '8px',
         paddingLeft: `${node.depth * 14 + 12}px`,
         cursor: 'pointer',
-        backgroundColor: isFocused || isHovered ? 'var(--bg-item-active)' : 'transparent',
+        backgroundColor: isDragOver ? 'var(--bg-item-active)' : (isFocused || isHovered ? 'var(--bg-item-active)' : 'transparent'),
+        boxShadow: isDragOver ? 'inset 0 0 0 1px var(--accent)' : 'none',
         transition: 'background-color 0.1s ease',
         userSelect: 'none',
         position: 'absolute',
@@ -296,6 +307,7 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set())
   const [isLoadingRoot, setIsLoadingRoot] = useState(true)
   const [focusedPath, setFocusedPath] = useState<string | null>(null)
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null)
   
   const [scrollTop, setScrollTop] = useState(0)
   const [containerHeight, setContainerHeight] = useState(0)
@@ -322,6 +334,7 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
     openCreateFile,
     openCreateFolder,
     openRename,
+    openDuplicate,
     closeInlineInput,
     commitInlineInput,
     requestDelete,
@@ -474,6 +487,51 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
     }
   }, [flatNodes, focusedPath, handleToggle])
 
+  const handleDragStart = useCallback((e: React.DragEvent, node: FlatNode) => {
+    e.dataTransfer.setData('application/termspace-file-path', node.path)
+    e.dataTransfer.effectAllowed = 'move'
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent, node: FlatNode) => {
+    if (node.isDirectory) {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      if (dragOverPath !== node.path) {
+        setDragOverPath(node.path)
+      }
+    }
+  }, [dragOverPath])
+
+  const handleDragLeave = useCallback((_e: React.DragEvent, node: FlatNode) => {
+    if (dragOverPath === node.path) {
+      setDragOverPath(null)
+    }
+  }, [dragOverPath])
+
+  const handleDrop = useCallback(async (e: React.DragEvent, node: FlatNode) => {
+    e.preventDefault()
+    setDragOverPath(null)
+    
+    if (!node.isDirectory) return
+    
+    const sourcePath = e.dataTransfer.getData('application/termspace-file-path')
+    if (!sourcePath || sourcePath === node.path || node.path.startsWith(sourcePath + '/')) return
+
+    const sourceName = sourcePath.split('/').pop()
+    if (!sourceName) return
+
+    try {
+      const { rename } = await import('@tauri-apps/plugin-fs')
+      await rename(sourcePath, `${node.path}/${sourceName}`)
+      
+      const sourceParent = sourcePath.split('/').slice(0, -1).join('/')
+      handleRefreshDir(sourceParent)
+      handleRefreshDir(node.path)
+    } catch (err) {
+      console.error('Drop rename failed:', err)
+    }
+  }, [handleRefreshDir])
+
   const BUFFER = 10
 
   const flatItems = useMemo((): FlatItem[] => {
@@ -489,7 +547,10 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
       )
     }
 
-    // create-file or create-folder: insert one row after the parent directory
+    const isDuplicate = inlineInput.mode === 'duplicate'
+    const prefillStr = isDuplicate && inlineInput.node ? `${inlineInput.node.name} - copy` : ''
+
+    // create-file or create-folder or duplicate: insert one row after the parent directory
     const parentIdx = base.findIndex(
       item => item.kind === 'node' && item.data.path === inlineInput.parentPath
     )
@@ -501,7 +562,7 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
       kind: 'inline-input',
       depth: parentDepth + 1,
       mode: inlineInput.mode,
-      prefill: '',
+      prefill: prefillStr,
       index: insertAt,
     }
     return [
@@ -635,10 +696,15 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
                   node={item.data}
                   isFocused={focusedPath === item.data.path}
                   isSelected={activeFile === item.data.path}
+                  isDragOver={dragOverPath === item.data.path}
                   iconTheme={iconTheme}
                   onToggle={handleToggle}
                   onFocus={(n) => setFocusedPath(n.path)}
                   onContextMenu={openMenu}
+                  onDragStart={handleDragStart}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
                   style={{ top: item.index * ITEM_HEIGHT }}
                 />
               )
@@ -656,6 +722,7 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
             onNewFile={() => { openCreateFile(m.node.path); closeMenu() }}
             onNewFolder={() => { openCreateFolder(m.node.path); closeMenu() }}
             onRename={() => { openRename(m.node); closeMenu() }}
+            onDuplicate={() => { openDuplicate(m.node); closeMenu() }}
             onDelete={() => { requestDelete(m.node); closeMenu() }}
             onCopyPath={() => { copyPath(m.node.path); closeMenu() }}
             onOpenInTerminal={() => { openInTerminal(m.node.path); closeMenu() }}

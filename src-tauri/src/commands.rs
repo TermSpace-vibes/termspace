@@ -611,6 +611,25 @@ pub fn get_browser_panes(
     db::get_browser_panes(&db.0.lock(), &workspace_id).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn duplicate_file(source: String, new_path: String) -> Result<(), String> {
+    let output = {
+        let _lock = SPAWN_LOCK.lock();
+        std::process::Command::new("cp")
+            .arg("-R")
+            .arg(&source)
+            .arg(&new_path)
+            .output()
+            .map_err(|e| e.to_string())?
+    };
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
 // The terminal hot path is async for the same reason as get_system_stats:
 // a sync command would run PTY writes / resize serialization on the native
 // main thread and stall input event delivery.

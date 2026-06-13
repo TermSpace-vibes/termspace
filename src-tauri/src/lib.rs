@@ -136,6 +136,7 @@ pub fn run() {
             commands::get_username,
             commands::set_username,
             commands::clear_database,
+            commands::duplicate_file,
             commands::open_mic_settings,
             commands::play_notification_sound,
             commands::get_k8s_resources,
