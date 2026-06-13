@@ -1196,3 +1196,13 @@ pub fn stop_workspace_watcher(state: tauri::State<'_, WatcherState>, workspace_i
     state.0.lock().unwrap().remove(&workspace_id);
     Ok(())
 }
+
+#[tauri::command]
+pub fn spawn_lsp(app: tauri::AppHandle, language: String, root_path: String) -> Result<String, String> {
+    crate::lsp_manager::spawn_lsp(app, language, root_path)
+}
+
+#[tauri::command]
+pub fn write_lsp_message(id: String, message: String) -> Result<(), String> {
+    crate::lsp_manager::write_lsp_message(&id, message)
+}

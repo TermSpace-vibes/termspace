@@ -5,6 +5,7 @@ mod db;
 mod native_terminal_manager;
 mod audio;
 mod agent_hook;
+pub mod lsp_manager;
 
 use browser_pane_manager::BrowserPaneManager;
 use commands::DbState;
@@ -146,6 +147,8 @@ pub fn run() {
             commands::transcribe_openai,
             commands::start_workspace_watcher,
             commands::stop_workspace_watcher,
+            commands::spawn_lsp,
+            commands::write_lsp_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
