@@ -96,6 +96,7 @@ export interface Settings {
   dictationProvider?: 'local' | 'openai' | 'groq'
   dictationApiKey?: string
   dictationPrompt?: string
+  minimapEnabled?: boolean
 }
 
 export type LayoutDirection = 'horizontal' | 'vertical'

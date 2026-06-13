@@ -143,6 +143,34 @@ export function CommandPalette({ onNewWorkspace, onOpenSettings, onNewTerminal, 
         category: 'Commands' as const,
         onSelect: onOpenSettings,
         icon: <span style={{ fontSize: 16 }}>⚙️</span>
+      },
+      {
+        id: 'format-document',
+        label: 'Format Document',
+        category: 'Commands' as const,
+        onSelect: () => window.dispatchEvent(new CustomEvent('termspace:editor-action', { detail: { action: 'editor.action.formatDocument' } })),
+        icon: <span style={{ fontSize: 16 }}>📄</span>
+      },
+      {
+        id: 'fold-all',
+        label: 'Fold All',
+        category: 'Commands' as const,
+        onSelect: () => window.dispatchEvent(new CustomEvent('termspace:editor-action', { detail: { action: 'editor.foldAll' } })),
+        icon: <span style={{ fontSize: 16 }}>📄</span>
+      },
+      {
+        id: 'unfold-all',
+        label: 'Unfold All',
+        category: 'Commands' as const,
+        onSelect: () => window.dispatchEvent(new CustomEvent('termspace:editor-action', { detail: { action: 'editor.unfoldAll' } })),
+        icon: <span style={{ fontSize: 16 }}>📄</span>
+      },
+      {
+        id: 'toggle-minimap',
+        label: 'Toggle Minimap',
+        category: 'Commands' as const,
+        onSelect: () => useAppStore.getState().updateSettings({ minimapEnabled: !useAppStore.getState().settings.minimapEnabled }),
+        icon: <span style={{ fontSize: 16 }}>📄</span>
       }
     ]
 

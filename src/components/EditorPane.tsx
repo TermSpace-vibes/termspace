@@ -91,6 +91,18 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
   }, [editorPane?.jumpToLine, workspaceId, editorPaneId, updateEditorPaneLayout])
 
   useEffect(() => {
+    const handleEditorAction = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (!isActive) return;
+      if (editorRef.current) {
+        editorRef.current.getAction(customEvent.detail.action)?.run();
+      }
+    };
+    window.addEventListener('termspace:editor-action', handleEditorAction);
+    return () => window.removeEventListener('termspace:editor-action', handleEditorAction);
+  }, [isActive]);
+
+  useEffect(() => {
     if (editorPane?.rootPath) {
       refreshGitStatus(workspaceId, editorPane.rootPath)
     }
@@ -786,7 +798,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
                     });
                   }}
                   options={{
-                    minimap: { enabled: false },
+                    minimap: { enabled: settings.minimapEnabled ?? false },
                     fontSize: settings.fontSize || 14,
                     lineHeight: settings.lineHeight ? Math.round(settings.fontSize * settings.lineHeight) : undefined,
                     fontFamily: settings.terminalFontFamily || '"JetBrains Mono", "Fira Code", Menlo, monospace',
@@ -811,7 +823,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
                   onChange={handleEditorChange}
                   onMount={handleEditorDidMount}
                   options={{
-                    minimap: { enabled: false },
+                    minimap: { enabled: settings.minimapEnabled ?? false },
                     fontSize: settings.fontSize || 14,
                     lineHeight: settings.lineHeight ? Math.round(settings.fontSize * settings.lineHeight) : undefined,
                     fontFamily: settings.terminalFontFamily || '"JetBrains Mono", "Fira Code", Menlo, monospace',

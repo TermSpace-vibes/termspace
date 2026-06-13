@@ -1,0 +1,339 @@
+TERMSPACE — HANDOFF REPORT
+Session date: 2026-06-12
+===========================================================================
+
+SUMMARY
+-------
+Session worked on three things: (1) terminal typing lag, (2) font picker UI,
+(3) WebGL renderer code-review fixes. The lag was never truly fixed — the
+session applied several layers of patchwork (mutex contention fix, snapshot
+coalescing, optimistic echo, suppression window) but the user still reports
+chunking during fast typing. This report documents the full root-cause
+analysis and what a real fix would look like.
+
+
+===========================================================================
+WHAT WAS ACTUALLY BUILT THIS SESSION
+===========================================================================
+
+1. MUTEX CONTENTION FIX (Rust) — native_terminal_manager.rs
+   - Problem: resize() and scroll() held the `handles` mutex while running
+     serialize_snapshot() + app.emit() (~5-10ms). write_terminal() needs the
+     same mutex to clone the writer Arc, so it would block for that entire
+     duration on every resize/scroll event.
+   - Fix: clone needed Arcs under a brief lock, release immediately, then do
+     the expensive work lock-free.
+   - Status: CORRECT AND MERGED. This was the original reported bug.
+   - Files: src-tauri/src/native_terminal_manager.rs (resize, scroll fns)
+
+2. WEBGL RENDERER MICRO-OPTIMISATIONS — WebGLRenderer.ts
+   - Cached uniform locations (getUniformLocation called 4x/frame → 1x total)
+   - Pre-allocated instance buffers (ArrayBuffer grows only when grid expands)
+   - Cached Uint8Array views (bgU8, glyphU8) — no per-frame view allocation
+   - dispose() now resets instanceBufCap = 0 and nulls buffer refs
+   - Files: src/components/WorkspaceView/renderers/WebGLRenderer.ts
+
+3. FONT PICKER — SettingsModal.tsx
+   - Expanded from 3 hard-coded presets to 10 curated presets + "Custom…"
+   - Custom option reveals a free-text CSS font-family input
+   - Load-time detection: if stored value doesn't match any preset, the
+     custom input is pre-populated and selected
+   - Spec: docs/superpowers/specs/2026-06-12-terminal-font-picker-design.md
+   - Files: src/components/SettingsModal/SettingsModal.tsx
+
+4. PERFORMANCE TEST — typing-performance.test.ts
+   - 3 vitest tests covering: 500 keystroke render time, degradation check,
+     1000 full-grid paste burst
+   - All pass. Times: 0.158ms/keystroke, 1.19x degradation ratio, 0.751ms/render
+   - NOTE: tests use a mocked Canvas 2D context. They measure the renderer
+     loop in isolation, NOT the full PTY roundtrip or WebGL path.
+   - Files: src/components/WorkspaceView/renderers/typing-performance.test.ts
+
+5. BROWSER VISUAL BENCHMARK — benchmark-typing.html
+   - Standalone HTML file, open directly in any browser
+   - Canvas 2D simulation of terminal rendering with real-time FPS stats
+   - Three modes: keystroke, burst (80 chars/frame), scroll stress
+   - Files: benchmark-typing.html
+
+6. SNAPSHOT COALESCING — terminal.worker.ts
+   - Problem: multiple snapshots arriving between two rAF frames were each
+     fully decoded (atob + charCodeAt loop ~1ms each) synchronously in the
+     message handler. 5 snapshots = 5ms of blocking work before the next
+     frame could render.
+   - Fix: message handler stores only the latest snapshot as `pendingSnap`.
+     tick() decodes it once per frame. Intermediate snapshots are discarded.
+   - Also added `decodeBuf` (reusable Uint8Array) to avoid per-snapshot
+     allocation.
+   - Files: src/components/WorkspaceView/renderers/terminal.worker.ts
+
+7. OPTIMISTIC ECHO — terminal.worker.ts, worker-protocol.ts,
+                      useTerminalWorker.ts, NativeTerminalPane.tsx
+   - Idea: render a typed character immediately on keydown, before the PTY
+     echo roundtrip completes (~10-30ms).
+   - Implementation:
+     * handleKeyDown sends 'optimistic-char' message to worker for single
+       printable chars (cp > 31, cp != 127)
+     * Worker writes the char into cells[], advances cursor, renders immediately
+       (bypassing rAF to avoid up to 16ms display delay)
+     * Guards: !isAlternate, displayOffset === 0, cells initialized
+   - Also added: OPTIMISTIC_SUPPRESS_MS = 120 suppression window. After any
+     optimistic echo, snapshot cell/cursor updates are suppressed for 120ms.
+     This prevents stale PTY echo snapshots from stomping on already-displayed
+     chars during fast typing.
+   - Status: PARTIALLY EFFECTIVE. Characters appear faster, but chunking
+     persists during very fast typing. See root cause analysis below.
+
+
+===========================================================================
+THE ACTUAL ROOT CAUSE (NOT YET FIXED)
+===========================================================================
+
+The fundamental architecture is:
+
+  keypress → invoke('write_terminal') → Tauri IPC → Rust
+           → PTY kernel → shell processes → shell echoes back
+           → PTY kernel → Rust reader thread
+           → serialize_snapshot() → app.emit() → Tauri IPC → JS
+           → worker.postMessage → worker decode → rAF → render
+
+Every single keystroke travels this entire path before appearing on screen.
+The "lag" is the total latency of this path. The optimistic echo is a
+workaround layered on top, not a fix to the path itself.
+
+ROOT CAUSE 1: serialize_snapshot() called on EVERY PTY read
+----------------------------------------------------------------
+Location: native_terminal_manager.rs lines 239-252 (reader thread loop)
+
+  match reader.read(&mut buf) {
+      Ok(n) => {
+          let chunk = &buf[..n];
+          // ...
+          let snapshot = {
+              let mut t = term_clone.lock();
+              for &byte in chunk { parser.advance(&mut *t, byte); }
+              serialize_snapshot(&*t, ...)   // ← runs on EVERY read
+          };
+          app_clone.emit(..., snapshot);
+      }
+  }
+
+serialize_snapshot() does:
+  - Loop over all 80×24 = 1920 cells
+  - For each cell: resolve fg color, resolve bg color, pack 4 × u32
+  - base64-encode the resulting 7680 bytes → ~10KB string
+  - Allocate a new Vec<u8> and String every call
+
+This runs under term_clone.lock(). The lock is held for:
+  parser.advance × N bytes  +  serialize_snapshot  ≈  1–5ms
+
+During this window, resize_terminal and scroll_terminal cannot acquire
+term.lock(). write_terminal does NOT need term.lock() (uses writer.lock())
+so writes go through, but their echoes get delayed behind this serialize.
+
+With a shell like zsh + oh-my-zsh or starship, one keystroke can produce
+50–300 bytes of ANSI output (prompt redraws, syntax highlighting). That is
+50–300 calls to parser.advance under term.lock(), followed by serialize.
+Total lock hold time per read: 3–8ms. This is the jitter the user feels.
+
+ROOT CAUSE 2: Base64 round-trip on every snapshot
+---------------------------------------------------
+Rust encodes 7680 bytes → ~10KB base64 string (encode overhead)
+JS worker decodes ~10KB string → 7680 bytes (atob + charCodeAt × 7680)
+
+This is pure waste. The data is binary, crosses the Tauri IPC boundary as
+a JSON string, gets copied across the JS thread boundary into the worker,
+and decoded back. On every single keystroke.
+
+ROOT CAUSE 3: No rate limiting on snapshot emission
+-----------------------------------------------------
+The reader thread emits a snapshot after EVERY read() call. During shell
+prompt redraws (zsh, fish, starship), the shell may produce 3–5 separate
+PTY writes per keystroke (one per ANSI sequence). Each write causes a
+reader.read(), which causes a serialize + emit. The frontend receives 3–5
+snapshots per keystroke, each with the full 1920-cell grid.
+
+The optimistic suppression window (fix 7 above) hides this from the user,
+but the work still happens on the Rust thread.
+
+ROOT CAUSE 4: No input coalescing on the Rust write path
+---------------------------------------------------------
+Each keypress calls invoke('write_terminal', ...) individually. Tauri
+processes these as separate async commands. At 10 chars/sec that is 10
+separate IPC round-trips/second, each with its own serialization,
+deserialization, thread dispatch, and write() call.
+
+A fast typist (15+ chars/sec) can generate more IPC traffic than the Tauri
+command handler thread pool efficiently absorbs without queuing.
+
+
+===========================================================================
+WHAT A REAL FIX LOOKS LIKE
+===========================================================================
+
+FIX A: Throttle snapshot emission in the reader thread (HIGH IMPACT, MEDIUM EFFORT)
+------------------------------------------------------------------------------------
+Instead of emitting after every read(), accumulate bytes until either:
+  (a) 16ms has elapsed since last emit, OR
+  (b) the PTY has gone quiet (no new bytes for 2ms)
+
+Implementation sketch (Rust):
+  - Use std::time::Instant to track last_emit time
+  - Accumulate all bytes in a local buffer between emits
+  - Only call serialize_snapshot() + emit() at most 60 times/second
+
+This reduces serialize calls from potentially 5–10 per keystroke to 1 per
+frame, without affecting the latency of write_terminal itself.
+
+Location: native_terminal_manager.rs, inside the reader thread spawn block
+(lines 219-256). The reader loop needs a timer and an accumulator.
+
+FIX B: Binary snapshot transport (HIGH IMPACT, HIGH EFFORT)
+-----------------------------------------------------------
+Remove base64. Tauri channels support binary data (Vec<u8>). Change
+TerminalSnapshot.cells_b64 to cells: Vec<u8>, use tauri::ipc::Channel to
+stream binary payloads. On the JS side, receive ArrayBuffer directly from
+the channel, create Uint32Array with zero copy.
+
+This eliminates:
+  - base64 encode in Rust (~0.5ms per snapshot)
+  - base64 decode in worker (~0.5ms per snapshot)
+  - the 33% size overhead of base64 encoding
+
+Reference: https://v2.tauri.app/develop/calling-rust/#channels
+
+FIX C: Coalesce write_terminal calls (MEDIUM IMPACT, LOW EFFORT)
+-----------------------------------------------------------------
+On the frontend, batch rapid keystrokes into a single invoke:
+
+  // Instead of invoking per keypress:
+  invoke('write_terminal', { terminalId, data: 'a' })
+  invoke('write_terminal', { terminalId, data: 'b' })
+  invoke('write_terminal', { terminalId, data: 'c' })
+
+  // Batch via a microtask:
+  pendingInput += data
+  if (!inputFlushScheduled) {
+    inputFlushScheduled = true
+    queueMicrotask(() => {
+      invoke('write_terminal', { terminalId, data: pendingInput })
+      pendingInput = ''
+      inputFlushScheduled = false
+    })
+  }
+
+This reduces IPC calls from N (one per keystroke) to 1 per JS event loop
+tick. At fast typing speeds, typically 2–4 chars are batched per tick.
+Location: NativeTerminalPane.tsx handleKeyDown (~line 544).
+
+FIX D: Move terminal emulation out of the hot path (HIGH IMPACT, HIGH EFFORT)
+------------------------------------------------------------------------------
+The deepest fix: run alacritty_terminal's parser in a dedicated Tauri
+async task that does NOT block on serialize_snapshot. The parser writes
+state to a lock-free ring buffer; a separate "snapshot thread" reads from
+the ring buffer and emits snapshots on a timer (Fix A's Rust-side version).
+
+This fully decouples write latency from render latency.
+
+
+===========================================================================
+FILE MAP (what each file does)
+===========================================================================
+
+src-tauri/src/native_terminal_manager.rs
+  - NativeTerminalManager: HashMap of live terminal handles
+  - spawn(): starts PTY, reader thread, parser loop
+  - write(): writes bytes to PTY master (uses writer mutex)
+  - resize(), scroll(): update terminal state + emit snapshot
+  - serialize_snapshot(): ROOT CAUSE — O(rows×cols) per call, called on
+    every PTY read in the reader thread
+  - Reader thread (line 219): THE HOT PATH — read → parse → serialize → emit
+
+src-tauri/src/commands.rs
+  - Tauri command handlers: write_terminal, resize_terminal, scroll_terminal
+  - All thin wrappers over NativeTerminalManager methods
+
+src/components/WorkspaceView/NativeTerminalPane.tsx
+  - Main terminal pane component
+  - handleKeyDown (line ~519): calls invoke('write_terminal') + sendOptimisticChar
+  - Tauri event listener (line ~359): receives snapshots, forwards to worker
+  - ResizeObserver: calls invoke('resize_terminal') on container size change
+
+src/components/WorkspaceView/renderers/terminal.worker.ts
+  - OffscreenCanvas worker: owns all rendering state
+  - pendingSnap: snapshot coalescing (latest wins per frame)
+  - OPTIMISTIC_SUPPRESS_MS: suppresses stale snapshots after optimistic echo
+  - tick(): decode pending snapshot (if suppress window expired), animate
+    cursor, render
+  - optimistic-char handler: immediate render, sets suppress window
+
+src/components/WorkspaceView/renderers/WebGLRenderer.ts
+  - Two-pass WebGL2 renderer: background quads + glyph quads
+  - GlyphAtlas: 1024×1024 NEAREST-filtered texture, rasterised on demand
+  - NOTE: first render of a new glyph uploads full 4MB atlas texture
+    (gl.texImage2D). Can spike 5-15ms. Warm after ~1s of normal typing.
+
+src/components/WorkspaceView/renderers/worker-protocol.ts
+  - TypeScript types for worker message protocol
+  - MainToWorker union: init | snapshot | highlights | selection | theme |
+    font | cursorAnim | optimistic-char
+
+src/components/WorkspaceView/useTerminalWorker.ts
+  - React hook: spawns worker, transfers OffscreenCanvas, exposes send*
+    functions. sendOptimisticChar added this session.
+
+src/components/SettingsModal/SettingsModal.tsx
+  - Settings modal including font picker (expanded this session)
+  - PRESET_FONTS array + CUSTOM_SENTINEL pattern for font selection
+
+
+===========================================================================
+KNOWN ISSUES / NOT DONE
+===========================================================================
+
+1. Optimistic echo has false positives for shells that don't echo (password
+   prompts in canonical mode). The suppression window means the optimistic
+   char stays visible for 120ms before the snapshot corrects it. The user
+   will briefly see a char that shouldn't be there.
+
+2. GlyphAtlas uses texImage2D (full 1024×1024 re-upload on every dirty
+   frame). Should use texSubImage2D to upload only changed rows. This spikes
+   5-15ms on first render of new glyphs per terminal session.
+
+3. The charCodeAt decode loop (terminal.worker.ts) is called with 7680
+   iterations per snapshot. Could be replaced with a native base64 decode
+   if Tauri exposes binary channels (see Fix B above).
+
+4. No test coverage for the optimistic echo path or the suppression window.
+   The existing typing-performance tests use a mocked canvas and don't
+   exercise the PTY roundtrip at all.
+
+5. The 120ms suppression window is a guess. The right value depends on the
+   user's shell. A slow shell (oh-my-zsh with many plugins) may take >120ms
+   to echo a keystroke, meaning the window expires before the echo arrives
+   and the stale snapshot is applied. This would look like brief flickering.
+
+6. Resize operations still do a full serialize_snapshot under term.lock()
+   (this is correct — resize must wait for the grid update). But back-to-
+   back resizes (window drag) can still cause jitter from repeated serialise.
+
+===========================================================================
+RECOMMENDED NEXT STEPS (in order)
+===========================================================================
+
+1. Implement Fix C (input coalescing) — 1 hour, high confidence, no
+   downside. Reduces IPC traffic immediately.
+
+2. Implement Fix A (throttle snapshot emission in reader thread) — 4 hours.
+   This is the single highest-impact change. Eliminates the serialize call
+   flood. The optimistic echo + suppression window become much less necessary
+   once snapshot rate drops from "every PTY read" to "60Hz max".
+
+3. Remove or rethink the optimistic echo + suppression window — after Fix A
+   the snapshot latency drops to ~1 frame, so optimistic echo adds minimal
+   value and the 120ms suppression window is more likely to cause problems
+   than fix them.
+
+4. Implement Fix B (binary transport) — 1 day. Eliminates base64 entirely.
+   Do this after Fix A to ensure the snapshot rate is already under control.
+
+===========================================================================
