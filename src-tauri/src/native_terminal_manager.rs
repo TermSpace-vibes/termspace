@@ -22,6 +22,11 @@
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line};
+use std::collections::HashSet;
+use regex::Regex;
+use std::sync::LazyLock;
+
+static LOCALHOST_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:http://)?(?:localhost|127\.0\.0\.1):(\d+)").unwrap());
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::test::TermSize;
@@ -54,6 +59,12 @@ pub struct TerminalSnapshot {
     pub total_history: usize,
 }
 
+#[derive(serde::Serialize, Clone)]
+pub struct PortPayload {
+    pub port: String,
+    pub terminal_id: String,
+}
+
 /// A contiguous run of matched columns on a single row, used by terminal search.
 #[derive(Serialize, Clone)]
 pub struct SearchMatch {
@@ -78,6 +89,7 @@ pub struct NativeTerminalHandle {
     pub cwd: Arc<Mutex<String>>,
     pub title: Arc<Mutex<String>>,
     pub app_handle: AppHandle,
+    pub detected_ports: Arc<std::sync::Mutex<HashSet<String>>>,
 }
 
 /// `EventListener` implementation that bridges `alacritty_terminal` lifecycle
@@ -195,6 +207,7 @@ impl NativeTerminalManager {
 
         let cwd_arc: Arc<Mutex<String>> = Arc::new(Mutex::new(resolved_cwd));
         let title_arc: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+        let detected_ports: Arc<std::sync::Mutex<HashSet<String>>> = Arc::new(std::sync::Mutex::new(HashSet::new()));
 
         let listener = TermEventSender {
             terminal_id: terminal_id.clone(),
@@ -226,6 +239,7 @@ impl NativeTerminalManager {
             let term_clone = Arc::clone(&term);
             let cwd_clone = Arc::clone(&cwd_arc);
             let title_clone = Arc::clone(&title_arc);
+            let ports_clone = Arc::clone(&detected_ports);
             let app_clone = app.clone();
             let id = terminal_id.clone();
 
@@ -236,7 +250,9 @@ impl NativeTerminalManager {
                 loop {
                     use std::io::Read;
                     match reader.read(&mut buf) {
-                        Ok(0) | Err(_) => break,
+                        Ok(0) | Err(_) => {
+                            break;
+                        }
                         Ok(n) => {
                             if tx.send(buf[..n].to_vec()).is_err() {
                                 break;
@@ -286,6 +302,7 @@ impl NativeTerminalManager {
                     }
 
                     scan_osc_sequences(&acc, &mut osc_buf, &cwd_clone, &app_clone, &id);
+
                     let cwd_val = cwd_clone.lock().clone();
                     let title_val = title_clone.lock().clone();
                     let snapshot = {
@@ -294,6 +311,34 @@ impl NativeTerminalManager {
                         for &byte in &acc {
                             parser.advance(&mut *t, byte);
                         }
+
+                        let cols = t.columns();
+                        let rows = t.screen_lines();
+                        let grid = t.grid();
+                        let mut screen_text = String::with_capacity(cols * rows);
+                        for row in 0..rows as i32 {
+                            for col in 0..cols {
+                                let ch = grid[Line(row)][Column(col)].c;
+                                screen_text.push(if ch == '\0' { ' ' } else { ch });
+                            }
+                        }
+
+                        for captures in LOCALHOST_RE.captures_iter(&screen_text) {
+                            if let Some(port_match) = captures.get(1) {
+                                let port_str = port_match.as_str();
+                                if let Ok(_) = port_str.parse::<u16>() {
+                                    let mut ports = ports_clone.lock().unwrap();
+                                    if !ports.contains(port_str) {
+                                        ports.insert(port_str.to_string());
+                                        let _ = app_clone.emit("localhost-detected", PortPayload {
+                                            port: port_str.to_string(),
+                                            terminal_id: id.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+
                         serialize_snapshot(
                             &*t,
                             Some(cwd_val),
@@ -309,7 +354,7 @@ impl NativeTerminalManager {
 
         self.handles.lock().insert(
             terminal_id,
-            NativeTerminalHandle { writer, term, child, master, cwd: cwd_arc, title: title_arc, app_handle: app },
+            NativeTerminalHandle { writer, term, child, master, cwd: cwd_arc, title: title_arc, app_handle: app, detected_ports },
         );
         Ok(())
     }
