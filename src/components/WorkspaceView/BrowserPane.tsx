@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useLayoutEffect, useCallback } from 'react'
-import { Shield, ShieldCheck } from 'lucide-react'
+import { Shield, ShieldCheck, Smartphone, Tablet, Monitor } from 'lucide-react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
@@ -29,6 +29,7 @@ export function BrowserPane({
     { id: browserPaneId, url: initialUrl, title: 'New Tab' }
   ])
   const [activeTabId, setActiveTabId] = useState(browserPaneId)
+  const [viewportMode, setViewportMode] = useState<'desktop' | 'mobile' | 'tablet'>('desktop')
   
   const browserHistory = useAppStore(s => s.browserHistory || [])
   const addToHistory = useAppStore(s => s.addToHistory)
@@ -127,16 +128,42 @@ export function BrowserPane({
     // We add 28px to compensate so it doesn't cover the URL panel.
     const MACOS_TITLEBAR_OFFSET = 28;
 
+    let targetW = rect.width;
+    let targetH = rect.height - HEADER_HEIGHT - MACOS_TITLEBAR_OFFSET;
+    let targetX = rect.left;
+    let targetY = rect.top + HEADER_HEIGHT + MACOS_TITLEBAR_OFFSET;
+
+    if (viewportMode === 'mobile') {
+      targetW = 390; // Standard mobile width
+      targetH = 844;
+    } else if (viewportMode === 'tablet') {
+      targetW = 810; // Standard tablet width
+      targetH = 1080;
+    }
+
+    if (viewportMode !== 'desktop') {
+       // Clamp to available space with some padding
+       const maxW = Math.max(1, rect.width - 32);
+       const maxH = Math.max(1, rect.height - HEADER_HEIGHT - MACOS_TITLEBAR_OFFSET - 32);
+       
+       if (targetW > maxW) targetW = maxW;
+       if (targetH > maxH) targetH = maxH;
+       
+       // Center the viewport
+       targetX = rect.left + (rect.width - targetW) / 2;
+       targetY = rect.top + HEADER_HEIGHT + MACOS_TITLEBAR_OFFSET + (rect.height - HEADER_HEIGHT - MACOS_TITLEBAR_OFFSET - targetH) / 2;
+    }
+
     // Resize the active tab's webview to fit the hole
     invoke('show_browser_pane', { id: activeTabId }).catch(() => {})
     invoke('resize_browser_pane', {
       id: activeTabId,
-      x: rect.left,
-      y: rect.top + HEADER_HEIGHT + MACOS_TITLEBAR_OFFSET,
-      w: rect.width,
-      h: rect.height - HEADER_HEIGHT - MACOS_TITLEBAR_OFFSET,
+      x: targetX,
+      y: targetY,
+      w: targetW,
+      h: targetH,
     }).catch(() => {})
-  }, [activeTabId, isModalOpen, isHidden, showBookmarks, showHistory, browserPaneId, activeTab?.url])
+  }, [activeTabId, isModalOpen, isHidden, showBookmarks, showHistory, browserPaneId, activeTab?.url, viewportMode])
 
   // Handle hiding inactive tabs efficiently
   useEffect(() => {
@@ -462,7 +489,7 @@ export function BrowserPane({
   return (
     <div
       ref={containerRef}
-      style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}
+      style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', minWidth: 0, minHeight: 0, backgroundColor: viewportMode === 'desktop' ? 'transparent' : '#0a0a0c' }}
       onClick={() => {
         onFocus()
         if (showBookmarks) setShowBookmarks(false)
@@ -707,6 +734,19 @@ export function BrowserPane({
 
         {/* Action Buttons */}
         <div style={{ display: 'flex', gap: 4 }}>
+          {/* Viewport Toggles */}
+          <div style={{ display: 'flex', background: '#171717', borderRadius: 6, padding: 2, marginRight: 4 }}>
+            <button onClick={(e) => { e.stopPropagation(); setViewportMode('desktop') }} style={{ ...navBtnStyle, width: 24, height: 24, background: viewportMode === 'desktop' ? '#333' : 'transparent', color: viewportMode === 'desktop' ? '#e8eaed' : '#9aa0a6' }} title="Desktop View">
+              <Monitor size={14} />
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); setViewportMode('tablet') }} style={{ ...navBtnStyle, width: 24, height: 24, background: viewportMode === 'tablet' ? '#333' : 'transparent', color: viewportMode === 'tablet' ? '#e8eaed' : '#9aa0a6' }} title="Tablet View">
+              <Tablet size={14} />
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); setViewportMode('mobile') }} style={{ ...navBtnStyle, width: 24, height: 24, background: viewportMode === 'mobile' ? '#333' : 'transparent', color: viewportMode === 'mobile' ? '#e8eaed' : '#9aa0a6' }} title="Mobile View">
+              <Smartphone size={14} />
+            </button>
+          </div>
+
           <button onClick={(e) => { e.stopPropagation(); invoke('browser_open_devtools', { id: activeTabId }) }} style={navBtnStyle} title="Open DevTools (Cmd+Option+I)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 14.66V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5.34"></path><polygon points="18 2 22 6 12 16 8 16 8 12 18 2"></polygon></svg>
           </button>
