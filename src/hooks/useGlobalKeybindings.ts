@@ -37,7 +37,7 @@ export function useKeybindingHandler() {
         const spawn = (finalCwd: string) => {
           invoke<TerminalType>('spawn_terminal', {
             workspaceId: activeWorkspaceId,
-            shell: 'zsh',
+            shell: useAppStore.getState().settings.defaultShell || 'zsh',
             cwd: finalCwd,
           }).then((terminal) => {
             addTerminal(activeWorkspaceId, terminal)

@@ -114,7 +114,7 @@ export function useFileTreeOperations({ workspaceId, onRefreshDir }: UseFileTree
     try {
       const terminal = await invoke<Terminal>('spawn_terminal', {
         workspaceId,
-        shell: 'zsh',
+        shell: useAppStore.getState().settings.defaultShell || 'zsh',
         cwd: path,
       })
       useAppStore.getState().addTerminal(workspaceId, terminal)

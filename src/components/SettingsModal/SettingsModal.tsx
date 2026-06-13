@@ -20,6 +20,8 @@ export function SettingsModal({ onClose }: Props) {
 
   const [theme, setTheme] = useState<Settings['theme']>(settings.theme)
   const [fontSize, setFontSize] = useState(settings.fontSize)
+  const [lineHeight, setLineHeight] = useState(settings.lineHeight || 1.2)
+  const [defaultShell, setDefaultShell] = useState(settings.defaultShell || 'zsh')
   const [uiFontFamily, setUiFontFamily] = useState(settings.uiFontFamily || 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif')
   const PRESET_FONTS = [
     { label: 'JetBrains Mono (Default)', value: '"JetBrains Mono", "Fira Code", Menlo, monospace' },
@@ -75,7 +77,7 @@ export function SettingsModal({ onClose }: Props) {
   }, [])
 
   function handleSave() {
-    updateSettings({ theme, fontSize, uiFontFamily, terminalFontFamily, timeFormat, autosave, showTabBar, iconTheme, keybindings, defaultTerminalType, smoothCaret, terminalRenderer })
+    updateSettings({ theme, fontSize, lineHeight, defaultShell, uiFontFamily, terminalFontFamily, timeFormat, autosave, showTabBar, iconTheme, keybindings, defaultTerminalType, smoothCaret, terminalRenderer })
     useAppStore.getState().addToast('Settings saved', 'success')
     onClose()
   }
@@ -268,6 +270,24 @@ export function SettingsModal({ onClose }: Props) {
                       }}
                     />
                   </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Terminal Line Height</label>
+                    <input
+                      type="number"
+                      step={0.1}
+                      min={1.0}
+                      max={3.0}
+                      value={lineHeight}
+                      onChange={(e) => setLineHeight(Number(e.target.value))}
+                      style={{
+                        padding: '10px 14px', background: 'var(--bg-sidebar)',
+                        border: '1px solid var(--border-inactive)', borderRadius: 6,
+                        color: 'var(--text-active)', outline: 'none', fontSize: 14,
+                        transition: 'border 0.2s', width: '100%'
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -279,6 +299,24 @@ export function SettingsModal({ onClose }: Props) {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-inactive)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Terminal</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Default Shell</label>
+                    <select
+                      value={defaultShell}
+                      onChange={(e) => setDefaultShell(e.target.value)}
+                      style={{
+                        padding: '10px 14px', background: 'var(--bg-sidebar)',
+                        border: '1px solid var(--border-inactive)', borderRadius: 6,
+                        color: 'var(--text-active)', outline: 'none', fontSize: 14,
+                        transition: 'border 0.2s', width: '100%', maxWidth: 300
+                      }}
+                      onFocus={(e) => e.currentTarget.style.borderColor = 'var(--accent)'}
+                      onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border-inactive)'}
+                    >
+                      <option value="zsh">zsh</option>
+                      <option value="bash">bash</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
                     <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Terminal App Integration</label>
                     <select
                       value={defaultTerminalType}

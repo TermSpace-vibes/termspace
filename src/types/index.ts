@@ -80,6 +80,8 @@ export interface Keybindings {
 export interface Settings {
   theme: 'warm-dark' | 'cold-dark' | 'light' | 'catppuccin-mocha' | 'synthwave' | 'fruity'
   fontSize: number
+  lineHeight?: number
+  defaultShell?: string
   uiFontFamily?: string
   terminalFontFamily?: string
   timeFormat: '12h' | '24h'

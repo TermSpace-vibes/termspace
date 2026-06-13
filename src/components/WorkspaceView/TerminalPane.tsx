@@ -199,7 +199,7 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
       allowTransparency: true,
       fontFamily: settings.terminalFontFamily || '"JetBrains Mono", "Fira Code", Menlo, monospace',
       fontSize: settings.fontSize,
-      lineHeight: 1.4,
+      lineHeight: settings.lineHeight || 1.2,
       cursorBlink: true,
       macOptionIsMeta: true,
     })

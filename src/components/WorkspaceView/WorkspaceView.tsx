@@ -93,7 +93,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
 
       const terminal = await invoke<Terminal>('spawn_terminal', {
         workspaceId: workspace.id,
-        shell: 'zsh',
+        shell: useAppStore.getState().settings.defaultShell || 'zsh',
         cwd,
       })
       state.addTerminal(workspace.id, terminal, targetId, direction)

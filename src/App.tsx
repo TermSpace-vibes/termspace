@@ -165,7 +165,7 @@ export default function App() {
 
   async function spawnAndAddTerminal(workspaceId: string, targetId?: string, direction?: 'horizontal' | 'vertical') {
     const terminal = await withTimeout(
-      invoke<Terminal>('spawn_terminal', { workspaceId, shell: 'zsh', cwd: '' }),
+      invoke<Terminal>('spawn_terminal', { workspaceId, shell: useAppStore.getState().settings.defaultShell || 'zsh', cwd: '' }),
       5000,
       'spawn_terminal'
     );
@@ -382,7 +382,7 @@ export default function App() {
               const activeTerminal = activeTerminalId ? useAppStore.getState().terminalsByWorkspace[activeWorkspaceId]?.find(t => t.id === activeTerminalId) : null;
               const terminal = await invoke<Terminal>('spawn_terminal', {
                 workspaceId: activeWorkspaceId,
-                shell: 'zsh',
+                shell: useAppStore.getState().settings.defaultShell || 'zsh',
                 cwd: activeTerminal?.cwd || '',
               })
               addTerminal(activeWorkspaceId, terminal)

@@ -788,6 +788,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
                   options={{
                     minimap: { enabled: false },
                     fontSize: settings.fontSize || 14,
+                    lineHeight: settings.lineHeight ? Math.round(settings.fontSize * settings.lineHeight) : undefined,
                     fontFamily: settings.terminalFontFamily || '"JetBrains Mono", "Fira Code", Menlo, monospace',
                     fontLigatures: true,
                     wordWrap: 'on',
@@ -812,6 +813,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
                   options={{
                     minimap: { enabled: false },
                     fontSize: settings.fontSize || 14,
+                    lineHeight: settings.lineHeight ? Math.round(settings.fontSize * settings.lineHeight) : undefined,
                     fontFamily: settings.terminalFontFamily || '"JetBrains Mono", "Fira Code", Menlo, monospace',
                     fontLigatures: true,
                     wordWrap: 'on',
