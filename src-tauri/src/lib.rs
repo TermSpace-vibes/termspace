@@ -56,6 +56,7 @@ pub fn run() {
             app.manage(NativeTerminalManager::new());
             app.manage(BrowserPaneManager::new());
             app.manage(audio::AudioPlayer::new());
+            app.manage(commands::WatcherState(std::sync::Mutex::new(std::collections::HashMap::new())));
 
             let resource_path = app.path().resolve("resources/ggml-base.en.bin", tauri::path::BaseDirectory::Resource);
             let ctx = if let Ok(path) = resource_path {
@@ -126,6 +127,7 @@ pub fn run() {
             commands::browser_reload,
             commands::browser_toggle_adblock,
             commands::browser_open_devtools,
+            commands::browser_preconnect,
             commands::get_browser_panes,
             commands::spawn_ephemeral_browser_pane,
             commands::destroy_ephemeral_browser_pane,
@@ -141,6 +143,8 @@ pub fn run() {
             commands::set_k8s_context,
             commands::transcribe_chunk,
             commands::transcribe_openai,
+            commands::start_workspace_watcher,
+            commands::stop_workspace_watcher,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

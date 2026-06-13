@@ -4,13 +4,16 @@ use crate::native_terminal_manager::NativeTerminalManager;
 use rusqlite::Connection;
 use std::collections::HashMap;
 use parking_lot::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, State, Emitter};
 use std::sync::Arc;
 use whisper_rs::{WhisperContext, FullParams};
+use notify_debouncer_mini::{new_debouncer, notify::{self, RecursiveMode}};
+use std::time::Duration;
 
 pub struct DbState(pub Mutex<Connection>);
 pub struct SysInfoState(pub Mutex<(sysinfo::System, sysinfo::Networks)>);
 pub struct WhisperState(pub Arc<Mutex<Option<WhisperContext>>>);
+pub struct WatcherState(pub std::sync::Mutex<std::collections::HashMap<String, notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>>>);
 
 // macOS concurrent fork/posix_spawn workaround
 static SPAWN_LOCK: Mutex<()> = Mutex::new(());
@@ -580,6 +583,26 @@ pub fn browser_open_devtools(browser: State<BrowserPaneManager>, id: String) -> 
     Ok(())
 }
 
+static HTTP_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+
+pub fn get_http_client() -> reqwest::Client {
+    HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+            .unwrap_or_default()
+    }).clone()
+}
+
+#[tauri::command]
+pub async fn browser_preconnect(url: String) -> Result<(), String> {
+    let client = get_http_client();
+    tauri::async_runtime::spawn(async move {
+        let _ = client.head(&url).send().await;
+    });
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_browser_panes(
     db: State<DbState>,
@@ -1100,4 +1123,57 @@ pub async fn set_k8s_context(context_name: String) -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[derive(serde::Serialize, Clone)]
+struct ChangePayload {
+    workspace_id: String,
+}
+
+#[tauri::command]
+pub fn start_workspace_watcher(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WatcherState>,
+    workspace_id: String,
+    path: String
+) -> Result<(), String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut debouncer = new_debouncer(Duration::from_millis(500), tx)
+        .map_err(|e| e.to_string())?;
+
+    debouncer.watcher().watch(std::path::Path::new(&path), RecursiveMode::Recursive)
+        .map_err(|e| e.to_string())?;
+
+    state.0.lock().unwrap().insert(workspace_id.clone(), debouncer);
+
+    std::thread::spawn(move || {
+        for res in rx {
+            if let Ok(events) = res {
+                let mut should_emit = false;
+                for event in events {
+                    if !event.path.components().any(|c| {
+                        let s = c.as_os_str();
+                        s == "node_modules" || s == ".git" || s == "target"
+                    }) {
+                        should_emit = true;
+                        break;
+                    }
+                }
+                
+                if should_emit {
+                    let _ = app.emit("workspace-file-changed", ChangePayload {
+                        workspace_id: workspace_id.clone()
+                    });
+                }
+            }
+        }
+    });
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub fn stop_workspace_watcher(state: tauri::State<'_, WatcherState>, workspace_id: String) -> Result<(), String> {
+    state.0.lock().unwrap().remove(&workspace_id);
+    Ok(())
 }
