@@ -113,8 +113,38 @@ export default function App() {
       invoke('play_notification_sound').catch(console.error)
     })
 
+    const unlistenLocalhost = listen<{ port: string, terminal_id: string }>('localhost-detected', (event) => {
+      const { port, terminal_id } = event.payload;
+      useAppStore.getState().addToast(`Server Detected on localhost:${port}`, 'info', {
+        label: 'Open Browser',
+        onClick: () => {
+          let targetWorkspaceId = useAppStore.getState().activeWorkspaceId;
+          const { terminalsByWorkspace } = useAppStore.getState();
+          
+          for (const [wsId, terminals] of Object.entries(terminalsByWorkspace)) {
+            if (terminals.find(t => t.id === terminal_id)) {
+              targetWorkspaceId = wsId;
+              break;
+            }
+          }
+
+          if (!targetWorkspaceId) return;
+          
+          const pane = {
+            id: crypto.randomUUID(),
+            workspaceId: targetWorkspaceId,
+            url: `http://localhost:${port}`,
+            position: 0,
+            createdAt: Date.now()
+          };
+          useAppStore.getState().addBrowserPane(targetWorkspaceId, pane);
+        }
+      });
+    });
+
     return () => {
       unlisten.then(f => f())
+      unlistenLocalhost.then(f => f())
     }
   }, [])
 
