@@ -14,6 +14,8 @@ interface AppState {
   workspaces: Workspace[]
   activeWorkspaceId: string | null
   activeTerminalId: string | null
+  toolingTerminalsByWorkspace: Record<string, Terminal[]>
+  activeToolingTerminalId: string | null
   terminalsByWorkspace: Record<string, Terminal[]>
   browserPanesByWorkspace: Record<string, BrowserPane[]>
   editorPanesByWorkspace: Record<string, EditorPane[]>
@@ -37,6 +39,9 @@ interface AppState {
   updateWorkspace: (workspace: Workspace) => void
   removeWorkspace: (id: string) => void
   setActiveWorkspaceId: (id: string | null) => void
+  setActiveToolingTerminalId: (id: string | null) => void
+  addToolingTerminal: (workspaceId: string, terminal: Terminal) => void
+  removeToolingTerminal: (workspaceId: string, terminalId: string) => void
   setTerminals: (workspaceId: string, terminals: Terminal[]) => void
   addTerminal: (workspaceId: string, terminal: Terminal, targetId?: string, direction?: LayoutDirection) => void
   removeTerminal: (workspaceId: string, terminalId: string) => void
@@ -102,6 +107,8 @@ export const useAppStore = create<AppState>()(
       workspaces: [],
       activeWorkspaceId: null,
       activeTerminalId: null,
+      toolingTerminalsByWorkspace: {},
+      activeToolingTerminalId: null,
       terminalsByWorkspace: {},
       browserPanesByWorkspace: {},
       editorPanesByWorkspace: {},
@@ -123,7 +130,30 @@ export const useAppStore = create<AppState>()(
       username: null,
       setUsername: (name) => set({ username: name }),
       setDictationButtonPosition: (pos) => set({ dictationButtonPosition: pos }),
+      setActiveToolingTerminalId: (id) => set({ activeToolingTerminalId: id }),
+      addToolingTerminal: (workspaceId, terminal) => set((s) => ({
+        toolingTerminalsByWorkspace: {
+          ...s.toolingTerminalsByWorkspace,
+          [workspaceId]: [...(s.toolingTerminalsByWorkspace[workspaceId] ?? []), terminal]
+        },
+        activeToolingTerminalId: terminal.id
+      })),
+      removeToolingTerminal: (workspaceId, terminalId) => set((s) => {
+        const nextTerminals = (s.toolingTerminalsByWorkspace[workspaceId] ?? []).filter(t => t.id !== terminalId)
+        let nextActiveId = s.activeToolingTerminalId
+        if (s.activeToolingTerminalId === terminalId) {
+          nextActiveId = nextTerminals.length > 0 ? nextTerminals[nextTerminals.length - 1].id : null
+        }
+        return {
+          toolingTerminalsByWorkspace: {
+            ...s.toolingTerminalsByWorkspace,
+            [workspaceId]: nextTerminals
+          },
+          activeToolingTerminalId: nextActiveId
+        }
+      }),
       settings: {
+        showToolingPane: false,
         theme: 'warm-dark',
         fontSize: 13,
         uiFontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -680,6 +710,8 @@ export const useAppStore = create<AppState>()(
       name: import.meta.env.DEV ? 'termspace-storage-dev' : 'termspace-storage',
       partialize: (state) => ({ 
         settings: state.settings,
+        toolingTerminalsByWorkspace: state.toolingTerminalsByWorkspace,
+        activeToolingTerminalId: state.activeToolingTerminalId,
         layoutsByWorkspace: state.layoutsByWorkspace,
         browserHistory: state.browserHistory,
         bookmarks: state.bookmarks,

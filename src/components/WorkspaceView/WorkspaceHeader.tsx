@@ -1,4 +1,5 @@
 import { Workspace, Terminal } from '../../types'
+import { useAppStore } from '../../store/useAppStore'
 
 interface Props {
   workspace: Workspace
@@ -118,6 +119,28 @@ export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, on
           }}
         >
           <span>[ ]</span> Browser
+        </button>
+        <button
+          onClick={() => {
+            const state = useAppStore.getState();
+            state.updateSettings({ showToolingPane: !state.settings.showToolingPane });
+          }}
+          style={{
+            padding: '3px 8px', background: 'transparent',
+            border: '1px solid var(--border-inactive)', borderRadius: 4,
+            color: 'var(--text-inactive)', fontSize: 10, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 4
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = 'var(--text-active)'
+            e.currentTarget.style.borderColor = 'var(--text-dim)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = 'var(--text-inactive)'
+            e.currentTarget.style.borderColor = 'var(--border-inactive)'
+          }}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 15h18"/></svg> Tooling
         </button>
         <button
           onClick={onAddEditorPane}

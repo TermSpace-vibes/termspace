@@ -97,6 +97,7 @@ export interface Settings {
   dictationApiKey?: string
   dictationPrompt?: string
   minimapEnabled?: boolean
+  showToolingPane?: boolean
 }
 
 export type LayoutDirection = 'horizontal' | 'vertical'

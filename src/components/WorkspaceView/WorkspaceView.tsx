@@ -3,6 +3,8 @@ import { invoke } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
 import { Workspace, Terminal, BrowserPane as BrowserPaneType, EditorPane as EditorPaneType } from '../../types'
 import { TerminalGrid } from './TerminalGrid'
+import { ToolingPane } from './ToolingPane'
+import { Group, Panel, Separator } from 'react-resizable-panels'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { open } from '@tauri-apps/plugin-dialog'
 
@@ -263,17 +265,30 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
       />
       {terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || kubernetesPanes.length > 0 ? (
         <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
-
-          <TerminalGrid
-            workspaceId={workspace.id}
-            activeTerminalId={activeTerminalId}
-            onFocus={setActiveTerminalId}
-            onClose={handleCloseTerminal}
-            onSplit={handleAddTerminal}
-            onCloseBrowserPane={handleCloseBrowserPane}
-            onSplitBrowserPane={handleAddBrowserPane}
-          />
-          <SystemStats />
+          <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
+            <Panel defaultSize={75} minSize={20}>
+              <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
+                <TerminalGrid
+                  workspaceId={workspace.id}
+                  activeTerminalId={activeTerminalId}
+                  onFocus={setActiveTerminalId}
+                  onClose={handleCloseTerminal}
+                  onSplit={handleAddTerminal}
+                  onCloseBrowserPane={handleCloseBrowserPane}
+                  onSplitBrowserPane={handleAddBrowserPane}
+                />
+                <SystemStats />
+              </div>
+            </Panel>
+            {settings.showToolingPane && (
+              <>
+                <Separator style={{ height: 4, cursor: 'row-resize', background: 'var(--border-inactive)' }} />
+                <Panel defaultSize={25} minSize={10}>
+                  <ToolingPane workspaceId={workspace.id} />
+                </Panel>
+              </>
+            )}
+          </Group>
         </div>
       ) : !isLoaded || isLoading ? (
         <div

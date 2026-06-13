@@ -108,6 +108,13 @@ export function useKeybindingHandler() {
       return true
     }
 
+    if (matchShortcut(e, 'CmdOrCtrl+J')) {
+      e.preventDefault()
+      const state = useAppStore.getState()
+      state.updateSettings({ showToolingPane: !state.settings.showToolingPane })
+      return true
+    }
+
     if (matchShortcut(e, keybindings.searchFiles || 'CmdOrCtrl+Shift+F')) {
       e.preventDefault()
       useAppStore.getState().setShowCommandPalette(true)
