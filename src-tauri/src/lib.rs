@@ -92,6 +92,7 @@ pub fn run() {
             commands::get_system_stats,
             commands::get_git_branch,
             commands::get_git_status,
+            commands::get_git_blame,
             commands::get_git_file_content,
             commands::git_commit,
             commands::get_workspaces,

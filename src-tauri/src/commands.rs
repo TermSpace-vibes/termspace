@@ -1050,6 +1050,76 @@ pub fn get_git_file_content(path: String, file_path: String) -> Result<String, S
     }
 }
 
+#[derive(serde::Serialize, Clone)]
+pub struct GitBlame {
+    pub author: String,
+    pub message: String,
+    pub time: String,
+}
+
+#[tauri::command]
+pub fn get_git_blame(path: String, line: u32) -> Result<Option<GitBlame>, String> {
+    let parent = std::path::Path::new(&path).parent();
+    let dir = match parent {
+        Some(p) if p.exists() => p,
+        _ => return Ok(None),
+    };
+    
+    let file_name = match std::path::Path::new(&path).file_name() {
+        Some(f) => f.to_string_lossy().to_string(),
+        None => return Ok(None),
+    };
+
+    let output = {
+        let _lock = SPAWN_LOCK.lock();
+        std::process::Command::new("git")
+            .args([
+                "blame",
+                "-L",
+                &format!("{},{}", line, line),
+                "--porcelain",
+                &file_name,
+            ])
+            .current_dir(dir)
+            .output()
+    };
+
+    let output = match output {
+        Ok(out) => out,
+        Err(_) => return Ok(None),
+    };
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    let mut author = String::new();
+    let mut time = String::new();
+    let mut message = String::new();
+
+    for stdout_line in stdout.lines() {
+        if stdout_line.starts_with("author ") {
+            author = stdout_line[7..].to_string();
+        } else if stdout_line.starts_with("author-time ") {
+            time = stdout_line[12..].to_string();
+        } else if stdout_line.starts_with("summary ") {
+            message = stdout_line[8..].to_string();
+        }
+    }
+
+    if author.is_empty() || time.is_empty() || message.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(GitBlame {
+        author,
+        message,
+        time,
+    }))
+}
+
 #[tauri::command]
 pub fn git_commit(path: String, message: String) -> Result<(), String> {
     let _lock = SPAWN_LOCK.lock();

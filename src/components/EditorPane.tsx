@@ -59,6 +59,8 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
   
   const monaco = useMonaco()
   const editorRef = useRef<any>(null)
+  const blameDecorationRef = useRef<any>(null)
+  const blameTimeoutRef = useRef<any>(null)
 
   useEffect(() => {
     if (editorPane?.activeFilePath && editorPane?.rootPath) {
@@ -330,6 +332,53 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
     if (container) {
       container.addEventListener('beforeinput', handleBeforeInput);
     }
+
+    editor.onDidChangeCursorPosition((e: any) => {
+      const line = e.position.lineNumber;
+      
+      if (blameTimeoutRef.current) {
+        clearTimeout(blameTimeoutRef.current);
+      }
+      
+      if (blameDecorationRef.current) {
+        blameDecorationRef.current.set([]);
+      }
+
+      blameTimeoutRef.current = setTimeout(async () => {
+        try {
+          const state = useAppStore.getState();
+          const panes = state.editorPanesByWorkspace[workspaceId];
+          const pane = panes?.find((p: any) => p.id === editorPaneId);
+          const activePath = pane?.activeFilePath || editorPane?.activeFilePath;
+          
+          if (!activePath) return;
+
+          const blame = await invoke('get_git_blame', { 
+            path: activePath, 
+            line 
+          });
+          
+          if (blame) {
+            if (!blameDecorationRef.current) {
+              blameDecorationRef.current = editor.createDecorationsCollection();
+            }
+            blameDecorationRef.current.set([{
+              range: new monaco.Range(line, 1, line, 1),
+              options: {
+                isWholeLine: true,
+                after: {
+                  content: `    ${(blame as any).author}, ${new Date(Number((blame as any).time) * 1000).toLocaleDateString()} • ${(blame as any).message}`,
+                  color: '#6e7681',
+                  margin: '20px'
+                }
+              }
+            }]);
+          }
+        } catch (err) {
+          // Ignore error
+        }
+      }, 300);
+    });
 
     // Handle jumpToLine on initial mount
     if (editorPane?.jumpToLine) {
