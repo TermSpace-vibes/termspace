@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
+import { Copy } from 'lucide-react'
 import { invoke, listen } from '../../utils/tauri'
 import { DRAG_FORMAT_TERMINAL } from '../../utils/constants'
 import { useAppStore } from '../../store/useAppStore'
@@ -131,6 +132,9 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitleValue, setEditTitleValue] = useState('')
   const [dpr, setDpr] = useState(window.devicePixelRatio || 1)
+
+  const blockBoundariesRef = useRef<number[]>([0])
+  const [hoveredBlock, setHoveredBlock] = useState<{ startAbsRow: number, endAbsRow: number } | null>(null)
 
   useEffect(() => {
     const updateDpr = () => setDpr(window.devicePixelRatio || 1)
@@ -537,6 +541,16 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     const handled = keybindingHandlerRef.current(e.nativeEvent)
     if (handled) return
 
+    if (e.key === 'Enter') {
+      const absRow = cursorRef.current.row + totalHistoryRef.current;
+      if (blockBoundariesRef.current[blockBoundariesRef.current.length - 1] < absRow) {
+        blockBoundariesRef.current.push(absRow);
+      }
+    }
+    if (e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'l') {
+      blockBoundariesRef.current = [0];
+    }
+
     // In-pane search toggle.
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
       e.preventDefault()
@@ -766,6 +780,32 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   const displayTitle = terminal?.title || title || `Terminal ${terminalIndex}`
   const displayCwd = formatCwd(cwd || terminal?.cwd || '')
   const notificationCount = terminal?.notificationCount ?? 0
+
+  const handleContainerMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect()
+    const y = e.clientY - rect.top
+    const row = Math.floor(y / cellHRef.current)
+    const absRow = row + displayOffsetRef.current
+
+    const boundaries = blockBoundariesRef.current;
+    let startAbsRow = boundaries[0];
+    let endAbsRow = totalHistoryRef.current + rowsRef.current;
+    for (let i = 0; i < boundaries.length; i++) {
+      if (absRow >= boundaries[i]) {
+        startAbsRow = boundaries[i];
+        endAbsRow = i + 1 < boundaries.length ? boundaries[i + 1] : totalHistoryRef.current + rowsRef.current;
+      } else {
+        break;
+      }
+    }
+    
+    setHoveredBlock({ startAbsRow, endAbsRow })
+  }, [])
+
+  const handleContainerMouseLeave = useCallback(() => {
+    setHoveredBlock(null)
+  }, [])
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -1147,7 +1187,9 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       {/* ── Canvas container ────────────────────────────────────────────────── */}
       <div
         ref={containerRef}
-        style={{ flex: 1, minHeight: 0, padding: '4px 0 0 8px', overflow: 'hidden' }}
+        onMouseMove={handleContainerMouseMove}
+        onMouseLeave={handleContainerMouseLeave}
+        style={{ flex: 1, minHeight: 0, padding: '4px 0 0 8px', overflow: 'hidden', position: 'relative' }}
       >
         <canvas
           ref={canvasRef}
@@ -1223,6 +1265,56 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
           }}
           style={{ display: 'block', outline: 'none', cursor: 'text' }}
         />
+        {hoveredBlock && (() => {
+          const screenStartRow = hoveredBlock.startAbsRow - displayOffsetRef.current;
+          const screenEndRow = hoveredBlock.endAbsRow - displayOffsetRef.current;
+          const topPx = Math.max(0, screenStartRow * cellHRef.current) + 4;
+          const bottomPx = Math.min(rowsRef.current * cellHRef.current, screenEndRow * cellHRef.current) + 4;
+          const heightPx = bottomPx - topPx;
+
+          if (heightPx > 0) {
+            return (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: topPx,
+                  left: 8,
+                  right: 0,
+                  height: heightPx,
+                  borderLeft: '2px solid var(--accent)',
+                  backgroundColor: 'color-mix(in srgb, var(--accent) 5%, transparent)',
+                  pointerEvents: 'none',
+                  zIndex: 10,
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 4,
+                    right: 16,
+                    display: 'flex',
+                    gap: 8,
+                    pointerEvents: 'auto',
+                    background: 'color-mix(in srgb, var(--bg-sidebar) 80%, transparent)',
+                    backdropFilter: 'blur(4px)',
+                    padding: '4px 8px',
+                    borderRadius: 6,
+                    border: '1px solid var(--border-inactive)',
+                  }}
+                >
+                  <button 
+                    onClick={() => console.log('Copy block', hoveredBlock)}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--text-active)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
+                  >
+                    <Copy size={12} />
+                    Copy
+                  </button>
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
       </div>
     </div>
   )
