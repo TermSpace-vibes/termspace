@@ -193,6 +193,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
     return (
       <div style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}>
         <BrowserPane
+          workspaceId={workspaceId}
           browserPaneId={pane.id}
           initialUrl={pane.url}
           isActive={pane.id === activeTerminalId}

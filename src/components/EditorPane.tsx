@@ -46,6 +46,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
   const gitStatus = useAppStore(s => s.gitStatusByWorkspace[workspaceId])
   const addToast = useAppStore(s => s.addToast)
   const settings = useAppStore(s => s.settings)
+  const updateSettings = useAppStore(s => s.updateSettings)
 
   const [fileContent, setFileContent] = useState('')
   const [originalFileContent, setOriginalFileContent] = useState('')
@@ -324,16 +325,11 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
     }
   }
 
-  // Auto-save has been disabled per user request
-  // useEffect(() => {
-  //   if (!settings.autosave || !isDirty || !editorPane?.activeFilePath) return
-  //   
-  //   const timer = setTimeout(() => {
-  //     handleSave()
-  //   }, 1000)
-  //   
-  //   return () => clearTimeout(timer)
-  // }, [isDirty, settings.autosave, editorPane?.activeFilePath, handleSave])
+  useEffect(() => {
+    if (!settings.autosave || !isDirty || !editorPane?.activeFilePath) return
+    const timer = setTimeout(() => handleSave(), 1000)
+    return () => clearTimeout(timer)
+  }, [isDirty, settings.autosave, editorPane?.activeFilePath, handleSave])
 
   if (!editorPane) return null
 
@@ -501,14 +497,19 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
         </div>
 
         {/* Tab Bar UI - Below Breadcrumbs */}
-        <div 
-          className="no-scrollbar"
-          style={{ 
-            display: 'flex', overflowX: 'auto', height: 36, alignItems: 'center', 
-            padding: '0 8px', gap: 4, backgroundColor: 'var(--bg-secondary)', 
-            borderTop: '1px solid var(--border-inactive)' 
+        <div
+          style={{
+            display: 'flex', height: 36, alignItems: 'center',
+            backgroundColor: 'var(--bg-secondary)',
+            borderTop: '1px solid var(--border-inactive)',
+            overflow: 'hidden'
           }}
         >
+          {/* Scrollable tab list */}
+          <div
+            className="no-scrollbar"
+            style={{ display: 'flex', flex: 1, overflowX: 'auto', height: '100%', alignItems: 'center', padding: '0 8px', gap: 4 }}
+          >
           {editorPane.openFiles.map(path => {
             const relativePath = path.replace(editorPane.rootPath + '/', '')
             const status = gitStatus ? gitStatus[relativePath] : undefined
@@ -577,6 +578,82 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
           {editorPane.openFiles.length === 0 && (
             <div style={{ padding: '0 12px', fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>No open files</div>
           )}
+          </div>
+
+          {/* Save / Save All / Auto Save */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 4, padding: '0 8px',
+            borderLeft: '1px solid var(--border-inactive)', flexShrink: 0, height: '100%'
+          }}>
+            <button
+              onClick={handleSave}
+              disabled={!isDirty || !editorPane.activeFilePath || isBinary}
+              title="Save (Cmd+S)"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px',
+                borderRadius: 5, border: '1px solid',
+                borderColor: (isDirty && !isBinary) ? 'var(--accent)' : 'var(--border-inactive)',
+                background: 'none', cursor: (isDirty && !isBinary) ? 'pointer' : 'not-allowed',
+                color: (isDirty && !isBinary) ? 'var(--accent)' : 'var(--text-dim)',
+                fontSize: 11, opacity: (isDirty && !isBinary) ? 1 : 0.4,
+                transition: 'all 0.2s'
+              }}
+            >
+              <Save size={11} />
+              Save
+            </button>
+
+            <button
+              onClick={() => window.dispatchEvent(new Event('save-all-editors'))}
+              title="Save All"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px',
+                borderRadius: 5, border: '1px solid var(--border-inactive)',
+                background: 'none', cursor: 'pointer',
+                color: 'var(--text-dim)', fontSize: 11,
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--text-active)'
+                e.currentTarget.style.borderColor = 'var(--text-inactive)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--text-dim)'
+                e.currentTarget.style.borderColor = 'var(--border-inactive)'
+              }}
+            >
+              <Save size={11} />
+              Save All
+            </button>
+
+            {/* Auto Save toggle */}
+            <div
+              onClick={() => updateSettings({ autosave: !settings.autosave })}
+              title={settings.autosave ? 'Auto Save: On' : 'Auto Save: Off'}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5, padding: '2px 6px',
+                borderRadius: 5, border: '1px solid var(--border-inactive)',
+                cursor: 'pointer', userSelect: 'none', transition: 'all 0.2s',
+                color: settings.autosave ? 'var(--accent)' : 'var(--text-dim)', fontSize: 11
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--text-inactive)')}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-inactive)')}
+            >
+              {/* pill toggle */}
+              <div style={{
+                width: 24, height: 13, borderRadius: 7, position: 'relative', flexShrink: 0,
+                backgroundColor: settings.autosave ? 'var(--accent)' : 'rgba(255,255,255,0.15)',
+                transition: 'background-color 0.2s'
+              }}>
+                <div style={{
+                  position: 'absolute', top: 2, left: settings.autosave ? 13 : 2,
+                  width: 9, height: 9, borderRadius: '50%',
+                  backgroundColor: '#fff', transition: 'left 0.2s'
+                }} />
+              </div>
+              Auto Save
+            </div>
+          </div>
         </div>
       </div>
 

@@ -46,6 +46,7 @@ interface AppState {
   setTerminalExecutionState: (workspaceId: string, terminalId: string, state: 'idle' | 'running' | 'stalled') => void
   setBrowserPanes: (workspaceId: string, panes: BrowserPane[]) => void
   addBrowserPane: (workspaceId: string, pane: BrowserPane, targetId?: string, direction?: LayoutDirection) => void
+  updateBrowserPane: (workspaceId: string, paneId: string, updates: Partial<BrowserPane>) => void
   removeBrowserPane: (workspaceId: string, browserPaneId: string) => void
   setEditorPanes: (workspaceId: string, panes: EditorPane[]) => void
   addEditorPane: (workspaceId: string, pane: EditorPane, targetId?: string, direction?: LayoutDirection) => void
@@ -346,6 +347,15 @@ export const useAppStore = create<AppState>()(
             },
           }
         }),
+      updateBrowserPane: (workspaceId, paneId, updates) =>
+        set((s) => ({
+          browserPanesByWorkspace: {
+            ...s.browserPanesByWorkspace,
+            [workspaceId]: (s.browserPanesByWorkspace[workspaceId] ?? []).map((p) =>
+              p.id === paneId ? { ...p, ...updates } : p
+            ),
+          },
+        })),
 
       removeBrowserPane: (workspaceId, browserPaneId) =>
         set((s) => {

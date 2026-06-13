@@ -127,6 +127,38 @@ describe('EditorPaneComponent', () => {
     expect(splitEditor).toHaveBeenCalledWith(workspaceId, editorPaneId, 'vertical')
   })
 
+  it('renders Save, Save All, and Auto Save buttons in tab bar', () => {
+    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+    // Two Save buttons: one in header, one in tab bar
+    expect(screen.getAllByTitle('Save (Cmd+S)').length).toBe(2)
+    expect(screen.getByTitle('Save All')).toBeInTheDocument()
+    expect(screen.getByTitle('Auto Save: Off')).toBeInTheDocument()
+  })
+
+  it('Save All button dispatches save-all-editors event', () => {
+    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+    const listener = vi.fn()
+    window.addEventListener('save-all-editors', listener)
+    fireEvent.click(screen.getByTitle('Save All'))
+    expect(listener).toHaveBeenCalledTimes(1)
+    window.removeEventListener('save-all-editors', listener)
+  })
+
+  it('Auto Save toggle calls updateSettings with flipped autosave', () => {
+    const updateSettings = vi.fn()
+    useAppStore.setState({ updateSettings, settings: { ...useAppStore.getState().settings, autosave: false } })
+
+    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+    fireEvent.click(screen.getByTitle('Auto Save: Off'))
+    expect(updateSettings).toHaveBeenCalledWith({ autosave: true })
+  })
+
+  it('Auto Save toggle label reflects current state', () => {
+    useAppStore.setState({ settings: { ...useAppStore.getState().settings, autosave: true } })
+    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+    expect(screen.getByTitle('Auto Save: On')).toBeInTheDocument()
+  })
+
   it('calls updateEditorPaneLayout when panel is resized', () => {
     vi.useFakeTimers()
     const updateEditorPaneLayout = vi.fn()

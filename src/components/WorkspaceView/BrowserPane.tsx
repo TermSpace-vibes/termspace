@@ -6,6 +6,7 @@ import { useAppStore } from '../../store/useAppStore'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 
 interface Props {
+  workspaceId: string
   browserPaneId: string
   initialUrl: string
   isActive: boolean
@@ -20,7 +21,7 @@ interface Props {
 const HEADER_HEIGHT = 72 // 28 (tab bar) + 44 (url bar)
 
 export function BrowserPane({
-  browserPaneId, initialUrl, isActive, isMaximized: _isMaximized, isHidden,
+  workspaceId, browserPaneId, initialUrl, isActive, isMaximized: _isMaximized, isHidden,
   onFocus, onClose, onSplit, onToggleMaximize,
 }: Props) {
   // Tabs state
@@ -39,6 +40,9 @@ export function BrowserPane({
   
   const [showHistory, setShowHistory] = useState(false)
   const [showBookmarks, setShowBookmarks] = useState(false)
+  const autoReload = useAppStore(s => s.browserPanesByWorkspace[workspaceId]?.find(p => p.id === browserPaneId)?.autoReload ?? false)
+  const updateBrowserPane = useAppStore(s => s.updateBrowserPane)
+  const setAutoReload = (val: boolean) => updateBrowserPane(workspaceId, browserPaneId, { autoReload: val })
   const isModalOpen = useAppStore(s => s.isModalOpen)
   
   const adblockEnabled = useAppStore(s => s.settings?.adblockEnabled ?? true)
@@ -54,6 +58,7 @@ export function BrowserPane({
   const containerRef = useRef<HTMLDivElement>(null)
   const hiddenTabsRef = useRef<Set<string>>(new Set())
   const discardTimersRef = useRef<{ [id: string]: ReturnType<typeof setTimeout> }>({})
+  const preconnectedUrlsRef = useRef<Set<string>>(new Set())
 
   // Fetch suggestions
   useEffect(() => {
@@ -69,6 +74,19 @@ export function BrowserPane({
     setSuggestions(historyMatches)
 
     const timer = setTimeout(async () => {
+      // 1. Preconnect to speed up navigation
+      if (inputUrl.startsWith('http') || /^[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,6}/.test(inputUrl)) {
+        const normalized = inputUrl.startsWith('http') ? inputUrl : `https://${inputUrl}`
+        try {
+          const { hostname } = new URL(normalized)
+          if (!preconnectedUrlsRef.current.has(hostname)) {
+            preconnectedUrlsRef.current.add(hostname)
+            invoke('browser_preconnect', { url: normalized }).catch(() => {})
+          }
+        } catch (e) {}
+      }
+
+      // 2. Fetch suggestions
       try {
         const res = await fetch(`https://duckduckgo.com/ac/?q=${encodeURIComponent(inputUrl)}`)
         const data = await res.json()
@@ -335,6 +353,32 @@ export function BrowserPane({
     }
   }, [activeTabId, browserPaneId]) // Removed tabs dependency to avoid redefining listeners constantly
 
+  const editorPanes = useAppStore(s => s.editorPanesByWorkspace[workspaceId] || []);
+  const terminals = useAppStore(s => s.terminalsByWorkspace[workspaceId] || []);
+  const targetPath = editorPanes.length > 0 ? editorPanes[0].rootPath : (terminals.length > 0 ? terminals[0].cwd : '');
+
+  useEffect(() => {
+    if (!autoReload || !targetPath) return;
+
+    invoke('start_workspace_watcher', { workspaceId: workspaceId, path: targetPath }).catch(console.error);
+
+    const unlisten = listen<{ workspace_id: string }>('workspace-file-changed', (event) => {
+      if (event.payload.workspace_id === workspaceId) {
+        invoke('browser_reload', { id: activeTabId }).catch(() => {});
+      }
+    });
+
+    return () => {
+      unlisten.then(f => f());
+      // Only stop the watcher if no other browser pane in this workspace has autoReload enabled
+      const { browserPanesByWorkspace } = useAppStore.getState();
+      const otherPanesWithAutoReload = browserPanesByWorkspace[workspaceId]?.filter(p => p.id !== browserPaneId && p.autoReload) || [];
+      if (otherPanesWithAutoReload.length === 0) {
+        invoke('stop_workspace_watcher', { workspaceId: workspaceId }).catch(console.error);
+      }
+    };
+  }, [autoReload, targetPath, workspaceId, browserPaneId, activeTabId]);
+
   const tabsRef = useRef(tabs)
   useEffect(() => {
     tabsRef.current = tabs
@@ -591,6 +635,16 @@ export function BrowserPane({
             title="Bookmark this tab"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill={bookmarks.some(b => b.url === activeTab.url) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setAutoReload(!autoReload)
+            }}
+            style={{ ...navBtnStyle, width: 24, height: 24, color: autoReload ? '#4a7aff' : '#9aa0a6' }}
+            title={autoReload ? "Disable Auto-Reload" : "Enable Auto-Reload"}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg>
           </button>
         </div>
 

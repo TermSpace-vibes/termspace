@@ -40,6 +40,30 @@ struct PaneEntry {
     /// rectangle but must NOT push it to the live webview, otherwise a layout
     /// reflow would visibly re-show a pane the user deliberately hid.
     is_hidden: bool,
+    adblock_enabled: std::sync::Arc<std::sync::Mutex<bool>>,
+}
+
+static ADBLOCK_ENGINE: std::sync::OnceLock<std::sync::Arc<adblock::engine::Engine>> = std::sync::OnceLock::new();
+
+fn get_adblock_engine() -> std::sync::Arc<adblock::engine::Engine> {
+    ADBLOCK_ENGINE.get_or_init(|| {
+        let rules = vec![
+            "||doubleclick.net^",
+            "||googleadservices.com^",
+            "||googlesyndication.com^",
+            "||ads.twitter.com^",
+            "||facebook.com/tr/^",
+            "||taboola.com^",
+            "||outbrain.com^",
+            "||criteo.com^",
+            "||adsystem.com^",
+            "||adserv.com^",
+            "||adnxs.com^",
+            "||ads-twitter.com^",
+            "/pagead/js/adsbygoogle.js",
+        ];
+        std::sync::Arc::new(adblock::engine::Engine::from_rules(&rules, adblock::lists::ParseOptions::default()))
+    }).clone()
 }
 
 /// Owns every native browser-pane webview for the application.
@@ -139,36 +163,28 @@ impl BrowserPaneManager {
             .path()
             .app_data_dir()
             .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
-            .join(data_dir_name);
+            .join(data_dir_name.clone());
 
         if !data_dir.exists() {
             let _ = std::fs::create_dir_all(&data_dir);
         }
 
+        let adblock_state = std::sync::Arc::new(std::sync::Mutex::new(adblock_enabled));
+        let adblock_state_clone = adblock_state.clone();
+        let engine = get_adblock_engine();
+
+        let cache_dir = app_handle
+            .path()
+            .app_cache_dir()
+            .unwrap_or_else(|_| std::env::temp_dir())
+            .join("termspace_asset_cache");
+
+        let cache_dir_clone = cache_dir.clone();
+
         let init_js = format!(r#"
             window.__termspace_adblock_enabled = {};
             
             const adDomains = ['doubleclick.net', 'googleadservices.com', 'googlesyndication.com', 'ads.twitter.com', 'facebook.com/tr/', 'taboola.com', 'outbrain.com', 'criteo.com', 'adsystem.com', 'adserv.com', 'adnxs.com', 'ads-twitter.com'];
-            const origFetch = window.fetch;
-            window.fetch = async function(...args) {{
-                if (window.__termspace_adblock_enabled) {{
-                    const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
-                    if (adDomains.some(d => url.includes(d))) {{
-                        return new Response('', {{status: 200}});
-                    }}
-                }}
-                return origFetch.apply(this, args);
-            }};
-            const origXhrOpen = XMLHttpRequest.prototype.open;
-            XMLHttpRequest.prototype.open = function(...args) {{
-                if (window.__termspace_adblock_enabled) {{
-                    const url = args[1] || '';
-                    if (typeof url === 'string' && adDomains.some(d => url.includes(d))) {{
-                        args[1] = 'data:,';
-                    }}
-                }}
-                return origXhrOpen.apply(this, args);
-            }};
 
             const adSelectors = ['.ad', '.ads', '.advertisement', '#ads', 'ins.adsbygoogle', 'div[id^="google_ads_"]', 'div[class*="Sponsored"]', '.taboola', '.outbrain'];
             const style = document.createElement('style');
@@ -237,11 +253,15 @@ impl BrowserPaneManager {
             }}, true);
         "#, if adblock_enabled { "true" } else { "false" });
 
+        let ns = uuid::Uuid::NAMESPACE_URL;
+        let ds_uuid = uuid::Uuid::new_v5(&ns, data_dir_name.as_bytes());
+
         let builder = WebviewBuilder::new(
             format!("browser-pane-{}", id),
             WebviewUrl::External(target_url),
         )
         .data_directory(data_dir)
+        .data_store_identifier(ds_uuid.into_bytes())
         .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15")
         .initialization_script(format!("{}\nObject.defineProperty(navigator, 'webdriver', {{get: () => false}});", init_js))
         .on_navigation(move |nav_url| {
@@ -357,6 +377,47 @@ impl BrowserPaneManager {
                 }
                 _ => true
             }
+        })
+        .on_web_resource_request(move |request, response| {
+            let url_str = request.uri().to_string();
+            
+            // 1. Native Adblock
+            if *adblock_state_clone.lock().unwrap() {
+                if let Ok(ad_req) = adblock::request::Request::new(&url_str, &url_str, "") {
+                    let result = engine.check_network_request(&ad_req);
+                    if result.matched {
+                        *response.status_mut() = tauri::http::StatusCode::FORBIDDEN;
+                        *response.body_mut() = std::borrow::Cow::Owned(vec![]);
+                        return;
+                    }
+                }
+            }
+
+            // 4. Local Asset Caching
+            if url_str.contains("cdn.tailwindcss.com") || url_str.contains("unpkg.com") || url_str.contains("cdnjs.cloudflare.com") || url_str.contains("cdn.jsdelivr.net") {
+                let cache_dir_local = cache_dir_clone.clone();
+                let hash = seahash::hash(url_str.as_bytes());
+                let file_path = cache_dir_local.join(hash.to_string());
+                
+                if file_path.exists() {
+                    if let Ok(data) = std::fs::read(&file_path) {
+                        *response.status_mut() = tauri::http::StatusCode::OK;
+                        *response.body_mut() = std::borrow::Cow::Owned(data);
+                        return;
+                    }
+                } else {
+                    let fetch_url = url_str.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let client = crate::commands::get_http_client();
+                        if let Ok(resp) = client.get(&fetch_url).send().await {
+                            if let Ok(bytes) = resp.bytes().await {
+                                let _ = std::fs::create_dir_all(&cache_dir_local);
+                                let _ = std::fs::write(&file_path, bytes);
+                            }
+                        }
+                    });
+                }
+            }
         });
 
         let webview =
@@ -383,6 +444,7 @@ impl BrowserPaneManager {
                 w,
                 h,
                 is_hidden: false,
+                adblock_enabled: adblock_state,
             },
         );
         Ok(())
@@ -503,8 +565,11 @@ impl BrowserPaneManager {
     }
 
     pub fn toggle_adblock(&self, id: &str, enabled: bool) {
-        let panes = self.panes.lock().unwrap();
-        if let Some(entry) = panes.get(id) {
+        let mut panes = self.panes.lock().unwrap();
+        if let Some(entry) = panes.get_mut(id) {
+            if let Ok(mut state) = entry.adblock_enabled.lock() {
+                *state = enabled;
+            }
             let js = format!("window.__termspace_adblock_enabled = {};", enabled);
             let _ = entry.webview.eval(&js);
         }

@@ -23,3 +23,11 @@
 - **Native File & Directory Dialogs:** Integrate native OS dialogs (via `tauri-plugin-dialog`) for smoother file path selection, such as picking workspaces or configuring paths.
 - **Smart Image Pasting:** Utilize clipboard manager plugins (`tauri-plugin-clipboard-manager`) and image encoding crates (`image`) combined with hashing (`blake3`) to implement duplicate-free, native image pasting directly into the terminal environment.
 - **Process Guarding:** Use single-instance locking (`tauri-plugin-single-instance`) to prevent multiple app instances from overwriting the database (like SQLite state) concurrently.
+
+### Workspace Sidebar Enhancements
+- **Workspace Search / Filter Bar:** A sleek, minimal text input at the top of the sidebar to quickly filter workspaces by name.
+- **Pinned / Favorite Workspaces:** A feature to "Pin" specific workspaces to a dedicated "Pinned" group at the top of the sidebar, bypassing normal grouping rules.
+- **Git Status Indicators:** Add tiny, color-coded Git status indicators directly on the WorkspaceItem to show uncommitted work at a glance.
+- **Workspace Duplication:** Add a "Duplicate Workspace" option to the right-click context menu to quickly clone a workspace's layout, cwd, and shell configurations.
+- **Pinned Scripts:** In the ProjectTasks (Detected Scripts) section, add the ability to "Pin" frequently used scripts so they stay at the very top of the list regardless of the active terminal's current directory.
+- **Archive / Sleep Mode:** A context-menu action to "Archive" or "Sleep" a workspace. This kills its underlying PTY processes but keeps its layout in the database, moving it to an "Archived" group to save system resources.

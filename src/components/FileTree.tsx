@@ -356,19 +356,21 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
       setScrollTop(container.scrollTop)
     }
 
-    const handleResize = () => {
-      setContainerHeight(container.offsetHeight)
-    }
+    const resizeObserver = new ResizeObserver(() => {
+      if (containerRef.current) {
+        setContainerHeight(containerRef.current.offsetHeight)
+      }
+    })
 
-    container.addEventListener('scroll', handleScroll)
-    window.addEventListener('resize', handleResize)
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    resizeObserver.observe(container)
     
     // Initial height
     setContainerHeight(container.offsetHeight)
 
     return () => {
       container.removeEventListener('scroll', handleScroll)
-      window.removeEventListener('resize', handleResize)
+      resizeObserver.disconnect()
     }
   }, [])
 

@@ -5,6 +5,7 @@ export interface Workspace {
   color: string
   position: number
   createdAt: number
+  autoReload?: boolean
   notificationCount?: number
   groupName?: string
 }
@@ -18,6 +19,7 @@ export interface Terminal {
   position: number
   sizePercent: number
   createdAt: number
+  autoReload?: boolean
   scrollback?: string[]
   notificationCount?: number
   executionState?: 'idle' | 'running' | 'stalled'
@@ -29,6 +31,7 @@ export interface BrowserPane {
   url: string
   position: number
   createdAt: number
+  autoReload?: boolean
 }
 
 export interface EditorPane {
@@ -42,6 +45,7 @@ export interface EditorPane {
   fileTreeWidth: number
   position: number
   createdAt: number
+  autoReload?: boolean
   activeSidebarTab?: 'explorer' | 'git'
   diffViewEnabled?: boolean
 }
@@ -51,6 +55,7 @@ export interface KubernetesPane {
   workspaceId: string
   position: number
   createdAt: number
+  autoReload?: boolean
   selectedContext?: string
   selectedNamespace?: string
   resourceType?: string
