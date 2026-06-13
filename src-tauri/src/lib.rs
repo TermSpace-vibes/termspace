@@ -149,6 +149,7 @@ pub fn run() {
             commands::stop_workspace_watcher,
             commands::spawn_lsp,
             commands::write_lsp_message,
+            commands::search_files,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

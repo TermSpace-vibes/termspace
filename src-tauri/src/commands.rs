@@ -1206,3 +1206,43 @@ pub fn spawn_lsp(app: tauri::AppHandle, language: String, root_path: String) -> 
 pub fn write_lsp_message(id: String, message: String) -> Result<(), String> {
     crate::lsp_manager::write_lsp_message(&id, message)
 }
+
+#[derive(serde::Serialize)]
+pub struct SearchResult {
+    pub path: String,
+    pub line_number: usize,
+    pub content: String,
+}
+
+#[tauri::command]
+pub fn search_files(root_path: String, query: String) -> Result<Vec<SearchResult>, String> {
+    let mut results = Vec::new();
+    if query.is_empty() {
+        return Ok(results);
+    }
+    let query_lower = query.to_lowercase();
+    let walker = ignore::WalkBuilder::new(&root_path).build();
+    
+    for result in walker {
+        if let Ok(entry) = result {
+            if entry.file_type().map_or(false, |ft| ft.is_file()) {
+                if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                    for (idx, line) in content.lines().enumerate() {
+                        if line.to_lowercase().contains(&query_lower) {
+                            results.push(SearchResult {
+                                path: entry.path().to_string_lossy().to_string(),
+                                line_number: idx + 1,
+                                content: line.trim().to_string(),
+                            });
+                            if results.len() >= 100 {
+                                return Ok(results);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(results)
+}
+

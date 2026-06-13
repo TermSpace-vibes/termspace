@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import Editor, { useMonaco, DiffEditor } from '@monaco-editor/react'
-import { X, Save, Image as ImageIcon, FileCode, ChevronRight, Columns, Rows, Eye, EyeOff, Folder, GitBranch } from 'lucide-react'
+import { X, Save, Image as ImageIcon, FileCode, ChevronRight, Columns, Rows, Eye, EyeOff, Folder, GitBranch, Search } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { GitPanel } from './GitPanel'
+import { SearchPanel } from './SearchPanel'
 import { ConfirmModal } from './ConfirmModal/ConfirmModal'
 import { MarkdownPreview } from './MarkdownPreview'
 import { readTextFileContent, writeTextFileContent } from '../utils/fs'
 import { useAppStore } from '../store/useAppStore'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
+import { ensureLspConnection } from '../utils/lspManager'
 
 interface EditorPaneComponentProps {
   workspaceId: string
@@ -57,6 +59,17 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
   
   const monaco = useMonaco()
   const editorRef = useRef<any>(null)
+
+  useEffect(() => {
+    if (editorPane?.activeFilePath && editorPane?.rootPath) {
+      const language = getLanguageFromPath(editorPane.activeFilePath);
+      const supportedLanguages = ['typescript', 'javascript', 'rust', 'python']; // Add more if needed later
+      if (supportedLanguages.includes(language)) {
+        ensureLspConnection(workspaceId, editorPane.rootPath, language)
+          .catch(err => console.error("LSP connection error:", err));
+      }
+    }
+  }, [editorPane?.activeFilePath, editorPane?.rootPath, workspaceId]);
   
   useEffect(() => {
     if (editorRef.current && editorPane?.jumpToLine) {
@@ -684,9 +697,15 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
               }}>
                 <button 
                   onClick={() => updateEditorPaneLayout(workspaceId, editorPaneId, { activeSidebarTab: 'explorer' })}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: editorPane.activeSidebarTab !== 'git' ? 'var(--text-active)' : 'var(--text-dim)' }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: (!editorPane.activeSidebarTab || editorPane.activeSidebarTab === 'explorer') ? 'var(--text-active)' : 'var(--text-dim)' }}
                 >
                   <Folder size={20} />
+                </button>
+                <button 
+                  onClick={() => updateEditorPaneLayout(workspaceId, editorPaneId, { activeSidebarTab: 'search' })}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: editorPane.activeSidebarTab === 'search' ? 'var(--text-active)' : 'var(--text-dim)' }}
+                >
+                  <Search size={20} />
                 </button>
                 <button 
                   onClick={() => updateEditorPaneLayout(workspaceId, editorPaneId, { activeSidebarTab: 'git' })}
@@ -698,6 +717,8 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
               <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
                 {editorPane.activeSidebarTab === 'git' ? (
                   <GitPanel workspaceId={workspaceId} editorPaneId={editorPaneId} rootPath={editorPane.rootPath} onFileSelect={handleFileSelect} />
+                ) : editorPane.activeSidebarTab === 'search' ? (
+                  <SearchPanel workspaceId={workspaceId} editorPaneId={editorPaneId} rootPath={editorPane.rootPath} onFileSelect={handleFileSelect} />
                 ) : (
                   <FileTree workspaceId={workspaceId} rootPath={editorPane.rootPath} onFileSelect={(path) => {
                     if (editorPane.diffViewEnabled) updateEditorPaneLayout(workspaceId, editorPaneId, { diffViewEnabled: false });

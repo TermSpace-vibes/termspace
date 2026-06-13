@@ -46,7 +46,7 @@ export interface EditorPane {
   position: number
   createdAt: number
   autoReload?: boolean
-  activeSidebarTab?: 'explorer' | 'git'
+  activeSidebarTab?: 'explorer' | 'git' | 'search'
   diffViewEnabled?: boolean
 }
 
