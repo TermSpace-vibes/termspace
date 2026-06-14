@@ -357,6 +357,60 @@ export default function App() {
     useAppStore.getState().addToast('Workspace updated', 'success')
   }
 
+  async function handleDuplicateWorkspace(id: string) {
+    const state = useAppStore.getState();
+    const source = state.workspaces.find(w => w.id === id);
+    if (!source) return;
+
+    const newWs = await invoke<Workspace>('create_workspace', {
+      name: source.name + ' (Copy)',
+      emoji: source.emoji,
+      color: source.color
+    }).catch(console.error);
+
+    if (!newWs) return;
+
+    addWorkspace(newWs);
+
+    const sourceTerminals = state.terminalsByWorkspace[id] || [];
+    const sourceBrowsers = state.browserPanesByWorkspace[id] || [];
+    const sourceEditors = state.editorPanesByWorkspace[id] || [];
+
+    const newTerminals: Terminal[] = [];
+    for (const t of sourceTerminals) {
+      try {
+        const newTerminal = await invoke<Terminal>('spawn_terminal', {
+          workspaceId: newWs.id,
+          shell: t.shell,
+          cwd: t.cwd
+        });
+        newTerminals.push({ ...newTerminal, position: t.position, sizePercent: t.sizePercent });
+      } catch (err) {
+        console.error('Failed to duplicate terminal', err);
+      }
+    }
+    setTerminals(newWs.id, newTerminals);
+
+    const newBrowsers: BrowserPane[] = sourceBrowsers.map(b => ({
+      ...b,
+      id: crypto.randomUUID(),
+      workspaceId: newWs.id,
+      createdAt: Date.now()
+    }));
+    useAppStore.getState().setBrowserPanes(newWs.id, newBrowsers);
+
+    const newEditors: EditorPane[] = sourceEditors.map(e => ({
+      ...e,
+      id: Math.random().toString(36).substring(2, 9),
+      workspaceId: newWs.id,
+      createdAt: Date.now()
+    }));
+    useAppStore.getState().setEditorPanes(newWs.id, newEditors);
+
+    setActiveWorkspaceId(newWs.id);
+    useAppStore.getState().addToast('Workspace duplicated', 'success');
+  }
+
   const contextMenu = useAppStore((s) => s.contextMenu)
   const hideContextMenu = useAppStore((s) => s.hideContextMenu)
 
@@ -468,6 +522,7 @@ export default function App() {
               if (ws) setEditingWorkspace(ws)
             }}
             onOpenSettings={() => setShowSettingsModal(true)}
+            onDuplicateWorkspace={handleDuplicateWorkspace}
           />
         </Panel>
         

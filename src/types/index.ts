@@ -8,6 +8,8 @@ export interface Workspace {
   autoReload?: boolean
   notificationCount?: number
   groupName?: string
+  isPinned?: boolean
+  isArchived?: boolean
 }
 
 export interface Terminal {

@@ -1267,53 +1267,44 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
         />
         {hoveredBlock && (() => {
           const screenStartRow = hoveredBlock.startAbsRow - displayOffsetRef.current;
-          const screenEndRow = hoveredBlock.endAbsRow - displayOffsetRef.current;
           const topPx = Math.max(0, screenStartRow * cellHRef.current) + 4;
-          const bottomPx = Math.min(rowsRef.current * cellHRef.current, screenEndRow * cellHRef.current) + 4;
-          const heightPx = bottomPx - topPx;
 
-          if (heightPx > 0) {
-            return (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: topPx,
-                  left: 8,
-                  right: 0,
-                  height: heightPx,
-                  borderLeft: '2px solid var(--accent)',
-                  backgroundColor: 'color-mix(in srgb, var(--accent) 5%, transparent)',
-                  pointerEvents: 'none',
-                  zIndex: 10,
+          return (
+            <div
+              style={{
+                position: 'absolute',
+                top: topPx,
+                right: 16,
+                pointerEvents: 'auto',
+                zIndex: 10,
+                background: 'color-mix(in srgb, var(--bg-sidebar) 80%, transparent)',
+                backdropFilter: 'blur(4px)',
+                padding: '4px 8px',
+                borderRadius: 6,
+                border: '1px solid var(--border-inactive)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <button
+                onClick={async () => {
+                  const sel: import('./selectionUtils').AbsSelection = {
+                    startAbsRow: hoveredBlock.startAbsRow,
+                    startCol: 0,
+                    endAbsRow: hoveredBlock.endAbsRow,
+                    endCol: colsRef.current,
+                  }
+                  const text = await getSelectedText(sel, cellsRef.current, colsRef.current, rowsRef.current, displayOffsetRef.current, terminalId, workerActiveRef.current)
+                  navigator.clipboard.writeText(text).catch(console.error)
                 }}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-active)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
               >
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 4,
-                    right: 16,
-                    display: 'flex',
-                    gap: 8,
-                    pointerEvents: 'auto',
-                    background: 'color-mix(in srgb, var(--bg-sidebar) 80%, transparent)',
-                    backdropFilter: 'blur(4px)',
-                    padding: '4px 8px',
-                    borderRadius: 6,
-                    border: '1px solid var(--border-inactive)',
-                  }}
-                >
-                  <button 
-                    onClick={() => console.log('Copy block', hoveredBlock)}
-                    style={{ background: 'transparent', border: 'none', color: 'var(--text-active)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
-                  >
-                    <Copy size={12} />
-                    Copy
-                  </button>
-                </div>
-              </div>
-            );
-          }
-          return null;
+                <Copy size={12} />
+                Copy
+              </button>
+            </div>
+          );
         })()}
       </div>
     </div>

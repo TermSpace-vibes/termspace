@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Workspace } from '../../types'
+import { useAppStore } from '../../store/useAppStore'
 
 import * as LucideIcons from 'lucide-react'
 
@@ -23,6 +24,10 @@ export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isP
 
   const terminalCount = terminals.length
   const runningTerminalsCount = terminals.filter(t => t.executionState === 'running').length
+
+  const gitStatus = useAppStore(s => s.gitStatusByWorkspace[workspace.id])
+  const hasGitStatus = gitStatus && Object.keys(gitStatus).length > 0
+  const hasUncommitted = hasGitStatus && Object.values(gitStatus).some(s => s === 'M' || s === '??')
 
   return (
     <div
@@ -106,9 +111,18 @@ export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isP
 
       {!isCollapsed && (
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isActive ? 500 : 400 }}>
-            {workspace.name}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isActive ? 500 : 400 }}>
+              {workspace.name}
+            </span>
+            {hasGitStatus && (
+              <div style={{
+                width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                background: hasUncommitted ? '#ef4444' : '#e8eaed',
+                opacity: 0.8
+              }} title="Git changes detected" />
+            )}
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ fontSize: 10, color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {isProcessing ? 'AI Agent Processing...' : (terminalCount > 0 ? `${terminalCount} terminal${terminalCount > 1 ? 's' : ''}` : 'No active terminals')}
