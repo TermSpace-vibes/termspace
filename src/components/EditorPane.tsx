@@ -592,6 +592,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
             return (
               <div 
                 key={path}
+                className={`editor-tab ${editorPane.activeFilePath === path ? 'active' : ''}`}
                 onClick={() => {
                   if (editorPane.diffViewEnabled) updateEditorPaneLayout(workspaceId, editorPaneId, { diffViewEnabled: false });
                   handleFileSelect(path);
@@ -637,12 +638,18 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
                   className="editor-tab-close"
                   onClick={(e) => { e.stopPropagation(); closeEditorFile(workspaceId, editorPaneId, path); }}
                   style={{
-                    padding: 2, borderRadius: 4, transition: 'opacity 0.2s, background-color 0.2s', border: 'none', background: 'none', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    padding: 2, borderRadius: 4, transition: 'all 0.2s', border: 'none', background: 'none', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-inactive)'
                   }}
                   title="Close Tab"
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'
+                    e.currentTarget.style.color = 'var(--text-active)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent'
+                    e.currentTarget.style.color = 'var(--text-inactive)'
+                  }}
                 >
                   <X size={12} />
                 </button>

@@ -141,6 +141,7 @@ pub fn run() {
             commands::duplicate_file,
             commands::open_mic_settings,
             commands::play_notification_sound,
+            commands::process_pasted_image,
             commands::get_k8s_resources,
             commands::get_k8s_contexts,
             commands::set_k8s_context,

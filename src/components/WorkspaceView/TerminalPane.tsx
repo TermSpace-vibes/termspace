@@ -174,6 +174,25 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
     }
   }
 
+  const handlePaste = React.useCallback(async () => {
+    try {
+      const imagePath = await invoke<string | null>('process_pasted_image');
+      if (imagePath) {
+        writeTerminalChunked(terminalId, `'${imagePath}' `).catch(console.error);
+        return;
+      }
+      
+      const text = await readText();
+      if (text) {
+        const sanitizedText = text.replace(/\r?\n/g, '\r');
+        writeTerminalChunked(terminalId, sanitizedText).catch(console.error);
+      }
+    } catch (err) {
+      console.error('Paste failed:', err);
+    }
+  }, [terminalId]);
+
+
   const settings = useAppStore((s) => s.settings)
   const keybindingHandler = useKeybindingHandler()
   const keybindingHandlerRef = useRef(keybindingHandler)
@@ -321,16 +340,7 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
           }
         }
 
-        // Handle Cmd+V (Paste)
-        if (e.metaKey && e.key.toLowerCase() === 'v') {
-          readText().then(text => {
-            if (text) {
-              const sanitizedText = text.replace(/\r?\n/g, '\r');
-              writeTerminalChunked(terminalId, sanitizedText).catch(console.error)
-            }
-          }).catch(console.error)
-          return false
-        }
+
 
         // Handle Cmd+A (Select All)
         if (e.metaKey && e.key.toLowerCase() === 'a') {
@@ -576,14 +586,7 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
         menuItems.push({
           label: 'Paste',
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>,
-          onClick: () => {
-            readText().then(text => {
-              if (text) {
-                const sanitizedText = text.replace(/\r?\n/g, '\r');
-                writeTerminalChunked(terminalId, sanitizedText).catch(console.error)
-              }
-            }).catch(console.error)
-          }
+          onClick: handlePaste
         })
         
         menuItems.push({ separator: true, label: '', onClick: () => {} })
@@ -813,7 +816,16 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
         </div>
       )}
 
-      <div style={{ flex: 1, minHeight: 0, padding: '4px 0 0 8px' }}>
+      <div 
+        style={{ flex: 1, minHeight: 0, padding: '4px 0 0 8px' }}
+        onKeyDownCapture={(e) => {
+          if (e.key.toLowerCase() === 'v' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            e.stopPropagation();
+            handlePaste();
+          }
+        }}
+      >
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
       </div>
     </div>

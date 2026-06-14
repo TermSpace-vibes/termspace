@@ -378,6 +378,16 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
           lastCanvasCSSColsRef.current = snap.cols
           lastCanvasCSSRowsRef.current = snap.rows
         }
+        // Keep refs current so selection viewport mapping uses the latest displayOffset.
+        const newOffset = snap.displayOffset ?? (snap as any).display_offset ?? 0
+        const offsetChanged = newOffset !== displayOffsetRef.current
+        displayOffsetRef.current = newOffset
+        rowsRef.current = snap.rows
+        colsRef.current = snap.cols
+        // Re-map selection to new viewport coords whenever displayOffset changes.
+        if (offsetChanged && selectionRef.current) {
+          sendSelection(absSelToViewport(selectionRef.current, displayOffsetRef.current, rowsRef.current, colsRef.current))
+        }
         sendSnapshot(snap)
         return
       }
@@ -536,6 +546,24 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     })
   }, [terminalId])
 
+  const handlePaste = useCallback(async () => {
+    try {
+      const imagePath = await invoke<string | null>('process_pasted_image');
+      if (imagePath) {
+        writeTerminalChunked(terminalId, `'${imagePath}' `).catch(console.error);
+        return;
+      }
+      
+      const text = await readText();
+      if (text) {
+        const sanitizedText = text.replace(/\r?\n/g, '\r');
+        writeTerminalChunked(terminalId, sanitizedText).catch(console.error);
+      }
+    } catch (err) {
+      console.error('Paste failed:', err);
+    }
+  }, [terminalId]);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLCanvasElement>) => {
     // Let global keybindings (command palette, workspace nav, etc.) take priority.
     const handled = keybindingHandlerRef.current(e.nativeEvent)
@@ -595,20 +623,9 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       return
     }
 
-    if (e.metaKey && !e.ctrlKey && e.key.toLowerCase() === 'v') {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
       e.preventDefault()
-      readText().then((text: string | null) => {
-        if (text) {
-          const sanitizedText = text.replace(/\r?\n/g, '\r')
-          writeTerminalChunked(terminalId, sanitizedText).catch(err => {
-            console.error('Write terminal error:', err)
-            useAppStore.getState().addToast('Write error: ' + String(err), 'error')
-          })
-        }
-      }).catch((err: unknown) => {
-        console.error('readText error:', err)
-        useAppStore.getState().addToast('Paste error: ' + String(err), 'error')
-      })
+      handlePaste()
       return
     }
 
@@ -632,12 +649,14 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       queueWrite(data)
     }
 
-  }, [terminalId, queueWrite, sendSelection, scheduleRender])
+  }, [terminalId, queueWrite, sendSelection, scheduleRender, handlePaste])
 
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     // Only handle vertical scrolling
     if (Math.abs(e.deltaY) < 1) return
-    
+
+    setHoveredBlock(null)
+
     let physicalDelta = 0
     if (e.deltaMode === 1) physicalDelta = e.deltaY * cellHRef.current
     else if (e.deltaMode === 2) physicalDelta = e.deltaY * rowsRef.current * cellHRef.current
@@ -652,7 +671,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       backendOffsetRef.current -= lines * lineThreshold
       pendingScrollDeltaRef.current -= lines // backend needs negative for prompt, positive for history
     }
-  }, [terminalId])
+  }, [])
 
   // ── Smooth scroll decay loop ───────────────────────────────────────────────
   useEffect(() => {
@@ -702,7 +721,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     return { row, col }
   }, [])
 
-  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLElement>) => {
     if (e.button !== 0) return
     const { row, col } = getCellCoords(e)
     const absRow = viewportRowToAbs(row, displayOffsetRef.current, rowsRef.current)
@@ -872,20 +891,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
           label: 'Paste',
           icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>,
           onClick: () => {
-            readText().then((text: string | null) => {
-              if (text) {
-                const sanitizedText = text.replace(/\r?\n/g, '\r');
-                writeTerminalChunked(terminalId, sanitizedText).catch(e => {
-                  console.error('Write terminal error:', e);
-                  useAppStore.getState().addToast('Write error: ' + String(e), 'error');
-                })
-              } else {
-                useAppStore.getState().addToast('Clipboard is empty or could not be read.', 'error');
-              }
-            }).catch((e: unknown) => {
-              console.error('readText error:', e);
-              useAppStore.getState().addToast('Paste error: ' + String(e), 'error');
-            })
+            handlePaste();
           }
         })
         
@@ -1189,14 +1195,14 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
         ref={containerRef}
         onMouseMove={handleContainerMouseMove}
         onMouseLeave={handleContainerMouseLeave}
+        onMouseDown={handleMouseDown}
+        onWheel={handleWheel}
         style={{ flex: 1, minHeight: 0, padding: '4px 0 0 8px', overflow: 'hidden', position: 'relative' }}
       >
         <canvas
           ref={canvasRef}
           tabIndex={0}
           onKeyDown={handleKeyDown}
-          onWheel={handleWheel}
-          onMouseDown={handleMouseDown}
           onCopy={(e) => {
             const sel = selectionRef.current
             if (!sel) return
@@ -1251,12 +1257,8 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
             })
           }}
           onPaste={(e) => {
-            const text = e.clipboardData.getData('text/plain')
-            if (text) {
-              const sanitizedText = text.replace(/\r?\n/g, '\r');
-              writeTerminalChunked(terminalId, sanitizedText).catch(console.error)
-              e.preventDefault()
-            }
+            e.preventDefault()
+            handlePaste()
           }}
           onFocus={() => {
             // Clear notification badge when the pane receives focus.

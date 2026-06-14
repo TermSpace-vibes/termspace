@@ -8,8 +8,8 @@ use tauri::{AppHandle, Manager, State, Emitter};
 use std::sync::Arc;
 use whisper_rs::{WhisperContext, FullParams};
 use notify_debouncer_mini::{new_debouncer, notify::{self, RecursiveMode}};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use std::time::Duration;
-
 pub struct DbState(pub Mutex<Connection>);
 pub struct SysInfoState(pub Mutex<(sysinfo::System, sysinfo::Networks)>);
 pub struct WhisperState(pub Arc<Mutex<Option<WhisperContext>>>);
@@ -1149,11 +1149,42 @@ pub fn git_commit(path: String, message: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn play_notification_sound(_player: State<'_, crate::audio::AudioPlayer>) -> Result<(), String> {
-    // We can include a small beep.mp3 or wav here later.
-    // For now we just log it or pass a tiny hardcoded beep.
-    #[cfg(debug_assertions)] println!(">>> RUST: play_notification_sound called");
+pub fn play_notification_sound(player: State<'_, crate::audio::AudioPlayer>) -> Result<(), String> {
+    let bytes = include_bytes!("../assets/notify.mp3");
+    player.play_sound_bytes(bytes);
     Ok(())
+}
+
+#[tauri::command]
+pub fn process_pasted_image(app: AppHandle) -> Result<Option<String>, String> {
+    let clipboard = app.clipboard();
+    
+    let clipboard_image = match clipboard.read_image() {
+        Ok(img) => img,
+        Err(_) => return Ok(None),
+    };
+    
+    let width = clipboard_image.width();
+    let height = clipboard_image.height();
+    let rgba = clipboard_image.rgba();
+    
+    // Hash the image data to prevent duplicates
+    let hash = seahash::hash(&rgba);
+    
+    let mut path = app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("/tmp"));
+    path.push("pasted_images");
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    
+    let file_path = path.join(format!("{:x}.png", hash));
+    
+    if !file_path.exists() {
+        let img_buffer = image::RgbaImage::from_raw(width, height, rgba.to_vec())
+            .ok_or_else(|| "Failed to construct image buffer".to_string())?;
+        
+        img_buffer.save(&file_path).map_err(|e| e.to_string())?;
+    }
+    
+    Ok(Some(file_path.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
