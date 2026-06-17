@@ -41,7 +41,7 @@ interface AppState {
   addWorkspace: (workspace: Workspace) => void
   updateWorkspace: (workspace: Workspace) => void
   removeWorkspace: (id: string) => void
-  setWorkspaceDefaultPath: (workspaceId: string, defaultPath: string) => Promise<void>
+  setWorkspaceDefaultPath: (workspaceId: string, defaultPath: string | null) => Promise<void>
   setActiveWorkspaceId: (id: string | null) => void
   setActiveToolingTerminalId: (id: string | null) => void
   addToolingTerminal: (workspaceId: string, terminal: Terminal) => void
@@ -214,7 +214,7 @@ export const useAppStore = create<AppState>()(
         await invoke('set_workspace_default_path', { workspaceId, path: defaultPath })
         set((s) => ({
           workspaces: s.workspaces.map((w) =>
-            w.id === workspaceId ? { ...w, defaultPath } : w
+            w.id === workspaceId ? { ...w, defaultPath: defaultPath ?? undefined } : w
           ),
         }))
       },

@@ -309,9 +309,12 @@ export default function App() {
     }
   }
 
-  async function handleCreateWorkspace(values: { name: string; emoji: string; color: string }) {
+  async function handleCreateWorkspace(values: { name: string; emoji: string; color: string; defaultPath: string | null }) {
     const ws = await invoke<Workspace>('create_workspace', values)
     addWorkspace(ws)
+    if (values.defaultPath !== null) {
+      useAppStore.getState().setWorkspaceDefaultPath(ws.id, values.defaultPath)
+    }
     setActiveWorkspaceId(ws.id)
     await spawnAndAddTerminal(ws.id)
     setShowCreateModal(false)
@@ -350,10 +353,12 @@ export default function App() {
     }
   }
 
-  async function handleEditWorkspace(values: { name: string; emoji: string; color: string }) {
+  async function handleEditWorkspace(values: { name: string; emoji: string; color: string; defaultPath: string | null }) {
     if (!editingWorkspace) return
-    await invoke('update_workspace', { id: editingWorkspace.id, ...values })
-    updateWorkspace({ ...editingWorkspace, ...values })
+    const { defaultPath, ...workspaceValues } = values
+    await invoke('update_workspace', { id: editingWorkspace.id, ...workspaceValues })
+    updateWorkspace({ ...editingWorkspace, ...workspaceValues })
+    useAppStore.getState().setWorkspaceDefaultPath(editingWorkspace.id, defaultPath)
     setEditingWorkspace(null)
     useAppStore.getState().addToast('Workspace updated', 'success')
   }
