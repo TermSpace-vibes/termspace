@@ -190,6 +190,18 @@ pub fn update_workspace(
     Ok(())
 }
 
+pub fn set_workspace_default_path(
+    conn: &Connection,
+    workspace_id: &str,
+    path: Option<&str>,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE workspaces SET default_path = ?1 WHERE id = ?2",
+        rusqlite::params![path, workspace_id],
+    )?;
+    Ok(())
+}
+
 pub fn delete_workspace(conn: &Connection, id: &str) -> Result<()> {
     conn.execute("DELETE FROM workspaces WHERE id=?1", params![id])?;
     Ok(())
