@@ -13,6 +13,7 @@ pub struct Workspace {
     pub position: i64,
     pub created_at: i64,
     pub group_name: Option<String>,
+    pub default_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -91,6 +92,7 @@ pub fn init_db(path: &Path) -> Result<Connection> {
     // we persist workspace layouts without accumulating stale DB rows.
     let _ = conn.execute("ALTER TABLE terminals ADD COLUMN title TEXT", []);
     let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN group_name TEXT", []);
+    let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN default_path TEXT", []);
     Ok(conn)
 }
 
@@ -100,14 +102,14 @@ pub fn clear_all_data(conn: &Connection) -> Result<()> {
          DELETE FROM browser_panes;
          DELETE FROM terminals;
          DELETE FROM workspaces;
-         DELETE FROM settings;"
+         DELETE FROM settings;",
     )?;
     Ok(())
 }
 
 pub fn get_workspaces(conn: &Connection) -> Result<Vec<Workspace>> {
     let mut stmt = conn.prepare(
-        "SELECT id,name,emoji,color,position,created_at,group_name FROM workspaces ORDER BY position",
+        "SELECT id,name,emoji,color,position,created_at,group_name,default_path FROM workspaces ORDER BY position",
     )?;
     let rows = stmt
         .query_map([], |r| {
@@ -119,6 +121,7 @@ pub fn get_workspaces(conn: &Connection) -> Result<Vec<Workspace>> {
                 position: r.get(4)?,
                 created_at: r.get(5)?,
                 group_name: r.get(6)?,
+                default_path: r.get(7)?,
             })
         })?
         .collect();
@@ -158,8 +161,8 @@ pub fn create_workspace(
     )?;
     let created_at = now_ms();
     conn.execute(
-        "INSERT INTO workspaces (id,name,emoji,color,position,created_at,group_name) VALUES (?1,?2,?3,?4,?5,?6,?7)",
-        params![id, name, emoji, color, position, created_at, Option::<String>::None],
+        "INSERT INTO workspaces (id,name,emoji,color,position,created_at,group_name,default_path) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        params![id, name, emoji, color, position, created_at, Option::<String>::None, Option::<String>::None],
     )?;
     Ok(Workspace {
         id,
@@ -169,6 +172,7 @@ pub fn create_workspace(
         position,
         created_at,
         group_name: None,
+        default_path: None,
     })
 }
 
