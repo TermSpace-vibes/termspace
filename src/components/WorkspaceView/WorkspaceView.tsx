@@ -83,9 +83,9 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
       const activeTerminal = currentActiveId ? state.terminalsByWorkspace[workspace.id]?.find(t => t.id === currentActiveId) : null;
       
       let cwd = activeTerminal?.cwd || workspace.defaultPath || '';
-      if (currentActiveId) {
+      if (activeTerminal) {
         try {
-          const activeCwd = await invoke<string>('get_terminal_active_cwd', { id: currentActiveId })
+          const activeCwd = await invoke<string>('get_terminal_active_cwd', { id: activeTerminal.id })
           if (activeCwd) cwd = activeCwd;
         } catch (e) {
           console.warn('Could not get active terminal cwd:', e)
