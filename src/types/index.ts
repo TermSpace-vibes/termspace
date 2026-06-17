@@ -10,6 +10,7 @@ export interface Workspace {
   groupName?: string
   isPinned?: boolean
   isArchived?: boolean
+  defaultPath?: string
 }
 
 export interface Terminal {
@@ -39,7 +40,7 @@ export interface BrowserPane {
 export interface EditorPane {
   id: string
   workspaceId: string
-  rootPath: string
+  rootPath: string | null
   openFiles: string[]
   activeFilePath: string | null
   jumpToLine?: number | null
@@ -100,6 +101,8 @@ export interface Settings {
   dictationPrompt?: string
   minimapEnabled?: boolean
   showToolingPane?: boolean
+  discardTabsAfterMs?: number | 'never'
+  showWorkspaceDefaultPaths?: boolean
 }
 
 export type LayoutDirection = 'horizontal' | 'vertical'

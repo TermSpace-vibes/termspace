@@ -31,6 +31,9 @@ interface AppState {
   } | null
   browserHistory: string[]
   bookmarks: { url: string; title: string; icon?: string }[]
+  recentProjects: string[]
+  addRecentProject: (path: string) => void
+  removeRecentProject: (path: string) => void
   username: string | null
   setUsername: (name: string | null) => void
   
@@ -38,6 +41,7 @@ interface AppState {
   addWorkspace: (workspace: Workspace) => void
   updateWorkspace: (workspace: Workspace) => void
   removeWorkspace: (id: string) => void
+  setWorkspaceDefaultPath: (workspaceId: string, defaultPath: string) => Promise<void>
   setActiveWorkspaceId: (id: string | null) => void
   setActiveToolingTerminalId: (id: string | null) => void
   addToolingTerminal: (workspaceId: string, terminal: Terminal) => void
@@ -119,6 +123,7 @@ export const useAppStore = create<AppState>()(
       contextMenu: null,
       browserHistory: [],
       bookmarks: [],
+      recentProjects: [],
       toasts: [],
       showCommandPalette: false,
       isModalOpen: false,
@@ -129,6 +134,12 @@ export const useAppStore = create<AppState>()(
       dictationButtonPosition: null,
       username: null,
       setUsername: (name) => set({ username: name }),
+      addRecentProject: (path) => set((s) => ({
+        recentProjects: [path, ...s.recentProjects.filter(p => p !== path)].slice(0, 50)
+      })),
+      removeRecentProject: (path) => set((s) => ({
+        recentProjects: s.recentProjects.filter(p => p !== path)
+      })),
       setDictationButtonPosition: (pos) => set({ dictationButtonPosition: pos }),
       setActiveToolingTerminalId: (id) => set({ activeToolingTerminalId: id }),
       addToolingTerminal: (workspaceId, terminal) => set((s) => ({
@@ -163,6 +174,7 @@ export const useAppStore = create<AppState>()(
         adblockEnabled: true,
         showTabBar: true,
         iconTheme: 'colorful',
+        showWorkspaceDefaultPaths: true,
         keybindings: {
           newTerminal: 'CmdOrCtrl+T',
           closeTerminal: 'CmdOrCtrl+W',
@@ -197,6 +209,15 @@ export const useAppStore = create<AppState>()(
               ? (s.workspaces.find((w) => w.id !== id)?.id ?? null)
               : s.activeWorkspaceId,
         })),
+
+      setWorkspaceDefaultPath: async (workspaceId, defaultPath) => {
+        await invoke('set_workspace_default_path', { workspaceId, path: defaultPath })
+        set((s) => ({
+          workspaces: s.workspaces.map((w) =>
+            w.id === workspaceId ? { ...w, defaultPath } : w
+          ),
+        }))
+      },
 
       setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
 
@@ -464,17 +485,19 @@ export const useAppStore = create<AppState>()(
       removeEditorPane: (workspaceId, editorPaneId) =>
         set((s) => {
           const layout = s.layoutsByWorkspace[workspaceId] ?? null
+          const remaining = (s.editorPanesByWorkspace[workspaceId] ?? []).filter(
+            (p) => p.id !== editorPaneId,
+          )
           return {
             editorPanesByWorkspace: {
               ...s.editorPanesByWorkspace,
-              [workspaceId]: (s.editorPanesByWorkspace[workspaceId] ?? []).filter(
-                (p) => p.id !== editorPaneId,
-              ),
+              [workspaceId]: remaining,
             },
             layoutsByWorkspace: {
               ...s.layoutsByWorkspace,
               [workspaceId]: removeEditorPaneFromLayout(layout, editorPaneId),
             },
+            ...(remaining.length === 0 && { settings: { ...s.settings, showToolingPane: false } }),
           }
         }),
 
