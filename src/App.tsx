@@ -164,8 +164,9 @@ export default function App() {
   };
 
   async function spawnAndAddTerminal(workspaceId: string, targetId?: string, direction?: 'horizontal' | 'vertical') {
+    const ws = useAppStore.getState().workspaces.find(w => w.id === workspaceId)
     const terminal = await withTimeout(
-      invoke<Terminal>('spawn_terminal', { workspaceId, shell: useAppStore.getState().settings.defaultShell || 'zsh', cwd: '' }),
+      invoke<Terminal>('spawn_terminal', { workspaceId, shell: useAppStore.getState().settings.defaultShell || 'zsh', cwd: ws?.defaultPath || '' }),
       5000,
       'spawn_terminal'
     );
@@ -410,7 +411,6 @@ export default function App() {
     setActiveWorkspaceId(newWs.id);
     useAppStore.getState().addToast('Workspace duplicated', 'success');
   }
-
   const contextMenu = useAppStore((s) => s.contextMenu)
   const hideContextMenu = useAppStore((s) => s.hideContextMenu)
 

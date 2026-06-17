@@ -8,7 +8,6 @@ import { Group, Panel, Separator } from 'react-resizable-panels'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { open } from '@tauri-apps/plugin-dialog'
 
-
 interface Props {
   workspace: Workspace
   onEditWorkspace: (workspace: Workspace) => void
@@ -83,7 +82,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
       const currentActiveId = state.activeTerminalId
       const activeTerminal = currentActiveId ? state.terminalsByWorkspace[workspace.id]?.find(t => t.id === currentActiveId) : null;
       
-      let cwd = activeTerminal?.cwd || '';
+      let cwd = activeTerminal?.cwd || workspace.defaultPath || '';
       if (currentActiveId) {
         try {
           const activeCwd = await invoke<string>('get_terminal_active_cwd', { id: currentActiveId })
@@ -201,22 +200,14 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
 
   const handleAddEditorPane = useCallback(async (targetId?: string, direction?: 'horizontal' | 'vertical') => {
     try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: 'Select Workspace Folder for Editor'
-      })
-      
-      if (!selected) return // User cancelled
-      
-      const rootPath = selected as string
+      const selectedPath = await open({ directory: true, multiple: false })
       const state = useAppStore.getState()
       const currentEditors = state.editorPanesByWorkspace[workspace.id] ?? []
       
       const pane: EditorPaneType = {
         id: Math.random().toString(36).substring(2, 9),
         workspaceId: workspace.id,
-        rootPath,
+        rootPath: selectedPath ?? null,
         openFiles: [],
         activeFilePath: null,
         mruStack: [],
@@ -280,7 +271,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
                 <SystemStats />
               </div>
             </Panel>
-            {settings.showToolingPane && (
+            {settings.showToolingPane && editorPanes.length > 0 && (
               <>
                 <Separator style={{ height: 4, cursor: 'row-resize', background: 'var(--border-inactive)' }} />
                 <Panel defaultSize={25} minSize={10}>
