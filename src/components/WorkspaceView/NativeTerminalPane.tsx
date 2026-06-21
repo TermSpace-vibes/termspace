@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import { Copy } from 'lucide-react'
 import { AnimatePresence } from 'framer-motion'
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal'
 import { invoke, listen } from '../../utils/tauri'
@@ -146,7 +145,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   }, [terminalId])
 
   const blockBoundariesRef = useRef<number[]>([0])
-  const [hoveredBlock, setHoveredBlock] = useState<{ startAbsRow: number, endAbsRow: number } | null>(null)
+  const [_hoveredBlock, setHoveredBlock] = useState<{ startAbsRow: number, endAbsRow: number } | null>(null)
 
   useEffect(() => {
     const updateDpr = () => setDpr(window.devicePixelRatio || 1)
@@ -1349,47 +1348,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
           }}
           style={{ display: 'block', outline: 'none', cursor: 'text' }}
         />
-        {hoveredBlock && (() => {
-          const screenStartRow = hoveredBlock.startAbsRow - displayOffsetRef.current;
-          const topPx = Math.max(0, screenStartRow * cellHRef.current) + 4;
 
-          return (
-            <div
-              style={{
-                position: 'absolute',
-                top: topPx,
-                right: 16,
-                pointerEvents: 'auto',
-                zIndex: 10,
-                background: 'color-mix(in srgb, var(--bg-sidebar) 80%, transparent)',
-                backdropFilter: 'blur(4px)',
-                padding: '4px 8px',
-                borderRadius: 6,
-                border: '1px solid var(--border-inactive)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              <button
-                onClick={async () => {
-                  const sel: import('./selectionUtils').AbsSelection = {
-                    startAbsRow: hoveredBlock.startAbsRow,
-                    startCol: 0,
-                    endAbsRow: hoveredBlock.endAbsRow,
-                    endCol: colsRef.current,
-                  }
-                  const text = await getSelectedText(sel, cellsRef.current, colsRef.current, rowsRef.current, displayOffsetRef.current, terminalId, workerActiveRef.current)
-                  navigator.clipboard.writeText(text).catch(console.error)
-                }}
-                style={{ background: 'transparent', border: 'none', color: 'var(--text-active)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
-              >
-                <Copy size={12} />
-                Copy
-              </button>
-            </div>
-          );
-        })()}
       </div>
 
       <AnimatePresence>
