@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { Copy } from 'lucide-react'
+import { AnimatePresence } from 'framer-motion'
+import { ConfirmModal } from '../ConfirmModal/ConfirmModal'
 import { invoke, listen } from '../../utils/tauri'
 import { DRAG_FORMAT_TERMINAL } from '../../utils/constants'
 import { useAppStore } from '../../store/useAppStore'
@@ -132,6 +134,16 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitleValue, setEditTitleValue] = useState('')
   const [dpr, setDpr] = useState(window.devicePixelRatio || 1)
+  const [remoteStatus, setRemoteStatus] = useState<string | null>(null)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      invoke<string | null>('get_terminal_remote_status', { id: terminalId })
+        .then(status => setRemoteStatus(status))
+        .catch(() => setRemoteStatus(null))
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [terminalId])
 
   const blockBoundariesRef = useRef<number[]>([0])
   const [hoveredBlock, setHoveredBlock] = useState<{ startAbsRow: number, endAbsRow: number } | null>(null)
@@ -545,6 +557,14 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       if (batch) invoke('write_terminal', { terminalId, data: batch }).catch(console.error)
     })
   }, [terminalId])
+  const [pendingPasteText, setPendingPasteText] = useState<string | null>(null)
+
+  const executePaste = useCallback((textToPaste: string) => {
+    // Wrap in bracketed paste mode escape sequences
+    const wrappedText = `\x1b[200~${textToPaste}\x1b[201~`
+    writeTerminalChunked(terminalId, wrappedText).catch(console.error)
+    setPendingPasteText(null)
+  }, [terminalId])
 
   const handlePaste = useCallback(async () => {
     try {
@@ -557,12 +577,17 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       const text = await readText();
       if (text) {
         const sanitizedText = text.replace(/\r?\n/g, '\r');
-        writeTerminalChunked(terminalId, sanitizedText).catch(console.error);
+        const lines = sanitizedText.split('\r').length;
+        if (sanitizedText.length > 4000 || lines > 5) {
+          setPendingPasteText(sanitizedText);
+          return;
+        }
+        executePaste(sanitizedText);
       }
     } catch (err) {
       console.error('Paste failed:', err);
     }
-  }, [terminalId]);
+  }, [executePaste, terminalId]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLCanvasElement>) => {
     // Let global keybindings (command palette, workspace nav, etc.) take priority.
@@ -725,11 +750,48 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     if (e.button !== 0) return
     const { row, col } = getCellCoords(e)
     const absRow = viewportRowToAbs(row, displayOffsetRef.current, rowsRef.current)
+
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault()
+      const sel: import('./selectionUtils').AbsSelection = {
+        startAbsRow: absRow,
+        startCol: 0,
+        endAbsRow: absRow,
+        endCol: colsRef.current,
+      }
+      getSelectedText(sel, cellsRef.current, colsRef.current, rowsRef.current, displayOffsetRef.current, terminalId, workerActiveRef.current).then(line => {
+        const regex = /(?:^|\s|\"|\')((?:\.\/|\/|~\|[a-zA-Z]:\\)?[^\s"']+\.md(?::\d+)?)(?=\s|\"|\'|$)/g
+        let match
+        while ((match = regex.exec(line)) !== null) {
+          const startIndex = match.index + match[0].indexOf(match[1])
+          const endIndex = startIndex + match[1].length
+          if (col >= startIndex && col < endIndex) {
+            const fullPath = match[1]
+            const parts = fullPath.split(':')
+            let fileOnly = parts[0]
+
+            if (fileOnly.startsWith('~/')) {
+              fileOnly = '/Users/samirkumal/' + fileOnly.slice(2)
+            } else if (!fileOnly.startsWith('/')) {
+              const currentCwd = useAppStore.getState().terminalsByTab[workspaceId]?.find(t => t.id === terminalId)?.cwd
+              if (currentCwd) {
+                fileOnly = currentCwd + '/' + fileOnly
+              }
+            }
+
+            useAppStore.getState().setMarkdownModalFilePath(fileOnly)
+            return
+          }
+        }
+      })
+      return
+    }
+
     selectionRef.current = { startAbsRow: absRow, startCol: col, endAbsRow: absRow, endCol: col }
     isDraggingRef.current = true
     sendSelection(absSelToViewport(selectionRef.current, displayOffsetRef.current, rowsRef.current, colsRef.current))
     scheduleRender()
-  }, [getCellCoords, scheduleRender, sendSelection])
+  }, [getCellCoords, scheduleRender, sendSelection, colsRef, rowsRef, terminalId, workspaceId, workerActiveRef])
 
   useEffect(() => {
     const handleWinMouseMove = (e: MouseEvent) => {
@@ -938,7 +1000,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
         boxShadow: isDragOver
           ? `0 0 15px color-mix(in srgb, ${ACCENT} 40%, transparent) inset`
           : 'none',
-        background: BG_TERMINAL,
+        background: remoteStatus ? '#000000' : BG_TERMINAL,
         cursor: 'text',
         position: 'relative',
         transition: 'border 0.2s, box-shadow 0.2s',
@@ -1013,6 +1075,26 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
               }}
             >
               {displayTitle}
+              {remoteStatus && (
+                <span
+                  style={{
+                    marginLeft: 8,
+                    background: '#ef4444',
+                    color: 'white',
+                    fontSize: 9,
+                    fontWeight: 'bold',
+                    padding: '1px 4px',
+                    borderRadius: 4,
+                    lineHeight: 1,
+                    textTransform: 'uppercase',
+                    display: 'inline-block',
+                    verticalAlign: 'middle',
+                    marginBottom: 2
+                  }}
+                >
+                  {remoteStatus}
+                </span>
+              )}
               {notificationCount > 0 && (
                 <span
                   style={{
@@ -1309,6 +1391,19 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
           );
         })()}
       </div>
+
+      <AnimatePresence>
+        {pendingPasteText && (
+          <ConfirmModal
+            title="Paste Large Amount of Text?"
+            message={`You are about to paste ${pendingPasteText.split('\r').length} lines (${pendingPasteText.length} characters) into the terminal. Are you sure you want to proceed?`}
+            confirmText="Paste Anyway"
+            cancelText="Cancel"
+            onConfirm={() => executePaste(pendingPasteText)}
+            onCancel={() => setPendingPasteText(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 })

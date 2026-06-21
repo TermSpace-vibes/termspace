@@ -5,6 +5,28 @@ import { EditorPaneComponent } from './EditorPane'
 import { useAppStore } from '../store/useAppStore'
 import { EditorPane } from '../types'
 
+const monacoMocks = vi.hoisted(() => {
+  const fullModelRange = { startLineNumber: 1, startColumn: 1, endLineNumber: 3, endColumn: 1 }
+  const model = { getFullModelRange: vi.fn(() => fullModelRange) }
+  const editor = {
+    addCommand: vi.fn(),
+    getValue: vi.fn(() => 'content'),
+    setValue: vi.fn(),
+    getModel: vi.fn(() => model),
+    setSelection: vi.fn(),
+    focus: vi.fn(),
+    getContainerDOMNode: vi.fn(() => document.createElement('div')),
+    onDidChangeCursorPosition: vi.fn(),
+    createDecorationsCollection: vi.fn(() => ({ set: vi.fn() })),
+  }
+  const monaco = {
+    KeyMod: { CtrlCmd: 2048 },
+    KeyCode: { KeyS: 49, KeyA: 31 },
+    Range: vi.fn(),
+  }
+  return { fullModelRange, model, editor, monaco }
+})
+
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue({}),
   convertFileSrc: vi.fn((path) => `asset://${path}`),
@@ -14,7 +36,15 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 // Mock dependencies
 vi.mock('@monaco-editor/react', () => ({
-  default: () => <div data-testid="monaco-editor" />,
+  default: ({ onMount }: any) => {
+    onMount?.(monacoMocks.editor, monacoMocks.monaco)
+    return <div data-testid="monaco-editor" />
+  },
+  DiffEditor: ({ onMount }: any) => {
+    const diffEditor = { getModifiedEditor: () => monacoMocks.editor }
+    onMount?.(diffEditor, monacoMocks.monaco)
+    return <div data-testid="monaco-diff-editor" />
+  },
   useMonaco: () => null,
 }))
 
@@ -33,6 +63,10 @@ vi.mock('../utils/fs', () => ({
   writeTextFileContent: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../utils/lspManager', () => ({
+  ensureLspConnection: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('./FileTree', () => ({
   FileTree: () => <div data-testid="file-tree" />,
 }))
@@ -46,6 +80,7 @@ describe('EditorPaneComponent', () => {
   const editorPaneId = 'ep-1'
 
   beforeEach(() => {
+    vi.clearAllMocks()
     useAppStore.setState({
       editorPanesByTab: {
         [workspaceId]: [
@@ -173,5 +208,27 @@ describe('EditorPaneComponent', () => {
     vi.useRealTimers()
 
     expect(updateEditorPaneLayout).toHaveBeenCalledWith(workspaceId, editorPaneId, { fileTreeWidth: 25 })
+  })
+
+  it('registers a Monaco Cmd+A command that selects the full model range', () => {
+    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} isActive />)
+
+    const selectAllCommand = monacoMocks.editor.addCommand.mock.calls.find(
+      ([keybinding]) => keybinding === (monacoMocks.monaco.KeyMod.CtrlCmd | monacoMocks.monaco.KeyCode.KeyA)
+    )
+
+    expect(selectAllCommand).toBeTruthy()
+    selectAllCommand?.[1]()
+    expect(monacoMocks.editor.setSelection).toHaveBeenCalledWith(monacoMocks.fullModelRange)
+    expect(monacoMocks.editor.focus).toHaveBeenCalled()
+  })
+
+  it('handles window Cmd+A for the active editor without copying to clipboard', () => {
+    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} isActive />)
+
+    fireEvent.keyDown(window, { key: 'a', metaKey: true })
+
+    expect(monacoMocks.editor.setSelection).toHaveBeenCalledWith(monacoMocks.fullModelRange)
+    expect(monacoMocks.editor.focus).toHaveBeenCalled()
   })
 })

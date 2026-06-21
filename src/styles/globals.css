@@ -12,6 +12,20 @@
   --text-inactive:   #8a8a8a;
   --text-dim:        #666666;
   --accent:          #06b6d4;
+  --editor-bg:       #0c0c0e;
+  --editor-panel:    #131316;
+  --editor-surface:  #1c1c21;
+  --editor-surface-hover: #222229;
+  --editor-border:   rgba(255, 255, 255, 0.06);
+  --editor-text:     #d4d4d8;
+  --editor-muted:    #71717a;
+  --editor-dim:      #52525b;
+  --editor-accent:   #6366f1;
+  --editor-syntax-keyword: #a78bfa;
+  --editor-syntax-string:  #4ade80;
+  --editor-syntax-func:    #fbbf24;
+  --editor-syntax-type:    #60a5fa;
+  --editor-syntax-comment: #71717a;
   --sidebar-width:   240px;
   --handle-size:     1px;
 }
@@ -30,6 +44,20 @@
   --text-inactive:   #7aa2f7;
   --text-dim:        #565f89;
   --accent:          #7dcfff;
+  --editor-bg:       #11131d;
+  --editor-panel:    #171925;
+  --editor-surface:  #202333;
+  --editor-surface-hover: #282c3f;
+  --editor-border:   rgba(125, 207, 255, 0.12);
+  --editor-text:     #c0caf5;
+  --editor-muted:    #7a82a8;
+  --editor-dim:      #565f89;
+  --editor-accent:   #7dcfff;
+  --editor-syntax-keyword: #bb9af7;
+  --editor-syntax-string:  #9ece6a;
+  --editor-syntax-func:    #e0af68;
+  --editor-syntax-type:    #7aa2f7;
+  --editor-syntax-comment: #565f89;
   --sidebar-width:   240px;
   --handle-size:     1px;
 }
@@ -48,6 +76,20 @@
   --text-inactive:   #bac2de;
   --text-dim:        #6c7086;
   --accent:          #89b4fa;
+  --editor-bg:       #181825;
+  --editor-panel:    #11111b;
+  --editor-surface:  #24243a;
+  --editor-surface-hover: #2f3049;
+  --editor-border:   rgba(205, 214, 244, 0.10);
+  --editor-text:     #cdd6f4;
+  --editor-muted:    #9399b2;
+  --editor-dim:      #6c7086;
+  --editor-accent:   #89b4fa;
+  --editor-syntax-keyword: #cba6f7;
+  --editor-syntax-string:  #a6e3a1;
+  --editor-syntax-func:    #f9e2af;
+  --editor-syntax-type:    #89b4fa;
+  --editor-syntax-comment: #6c7086;
   --sidebar-width:   240px;
   --handle-size:     1px;
 }
@@ -66,6 +108,20 @@
   --text-inactive:   #b89bb4;
   --text-dim:        #8b6f87;
   --accent:          #36f9f6;
+  --editor-bg:       #21182d;
+  --editor-panel:    #1a1224;
+  --editor-surface:  #302342;
+  --editor-surface-hover: #3a2a51;
+  --editor-border:   rgba(54, 249, 246, 0.16);
+  --editor-text:     #f5d7ff;
+  --editor-muted:    #b89bb4;
+  --editor-dim:      #8b6f87;
+  --editor-accent:   #36f9f6;
+  --editor-syntax-keyword: #ff7edb;
+  --editor-syntax-string:  #72f1b8;
+  --editor-syntax-func:    #fede5d;
+  --editor-syntax-type:    #36f9f6;
+  --editor-syntax-comment: #8b6f87;
   --sidebar-width:   240px;
   --handle-size:     1px;
 }
@@ -84,6 +140,20 @@
   --text-inactive:   #a8a8a2;
   --text-dim:        #6272a4;
   --accent:          #ff79c6;
+  --editor-bg:       #151515;
+  --editor-panel:    #111111;
+  --editor-surface:  #222222;
+  --editor-surface-hover: #2b2b2b;
+  --editor-border:   rgba(255, 255, 255, 0.08);
+  --editor-text:     #f8f8f2;
+  --editor-muted:    #a8a8a2;
+  --editor-dim:      #6272a4;
+  --editor-accent:   #ff79c6;
+  --editor-syntax-keyword: #bd93f9;
+  --editor-syntax-string:  #50fa7b;
+  --editor-syntax-func:    #f1fa8c;
+  --editor-syntax-type:    #8be9fd;
+  --editor-syntax-comment: #6272a4;
   --sidebar-width:   240px;
   --handle-size:     1px;
 }
@@ -102,6 +172,20 @@
   --text-inactive:   #737373;
   --text-dim:        #a3a3a3;
   --accent:          #0891b2;
+  --editor-bg:       #fbfbfc;
+  --editor-panel:    #f4f4f5;
+  --editor-surface:  #ffffff;
+  --editor-surface-hover: #eceff3;
+  --editor-border:   rgba(24, 24, 27, 0.10);
+  --editor-text:     #18181b;
+  --editor-muted:    #71717a;
+  --editor-dim:      #a1a1aa;
+  --editor-accent:   #2563eb;
+  --editor-syntax-keyword: #7c3aed;
+  --editor-syntax-string:  #15803d;
+  --editor-syntax-func:    #b45309;
+  --editor-syntax-type:    #0369a1;
+  --editor-syntax-comment: #71717a;
   --sidebar-width:   240px;
   --handle-size:     1px;
 }
@@ -189,6 +273,46 @@ html, body, #root {
 .editor-tab-close { opacity: 0; }
 .editor-tab:hover .editor-tab-close { opacity: 1 !important; }
 .editor-tab.active .editor-tab-close { opacity: 1 !important; }
+
+.editor-pane-shell {
+  background: var(--editor-bg);
+  color: var(--editor-text);
+}
+
+.editor-icon-button {
+  border: none;
+  background: transparent;
+  color: var(--editor-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.editor-icon-button:hover:not(:disabled) {
+  background: var(--editor-surface-hover);
+  color: var(--editor-text);
+}
+
+.editor-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.editor-activity-button {
+  position: relative;
+}
+
+.editor-activity-button.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  width: 2px;
+  height: 20px;
+  border-radius: 0 2px 2px 0;
+  background: var(--editor-accent);
+}
 
 @keyframes pulse {
   0% { opacity: 1; transform: scale(1); }

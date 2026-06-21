@@ -8,6 +8,7 @@ import {
   addBrowserPaneToLayout, removeBrowserPaneFromLayout,
   addEditorPaneToLayout, removeEditorPaneFromLayout,
   addKubernetesPaneToLayout, removeKubernetesPaneFromLayout,
+  addDockerPaneToLayout, removeDockerPaneFromLayout,
 } from '../utils/layout'
 
 interface AppState {
@@ -16,7 +17,7 @@ interface AppState {
   tabsByWorkspace: Record<string, WorkspaceTab[]>
   activeTabIds: Record<string, string>
   setActiveTabId: (workspaceId: string, tabId: string) => void
-  createTab: (workspaceId: string, name: string) => Promise<void>
+  createTab: (workspaceId: string, name: string) => Promise<import('../types').WorkspaceTab>
   removeTab: (workspaceId: string, tabId: string) => Promise<void>
   renameTab: (workspaceId: string, tabId: string, name: string) => Promise<void>
   setTabs: (workspaceId: string, tabs: WorkspaceTab[]) => void
@@ -27,6 +28,7 @@ interface AppState {
   browserPanesByTab: Record<string, BrowserPane[]>
   editorPanesByTab: Record<string, EditorPane[]>
   kubernetesPanesByTab: Record<string, import('../types').KubernetesPane[]>
+  dockerPanesByTab: Record<string, import('../types').DockerPane[]>
   layoutsByTab: Record<string, LayoutNode | null>
   gitStatusByWorkspace: Record<string, GitStatus>
   activeFileByTab: Record<string, string | null>
@@ -70,6 +72,9 @@ interface AppState {
   addKubernetesPane: (tabId: string, pane: import('../types').KubernetesPane, targetId?: string, direction?: LayoutDirection) => void
   removeKubernetesPane: (tabId: string, kubernetesPaneId: string) => void
   updateKubernetesPane: (tabId: string, kubernetesPaneId: string, updates: Partial<import('../types').KubernetesPane>) => void
+  addDockerPane: (tabId: string, pane: import('../types').DockerPane, targetId?: string, direction?: LayoutDirection) => void
+  removeDockerPane: (tabId: string, dockerPaneId: string) => void
+  updateDockerPane: (tabId: string, dockerPaneId: string, updates: Partial<import('../types').DockerPane>) => void
   updateEditorPaneFile: (tabId: string, editorPaneId: string, openFilePath: string | null, lineNumber?: number) => void
   closeEditorFile: (tabId: string, editorPaneId: string, filePath: string) => void
   updateEditorPaneLayout: (tabId: string, editorPaneId: string, layout: Partial<EditorPane>) => void
@@ -99,6 +104,9 @@ interface AppState {
   activatingWorkspaces: Record<string, boolean>
   setActivatingWorkspace: (id: string, activating: boolean) => void
 
+  markdownModalFilePath: string | null
+  setMarkdownModalFilePath: (path: string | null) => void
+
   terminalToCloseId: { workspaceId: string, terminalId: string } | null
   setTerminalToCloseId: (data: { workspaceId: string, terminalId: string } | null) => void
 
@@ -126,6 +134,7 @@ export const useAppStore = create<AppState>()(
       browserPanesByTab: {},
       editorPanesByTab: {},
       kubernetesPanesByTab: {},
+      dockerPanesByTab: {},
       layoutsByTab: {},
       gitStatusByWorkspace: {},
       activeFileByTab: {},
@@ -137,6 +146,8 @@ export const useAppStore = create<AppState>()(
       showCommandPalette: false,
       isModalOpen: false,
       activatingWorkspaces: {},
+      markdownModalFilePath: null,
+      setMarkdownModalFilePath: (path) => set({ markdownModalFilePath: path }),
       terminalToCloseId: null,
       tasksCollapsed: false,
       draggedTerminalId: null,
@@ -241,9 +252,9 @@ export const useAppStore = create<AppState>()(
             terminalsByTab: { ...s.terminalsByTab, [tab.id]: [] },
             browserPanesByTab: { ...s.browserPanesByTab, [tab.id]: [] },
             editorPanesByTab: { ...s.editorPanesByTab, [tab.id]: [] },
-            kubernetesPanesByTab: { ...s.kubernetesPanesByTab, [tab.id]: [] }
           }
         })
+        return tab
       },
       removeTab: async (workspaceId, tabId) => {
         await invoke('delete_tab', { id: tabId })
@@ -592,6 +603,51 @@ export const useAppStore = create<AppState>()(
           }
         }),
 
+      addDockerPane: (tabId, pane, targetId, direction) =>
+        set((s) => {
+          const layout = s.layoutsByTab[tabId] ?? null
+          return {
+            dockerPanesByTab: {
+              ...s.dockerPanesByTab,
+              [tabId]: [...(s.dockerPanesByTab[tabId] ?? []), pane],
+            },
+            layoutsByTab: {
+              ...s.layoutsByTab,
+              [tabId]: addDockerPaneToLayout(layout, pane.id, targetId, direction),
+            },
+          }
+        }),
+
+      removeDockerPane: (tabId, dockerPaneId) =>
+        set((s) => {
+          const layout = s.layoutsByTab[tabId] ?? null
+          return {
+            dockerPanesByTab: {
+              ...s.dockerPanesByTab,
+              [tabId]: (s.dockerPanesByTab[tabId] ?? []).filter(
+                (p) => p.id !== dockerPaneId,
+              ),
+            },
+            layoutsByTab: {
+              ...s.layoutsByTab,
+              [tabId]: removeDockerPaneFromLayout(layout, dockerPaneId),
+            },
+          }
+        }),
+
+      updateDockerPane: (tabId, dockerPaneId, updates) =>
+        set((s) => {
+          return {
+            dockerPanesByTab: {
+              ...s.dockerPanesByTab,
+              [tabId]: (s.dockerPanesByTab[tabId] ?? []).map((p) =>
+                p.id === dockerPaneId ? { ...p, ...updates } : p
+              ),
+            },
+          }
+        }),
+
+
       updateEditorPaneFile: (tabId: string, editorPaneId: string, openFilePath: string | null, lineNumber?: number) =>
         set((s) => ({
           activeFileByTab: {
@@ -782,14 +838,16 @@ export const useAppStore = create<AppState>()(
         settings: state.settings,
         toolingTerminalsByWorkspace: state.toolingTerminalsByWorkspace,
         activeToolingTerminalId: state.activeToolingTerminalId,
-        layoutsByWorkspace: state.layoutsByTab,
+        layoutsByTab: state.layoutsByTab,
         browserHistory: state.browserHistory,
         bookmarks: state.bookmarks,
-        editorPanesByWorkspace: state.editorPanesByTab,
-        kubernetesPanesByWorkspace: state.kubernetesPanesByTab,
+        editorPanesByTab: state.editorPanesByTab,
+        kubernetesPanesByTab: state.kubernetesPanesByTab,
+        dockerPanesByTab: state.dockerPanesByTab,
         gitStatusByWorkspace: state.gitStatusByWorkspace,
         tasksCollapsed: state.tasksCollapsed,
-        dictationButtonPosition: state.dictationButtonPosition
+        dictationButtonPosition: state.dictationButtonPosition,
+        activeTabIds: state.activeTabIds,
       }),
     }
   )

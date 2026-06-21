@@ -52,6 +52,9 @@ export function SettingsModal({ onClose }: Props) {
   const [terminalRenderer, setTerminalRenderer] = useState<'native' | 'xterm'>(
     settings.terminalRenderer || 'native'
   )
+  const [toolPaneBehavior, setToolPaneBehavior] = useState<'split' | 'tab' | 'workspace'>(
+    settings.toolPaneBehavior || 'split'
+  )
   const [smoothCaret, setSmoothCaret] = useState(settings.smoothCaret ?? true)
   const [keybindings, setKeybindings] = useState<Settings['keybindings']>({
     newTerminal: settings.keybindings?.newTerminal || 'CmdOrCtrl+T',
@@ -78,7 +81,7 @@ export function SettingsModal({ onClose }: Props) {
   }, [])
 
   function handleSave() {
-    updateSettings({ theme, fontSize, lineHeight, defaultShell, uiFontFamily, terminalFontFamily, timeFormat, autosave, showTabBar, iconTheme, keybindings, defaultTerminalType, smoothCaret, terminalRenderer, showWorkspaceDefaultPaths })
+    updateSettings({ theme, fontSize, lineHeight, defaultShell, uiFontFamily, terminalFontFamily, timeFormat, autosave, showTabBar, iconTheme, keybindings, defaultTerminalType, smoothCaret, terminalRenderer, showWorkspaceDefaultPaths, toolPaneBehavior })
     useAppStore.getState().addToast('Settings saved', 'success')
     onClose()
   }
@@ -385,6 +388,29 @@ export function SettingsModal({ onClose }: Props) {
                       </div>
                       Enable smooth caret animation
                     </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+                    <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Tool Pane Behavior</label>
+                    <select
+                      value={toolPaneBehavior}
+                      onChange={(e) => setToolPaneBehavior(e.target.value as 'split' | 'tab' | 'workspace')}
+                      style={{
+                        padding: '10px 14px', background: 'var(--bg-sidebar)',
+                        border: '1px solid var(--border-inactive)', borderRadius: 6,
+                        color: 'var(--text-active)', outline: 'none', fontSize: 14,
+                        transition: 'border 0.2s', width: '100%', maxWidth: 300
+                      }}
+                      onFocus={(e) => e.currentTarget.style.borderColor = 'var(--accent)'}
+                      onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border-inactive)'}
+                    >
+                      <option value="split">Split Current Pane (Default)</option>
+                      <option value="tab">Open in New Tab</option>
+                      <option value="workspace">Open in New Workspace</option>
+                    </select>
+                    <p style={{ fontSize: 12, color: 'var(--text-dim)', margin: 0, lineHeight: 1.5 }}>
+                      How new Browser, Editor, Docker, or Kubernetes panes should open by default.
+                    </p>
                   </div>
                 </div>
 

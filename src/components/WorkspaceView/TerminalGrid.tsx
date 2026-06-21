@@ -8,11 +8,14 @@ import { TerminalPane } from './TerminalPane'
 import { BrowserPane } from './BrowserPane'
 import { EditorPaneComponent } from '../EditorPane'
 import { KubernetesPaneComponent } from './KubernetesPaneComponent'
+import { DockerPaneComponent } from './DockerPaneComponent'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import { useAppStore } from '../../store/useAppStore'
+import { ErrorBoundary } from '../ui/ErrorBoundary'
 
 interface Props {
   workspaceId: string
+  tabId: string
   activeTerminalId: string | null
   onFocus: (terminalId: string) => void
   onClose: (terminalId: string) => void
@@ -45,12 +48,12 @@ const MemoizedSplitGroup = React.memo(({ node, onLayoutChange, children }: any) 
   )
 })
 
-export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, activeTerminalId, onFocus, onClose, onSplit, onCloseBrowserPane, onSplitBrowserPane }: Props) {
+export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabId, activeTerminalId, onFocus, onClose, onSplit, onCloseBrowserPane, onSplitBrowserPane }: Props) {
   const [maximizedTerminalId, setMaximizedTerminalId] = useState<string | null>(null)
   const reorderTerminals = useAppStore((s) => s.reorderTerminals)
   const updateLayoutSizes = useAppStore((s) => s.updateLayoutSizes)
-  const layout = useAppStore((s) => s.layoutsByTab[workspaceId])
-  const browserPanes = useAppStore((s) => s.browserPanesByTab[workspaceId] ?? EMPTY_BROWSER_PANES)
+  const layout = useAppStore((s) => s.layoutsByTab[tabId])
+  const browserPanes = useAppStore((s) => s.browserPanesByTab[tabId] ?? EMPTY_BROWSER_PANES)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
   const terminalRenderer = useAppStore((s) => s.settings.terminalRenderer) || 'native'
   
@@ -112,6 +115,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
     if (n.type === 'browser' && n.browserPaneId === maximizedTerminalId) return true
     if (n.type === 'editor' && n.editorPaneId === maximizedTerminalId) return true
     if (n.type === 'kubernetes' && n.kubernetesPaneId === maximizedTerminalId) return true
+    if (n.type === 'docker' && n.dockerPaneId === maximizedTerminalId) return true
     if (n.type === 'split') return n.children.some(containsMaximized)
     return false
   }
@@ -135,9 +139,9 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
     }
     
     layoutUpdateTimeoutRef.current[id] = window.setTimeout(() => {
-      updateLayoutSizes(workspaceId, id, sizes)
+      updateLayoutSizes(tabId, id, sizes)
     }, 100)
-  }, [workspaceId, updateLayoutSizes])
+  }, [tabId, updateLayoutSizes])
 
   const handleCloseTerminal = useCallback((id: string) => {
     setMaximizedTerminalId(prev => prev === id ? null : prev)
@@ -150,7 +154,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
         {terminalRenderer === 'xterm' ? (
           <TerminalPane
             terminalId={terminalId}
-            workspaceId={workspaceId}
+            workspaceId={tabId}
             isActive={terminalId === activeTerminalId}
             isDragOver={draggedTerminalId === terminalId}
             isMaximized={maximizedTerminalId === terminalId}
@@ -162,7 +166,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
         ) : (
           <NativeTerminalPane
             terminalId={terminalId}
-            workspaceId={workspaceId}
+            workspaceId={tabId}
             isActive={terminalId === activeTerminalId}
             isDragOver={draggedTerminalId === terminalId}
             isMaximized={maximizedTerminalId === terminalId}
@@ -215,7 +219,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
     return (
       <div onMouseDownCapture={() => onFocus(editorPaneId)} style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}>
         <EditorPaneComponent
-          workspaceId={workspaceId}
+          workspaceId={tabId}
           editorPaneId={editorPaneId}
           isActive={editorPaneId === activeTerminalId}
         />
@@ -227,7 +231,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
     return (
       <div onMouseDownCapture={() => onFocus(kubernetesPaneId)} style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}>
         <KubernetesPaneComponent
-          workspaceId={workspaceId}
+          workspaceId={tabId}
           paneId={kubernetesPaneId}
           isActive={kubernetesPaneId === activeTerminalId}
         />
@@ -235,8 +239,21 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
     )
   }
 
+  const renderDockerPane = (dockerPaneId: string) => {
+    return (
+      <div onMouseDownCapture={() => onFocus(dockerPaneId)} style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}>
+        <DockerPaneComponent
+          workspaceId={activeWorkspaceId!}
+          tabId={tabId}
+          paneId={dockerPaneId}
+          isActive={dockerPaneId === activeTerminalId}
+        />
+      </div>
+    )
+  }
+
   const renderLayoutPlaceholder = (node: LayoutNode): React.ReactNode => {
-    if (node.type === 'pane' || node.type === 'browser' || node.type === 'editor' || node.type === 'kubernetes') {
+    if (node.type === 'pane' || node.type === 'browser' || node.type === 'editor' || node.type === 'kubernetes' || node.type === 'docker') {
       return (
         <div
           data-node-id={node.id}
@@ -271,9 +288,6 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
           onLayoutChange={handleLayoutChange}
         >
           {node.children.flatMap((child, idx) => {
-            const hasMaximized = containsMaximized(child)
-            const shouldHide = isMaximized && !hasMaximized
-            
             const elements = []
             
             if (idx > 0 && !isMaximized) {
@@ -292,7 +306,8 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
               )
             }
             
-            const savedSize = node.sizes?.[idx]
+            const hasValidSizes = node.sizes && node.sizes.length === node.children.length && Math.abs(node.sizes.reduce((a: number, b: number) => a + b, 0) - 100) < 0.1;
+            const savedSize = hasValidSizes ? node.sizes![idx] : undefined;
             const safeSize = (typeof savedSize === 'number' && !Number.isNaN(savedSize) && savedSize > 0) ? savedSize : (100 / node.children.length)
 
             elements.push(
@@ -301,9 +316,6 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
                 id={child.id}
                 defaultSize={safeSize}
                 minSize={0}
-                // @ts-ignore
-                data-hidden-panel={shouldHide ? "true" : undefined}
-                data-maximized-panel={isMaximized && !shouldHide ? "true" : undefined}
               >
                 {renderLayoutPlaceholder(child)}
               </Panel>
@@ -323,6 +335,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
     if (node.type === 'browser') return `browser-${node.browserPaneId}`
     if (node.type === 'editor') return `editor-${node.editorPaneId}`
     if (node.type === 'kubernetes') return `kubernetes-${node.kubernetesPaneId}`
+    if (node.type === 'docker') return `docker-${node.dockerPaneId}`
     return node.id
   }
 
@@ -330,7 +343,8 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
     const isNodeMaximized = (node.type === 'pane' && node.terminalId === maximizedTerminalId) ||
                             (node.type === 'browser' && node.browserPaneId === maximizedTerminalId) ||
                             (node.type === 'editor' && node.editorPaneId === maximizedTerminalId) ||
-                            (node.type === 'kubernetes' && node.kubernetesPaneId === maximizedTerminalId)
+                            (node.type === 'kubernetes' && node.kubernetesPaneId === maximizedTerminalId) ||
+                            (node.type === 'docker' && node.dockerPaneId === maximizedTerminalId)
     
     if (isMaximized && !isNodeMaximized) return null
 
@@ -357,29 +371,27 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
         {node.type === 'browser' && renderBrowserPane(node.browserPaneId)}
         {node.type === 'editor' && renderEditorPane(node.editorPaneId)}
         {node.type === 'kubernetes' && renderKubernetesPane(node.kubernetesPaneId)}
+        {node.type === 'docker' && renderDockerPane(node.dockerPaneId)}
       </div>
     )
   }
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', flex: 1, padding: 0, minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
-      <style>{`
-        [data-hidden-panel="true"] { display: none !important; }
-        [data-maximized-panel="true"] { flex-basis: 100% !important; flex-grow: 1 !important; max-width: 100% !important; max-height: 100% !important; }
-      `}</style>
-      
-      {/* 1. Absolute Floating Panes Layer (Behind) */}
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 1 }}>
-         {flatNodes.map(renderAbsoluteNode)}
-      </div>
+    <ErrorBoundary>
+      <div ref={containerRef} style={{ position: 'relative', flex: 1, padding: 0, minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
+        {/* 1. Absolute Floating Panes Layer (Behind) */}
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 1 }}>
+           {flatNodes.map(renderAbsoluteNode)}
+        </div>
 
-      {/* 2. Layout Grid Layer (In Front) - invisible drop zones and separators */}
-      <div style={{ width: '100%', height: '100%', zIndex: 2, position: 'relative', pointerEvents: 'none' }}>
-         <div style={{ width: '100%', height: '100%' }}>
-            {renderLayoutPlaceholder(layout)}
-         </div>
+        {/* 2. Layout Grid Layer (In Front) - invisible drop zones and separators */}
+        <div style={{ width: '100%', height: '100%', zIndex: 2, position: 'relative', pointerEvents: 'none' }}>
+           <div style={{ width: '100%', height: '100%' }}>
+              {renderLayoutPlaceholder(layout)}
+           </div>
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   )
 }, (prev, next) => {
   return prev.workspaceId === next.workspaceId &&

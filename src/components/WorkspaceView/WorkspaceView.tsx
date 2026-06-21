@@ -19,6 +19,7 @@ const EMPTY_TERMINALS: Terminal[] = []
 const EMPTY_BROWSER_PANES: BrowserPaneType[] = []
 const EMPTY_EDITOR_PANES: EditorPaneType[] = []
 const EMPTY_KUBERNETES_PANES: import('../../types').KubernetesPane[] = []
+const EMPTY_DOCKER_PANES: import('../../types').DockerPane[] = []
 
 const SystemStats = memo(() => {
   const settings = useAppStore((s) => s.settings)
@@ -75,8 +76,86 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
   const browserPanes = useAppStore((s) => activeTabId ? s.browserPanesByTab[activeTabId] ?? EMPTY_BROWSER_PANES : EMPTY_BROWSER_PANES)
   const editorPanes = useAppStore((s) => activeTabId ? s.editorPanesByTab[activeTabId] ?? EMPTY_EDITOR_PANES : EMPTY_EDITOR_PANES)
   const kubernetesPanes = useAppStore((s) => activeTabId ? s.kubernetesPanesByTab[activeTabId] ?? EMPTY_KUBERNETES_PANES : EMPTY_KUBERNETES_PANES)
+  const dockerPanes = useAppStore((s) => activeTabId ? s.dockerPanesByTab[activeTabId] ?? EMPTY_DOCKER_PANES : EMPTY_DOCKER_PANES)
+
+  useEffect(() => {
+    if (activeTabId && !isLoaded && !isLoading) {
+      const loadTab = async () => {
+        const state = useAppStore.getState()
+        state.setActivatingWorkspace(workspace.id, true)
+        try {
+          const saved = await invoke<Terminal[]>('get_terminals', { tabId: activeTabId }).catch(() => [])
+          const savedBrowserPanes = await invoke<BrowserPaneType[]>('get_browser_panes', { tabId: activeTabId }).catch(() => [])
+          
+          const spawned: Terminal[] = []
+          for (const t of saved) {
+            await invoke<void>('respawn_terminal', { id: t.id, shell: t.shell, cwd: t.cwd || '' }).catch(console.error)
+            spawned.push(t)
+          }
+          state.setTerminals(activeTabId, spawned)
+          
+          const respawnedBrowsers: BrowserPaneType[] = []
+          const adblockEnabled = settings.adblockEnabled ?? true
+          for (const p of savedBrowserPanes) {
+            await invoke<void>('respawn_browser_pane', { 
+              id: p.id, url: p.url || 'termspace://newtab', x: -10000, y: -10000, w: 800, h: 600, adblockEnabled 
+            }).catch(console.error)
+            respawnedBrowsers.push(p)
+          }
+          state.setBrowserPanes(activeTabId, respawnedBrowsers)
+
+        } catch (err) {
+          console.error('Failed to lazy load tab:', err)
+          state.setTerminals(activeTabId, [])
+        } finally {
+          state.setActivatingWorkspace(workspace.id, false)
+        }
+      }
+      loadTab()
+    }
+  }, [activeTabId, isLoaded, isLoading, workspace.id, settings.adblockEnabled])
 
 
+  const resolveTargetTabId = async (paneName: string, targetId?: string): Promise<string | null> => {
+    if (targetId) return activeTabId; // Explicit split requested
+
+    const state = useAppStore.getState();
+    const behavior = state.settings.toolPaneBehavior || 'split';
+
+    if (behavior === 'split') {
+      return activeTabId;
+    }
+
+    if (behavior === 'tab') {
+      try {
+        const newTab = await state.createTab(workspace.id, paneName);
+        return newTab.id;
+      } catch (err) {
+        console.error('Failed to create tab for pane:', err);
+        return activeTabId;
+      }
+    }
+
+    if (behavior === 'workspace') {
+      try {
+        const ws = await invoke<import('../../types').Workspace>('create_workspace', {
+          name: paneName,
+          emoji: paneName === 'Browser' ? '🌐' : paneName === 'Docker' ? '🐳' : paneName === 'Kubernetes' ? '⎈' : '📄',
+          color: paneName === 'Browser' ? '#3b82f6' : paneName === 'Docker' ? '#0ea5e9' : paneName === 'Kubernetes' ? '#8b5cf6' : '#10b981',
+          defaultPath: null
+        });
+        state.addWorkspace(ws);
+        const newTab = await state.createTab(ws.id, 'Tab 1');
+        state.setActiveWorkspaceId(ws.id);
+        return newTab.id;
+      } catch (err) {
+        console.error('Failed to create workspace for pane:', err);
+        return activeTabId;
+      }
+    }
+
+    return activeTabId;
+  };
 
   const handleAddTerminal = useCallback(async (targetId?: string, direction?: 'horizontal' | 'vertical') => {
     if (!activeTabId) return;
@@ -138,7 +217,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
         state.setActiveTerminalId(null)
       }
     }
-  }, [workspace.id])
+  }, [workspace.id, activeTabId])
 
   const handleCloseTerminal = useCallback(async (terminalId: string) => {
     try {
@@ -152,7 +231,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
       console.error(err)
       useAppStore.getState().setTerminalToCloseId({ workspaceId: workspace.id, terminalId })
     }
-  }, [workspace.id, executeCloseTerminal])
+  }, [workspace.id, executeCloseTerminal, activeTabId])
 
   const performCloseTerminal = useCallback(async (action: 'save-editor' | 'save-ai' | 'leave') => {
     const state = useAppStore.getState()
@@ -167,23 +246,26 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
   const handleAddBrowserPane = useCallback(async (targetId?: string, direction?: 'horizontal' | 'vertical', initialUrl?: string) => {
     if (!activeTabId) return;
     try {
+      const targetTabId = await resolveTargetTabId('Browser', targetId);
+      if (!targetTabId) return;
+      
       const state = useAppStore.getState()
       const adblockEnabled = state.settings.adblockEnabled ?? true
 
       const pane = await invoke<BrowserPaneType>('create_browser_pane', {
-        tabId: activeTabId,
+        tabId: targetTabId,
         url: initialUrl || 'termspace://newtab',
         x: -10000, y: -10000, w: 800, h: 600,
         adblockEnabled,
       })
-      state.addBrowserPane(activeTabId, pane, targetId, direction)
+      state.addBrowserPane(targetTabId, pane, targetId, direction)
       state.setActiveTerminalId(pane.id)
       state.addToast('Browser pane created', 'info')
     } catch (err) {
       console.error('create_browser_pane failed:', err)
       useAppStore.getState().addToast('Failed to create browser pane', 'error')
     }
-  }, [workspace.id])
+  }, [workspace.id, activeTabId])
 
   const handleCloseBrowserPane = useCallback(async (browserPaneId: string) => {
     try {
@@ -202,18 +284,22 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
       console.error('destroy_browser_pane failed:', err)
       useAppStore.getState().addToast('Failed to close browser pane', 'error')
     }
-  }, [workspace.id])
+  }, [workspace.id, activeTabId])
 
   const handleAddEditorPane = useCallback(async (targetId?: string, direction?: 'horizontal' | 'vertical') => {
     if (!activeTabId) return;
     try {
       const selectedPath = await open({ directory: true, multiple: false })
+      
+      const targetTabId = await resolveTargetTabId('Editor', targetId);
+      if (!targetTabId) return;
+      
       const state = useAppStore.getState()
-      const currentEditors = state.editorPanesByTab[activeTabId] ?? []
+      const currentEditors = state.editorPanesByTab[targetTabId] ?? []
       
       const pane: EditorPaneType = {
         id: Math.random().toString(36).substring(2, 9),
-        tabId: activeTabId,
+        tabId: targetTabId,
         rootPath: selectedPath ?? null,
         openFiles: [],
         activeFilePath: null,
@@ -223,28 +309,58 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
         createdAt: Date.now()
       }
       
-      state.addEditorPane(activeTabId, pane, targetId, direction)
+      if (selectedPath && typeof selectedPath === 'string') {
+        const dirName = selectedPath.split(/[/\\]/).pop()
+        if (dirName) {
+          const currentTab = state.tabsByWorkspace[workspace.id]?.find(t => t.id === targetTabId)
+          if (currentTab && /^Tab \d+$/.test(currentTab.name)) {
+            state.renameTab(workspace.id, targetTabId, dirName)
+          }
+        }
+      }
+      
+      state.addEditorPane(targetTabId, pane, targetId, direction)
       state.setActiveTerminalId(pane.id)
       state.addToast('Editor opened', 'info')
     } catch (err) {
       console.error('Failed to open editor:', err)
       useAppStore.getState().addToast('Failed to open editor', 'error')
     }
-  }, [workspace.id])
+  }, [workspace.id, activeTabId])
 
-  const handleAddKubernetesPane = useCallback((targetId?: string, direction?: 'horizontal' | 'vertical') => {
+  const handleAddKubernetesPane = useCallback(async (targetId?: string, direction?: 'horizontal' | 'vertical') => {
     if (!activeTabId) return;
+    const targetTabId = await resolveTargetTabId('Kubernetes', targetId);
+    if (!targetTabId) return;
     const state = useAppStore.getState()
-    const currentK8s = state.kubernetesPanesByTab[activeTabId] ?? []
+    const currentK8s = state.kubernetesPanesByTab[targetTabId] ?? []
     const pane: import('../../types').KubernetesPane = {
       id: Math.random().toString(36).substring(2, 9),
-      tabId: activeTabId,
+      tabId: targetTabId,
       position: currentK8s.length,
       createdAt: Date.now()
     }
-    state.addKubernetesPane(activeTabId, pane, targetId, direction)
+    state.addKubernetesPane(targetTabId, pane, targetId, direction)
     state.setActiveTerminalId(pane.id)
     state.addToast('Kubernetes pane opened', 'info')
+  }, [activeTabId])
+
+  const handleAddDockerPane = useCallback(async (targetId?: string, direction?: 'horizontal' | 'vertical') => {
+    if (!activeTabId) return;
+    const targetTabId = await resolveTargetTabId('Docker', targetId);
+    if (!targetTabId) return;
+    const state = useAppStore.getState()
+    const currentDocker = state.dockerPanesByTab[targetTabId] ?? []
+    const pane: import('../../types').DockerPane = {
+      id: Math.random().toString(36).substring(2, 9),
+      tabId: targetTabId,
+      position: currentDocker.length,
+      createdAt: Date.now(),
+      resourceType: 'containers'
+    }
+    state.addDockerPane(targetTabId, pane, targetId, direction)
+    state.setActiveTerminalId(pane.id)
+    state.addToast('Docker pane opened', 'info')
   }, [activeTabId])
 
   return (
@@ -257,19 +373,21 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
         onAddBrowserPane={() => handleAddBrowserPane()}
         onAddEditorPane={() => handleAddEditorPane()}
         onAddKubernetesPane={() => handleAddKubernetesPane()}
+        onAddDockerPane={() => handleAddDockerPane()}
         onEditWorkspace={() => onEditWorkspace(workspace)}
         onSelectTerminal={setActiveTerminalId}
         onCloseTerminal={handleCloseTerminal}
         showTabBar={settings.showTabBar !== false}
       />
       <WorkspaceTabBar workspaceId={workspace.id} />
-      {terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || kubernetesPanes.length > 0 ? (
+      {terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || kubernetesPanes.length > 0 || dockerPanes.length > 0 ? (
         <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
           <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
             <Panel defaultSize={75} minSize={20}>
               <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
                 <TerminalGrid
-                  workspaceId={activeTabId!}
+                  workspaceId={workspace.id}
+                  tabId={activeTabId!}
                   activeTerminalId={activeTerminalId}
                   onFocus={setActiveTerminalId}
                   onClose={handleCloseTerminal}
@@ -401,6 +519,26 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
               }}
             >
               ⎈ New Kubernetes Pane
+            </button>
+            <button
+              onClick={() => handleAddDockerPane()}
+              style={{
+                marginTop: 8, padding: '10px 20px', background: 'transparent',
+                border: '1px dashed var(--border-inactive)', borderRadius: 8, color: 'var(--text-inactive)',
+                fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = '#0ea5e9'
+                e.currentTarget.style.borderColor = '#0ea5e9'
+                e.currentTarget.style.background = 'rgba(14,165,233,0.05)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--text-inactive)'
+                e.currentTarget.style.borderColor = 'var(--border-inactive)'
+                e.currentTarget.style.background = 'transparent'
+              }}
+            >
+              🐳 New Docker Pane
             </button>
           </div>
         </div>

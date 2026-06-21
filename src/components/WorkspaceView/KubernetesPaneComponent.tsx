@@ -162,8 +162,8 @@ export function KubernetesPaneComponent({ workspaceId, paneId, isActive }: Kuber
       let targetTerminal = terminals.find(t => t.id === activeTerminalId) || terminals[0]
 
       if (!targetTerminal) {
-        targetTerminal = await invoke<AppTerminal>('spawn_terminal', { workspaceId, shell: useAppStore.getState().settings.defaultShell || 'zsh', cwd: '' })
-        addTerminal(workspaceId, targetTerminal, paneId, 'vertical')
+        targetTerminal = await invoke<AppTerminal>('spawn_terminal', { tabId: useAppStore.getState().activeTabIds[workspaceId] || workspaceId, shell: useAppStore.getState().settings.defaultShell || 'zsh', cwd: '' })
+        addTerminal(useAppStore.getState().activeTabIds[workspaceId] || workspaceId, targetTerminal, paneId, 'vertical')
       }
 
       setActiveTerminalId(targetTerminal.id)

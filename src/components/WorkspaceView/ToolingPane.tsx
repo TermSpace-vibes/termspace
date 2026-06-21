@@ -5,12 +5,14 @@ import { Terminal } from '../../types'
 import { NativeTerminalPane } from './NativeTerminalPane'
 import { TerminalPane } from './TerminalPane'
 
+const EMPTY_TERMINALS: Terminal[] = []
+
 interface Props {
   workspaceId: string
 }
 
 export function ToolingPane({ workspaceId }: Props) {
-  const terminals = useAppStore(s => s.toolingTerminalsByWorkspace[workspaceId] ?? [])
+  const terminals = useAppStore(s => s.toolingTerminalsByWorkspace[workspaceId] ?? EMPTY_TERMINALS)
   const activeTerminalId = useAppStore(s => s.activeToolingTerminalId)
   const addToolingTerminal = useAppStore(s => s.addToolingTerminal)
   const removeToolingTerminal = useAppStore(s => s.removeToolingTerminal)
@@ -20,7 +22,7 @@ export function ToolingPane({ workspaceId }: Props) {
   const handleAddToolingTerminal = useCallback(async () => {
     try {
       const terminal = await invoke<Terminal>('spawn_terminal', {
-        workspaceId,
+        tabId: useAppStore.getState().activeTabIds[workspaceId] || workspaceId,
         shell: settings.defaultShell || 'zsh',
         cwd: '', // Provide logic to get cwd if needed
       })

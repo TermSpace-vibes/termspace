@@ -5,6 +5,8 @@ import { invoke } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 
+const EMPTY_ARRAY: any[] = []
+
 interface Props {
   workspaceId: string
   browserPaneId: string
@@ -31,10 +33,10 @@ export function BrowserPane({
   const [activeTabId, setActiveTabId] = useState(browserPaneId)
   const [viewportMode, setViewportMode] = useState<'desktop' | 'mobile' | 'tablet'>('desktop')
   
-  const browserHistory = useAppStore(s => s.browserHistory || [])
+  const browserHistory = useAppStore(s => s.browserHistory) || EMPTY_ARRAY as string[]
   const addToHistory = useAppStore(s => s.addToHistory)
   const addToast = useAppStore(s => s.addToast)
-  const bookmarks = useAppStore(s => s.bookmarks || [])
+  const bookmarks = useAppStore(s => s.bookmarks) || EMPTY_ARRAY as { url: string; title: string; icon?: string }[]
   const addBookmark = useAppStore(s => s.addBookmark)
   const removeBookmark = useAppStore(s => s.removeBookmark)
   const showContextMenu = useAppStore(s => s.showContextMenu)
@@ -64,7 +66,7 @@ export function BrowserPane({
   // Fetch suggestions
   useEffect(() => {
     if (!isEditingUrl || !inputUrl || inputUrl.length < 2) {
-      setSuggestions([])
+      setSuggestions(prev => prev.length === 0 ? prev : [])
       return
     }
 
@@ -72,7 +74,12 @@ export function BrowserPane({
       .filter(h => h.toLowerCase().includes(inputUrl.toLowerCase()))
       .slice(0, 3)
 
-    setSuggestions(historyMatches)
+    setSuggestions(prev => {
+      if (prev.length === historyMatches.length && prev.every((v, i) => v === historyMatches[i])) {
+        return prev;
+      }
+      return historyMatches;
+    })
 
     const timer = setTimeout(async () => {
       // 1. Preconnect to speed up navigation
@@ -99,7 +106,12 @@ export function BrowserPane({
           }
 
           const combined = Array.from(new Set([...historyMatches, ...apiSuggestions])).slice(0, 8)
-          setSuggestions(combined)
+          setSuggestions(prev => {
+            if (prev.length === combined.length && prev.every((v, i) => v === combined[i])) {
+              return prev;
+            }
+            return combined;
+          })
           setSelectedIndex(-1)
         }
       } catch (err) {
@@ -122,6 +134,7 @@ export function BrowserPane({
       invoke('hide_browser_pane', { id: activeTabId }).catch(() => {})
       return
     }
+    // console.log(`[BrowserPane syncBounds] Showing pane! rect: ${rect.width}x${rect.height}`);
 
     // macOS native webviews with transparent windows have a coordinate offset 
     // where the Y position is shifted up by the height of the standard titlebar (28px).
@@ -310,14 +323,6 @@ export function BrowserPane({
       })
     })
 
-    const unlistenNewWindow = listen<{ id: string; url: string }>('browser-pane-new-window', (event) => {
-      // Check if this pane is the one that spawned it? Actually, event.payload.id is the parent webview id.
-      // So if event.payload.id exists in our tabs, we should spawn a new tab here.
-      const belongsToUs = tabsRef.current.some(t => t.id === event.payload.id)
-      if (belongsToUs) {
-        handleAddTab(event.payload.url)
-      }
-    })
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isActive) return
@@ -373,15 +378,14 @@ export function BrowserPane({
       window.removeEventListener('keydown', handleKeyDown)
       unlisten.then(fn => fn()) 
       unlistenMetadata.then(fn => fn())
-      unlistenNewWindow.then(fn => fn())
       unlistenDownloadReq.then(fn => fn())
       unlistenDownloadFin.then(fn => fn())
       unlistenContextMenu.then(fn => fn())
     }
   }, [activeTabId, browserPaneId]) // Removed tabs dependency to avoid redefining listeners constantly
 
-  const editorPanes = useAppStore(s => s.editorPanesByTab[workspaceId] || []);
-  const terminals = useAppStore(s => s.terminalsByTab[workspaceId] || []);
+  const editorPanes = useAppStore(s => s.editorPanesByTab[workspaceId] || EMPTY_ARRAY) as import('../../types').EditorPane[];
+  const terminals = useAppStore(s => s.terminalsByTab[workspaceId] || EMPTY_ARRAY) as import('../../types').Terminal[];
   const targetPath = editorPanes.length > 0 ? editorPanes[0].rootPath : (terminals.length > 0 ? terminals[0].cwd : '');
 
   useEffect(() => {

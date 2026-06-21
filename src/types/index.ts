@@ -65,6 +65,15 @@ export interface KubernetesPane {
   collapsedGroups?: string[]
 }
 
+export interface DockerPane {
+  id: string
+  tabId: string
+  position: number
+  createdAt: number
+  resourceType?: 'containers' | 'images' | 'volumes' | 'networks'
+  autoReload?: boolean
+}
+
 export interface Keybindings {
   newTerminal: string
   closeTerminal: string
@@ -103,6 +112,7 @@ export interface Settings {
   showToolingPane?: boolean
   discardTabsAfterMs?: number | 'never'
   showWorkspaceDefaultPaths?: boolean
+  toolPaneBehavior?: 'split' | 'tab' | 'workspace'
 }
 
 export type LayoutDirection = 'horizontal' | 'vertical'
@@ -112,6 +122,7 @@ export type LayoutNode =
   | { type: 'browser'; id: string; browserPaneId: string }
   | { type: 'editor';  id: string; editorPaneId: string }
   | { type: 'kubernetes'; id: string; kubernetesPaneId: string }
+  | { type: 'docker'; id: string; dockerPaneId: string }
   | { type: 'split';   id: string; direction: LayoutDirection; sizes: number[]; children: LayoutNode[] }
 
 export interface GitStatus {

@@ -10,6 +10,7 @@ import { UsernameModal } from './components/UsernameModal/UsernameModal'
 import { ContextMenu } from './components/ui/ContextMenu'
 import { ToastContainer } from './components/ui/ToastContainer'
 import { CommandPalette } from './components/CommandPalette/CommandPalette'
+import { MarkdownModal } from './components/MarkdownModal/MarkdownModal'
 import { DictationButton } from './components/ui/DictationButton'
 import { useGlobalKeybindings } from './hooks/useGlobalKeybindings'
 import { Workspace, Terminal, EditorPane, BrowserPane } from './types'
@@ -71,7 +72,8 @@ export default function App() {
   const username = useAppStore((s) => s.username)
   const setUsername = useAppStore((s) => s.setUsername)
 
-  const isAnyModalOpen = showCreateModal || showSettingsModal || !!editingWorkspace || !!workspaceToDelete || showCommandPalette || username === null
+  const markdownModalFilePath = useAppStore((s) => s.markdownModalFilePath)
+  const isAnyModalOpen = showCreateModal || showSettingsModal || !!editingWorkspace || !!workspaceToDelete || showCommandPalette || username === null || markdownModalFilePath !== null
   
   useEffect(() => {
     setIsModalOpen(isAnyModalOpen)
@@ -289,7 +291,7 @@ export default function App() {
         }), 5000, 'create_workspace')
         setWorkspaces([ws])
         setActiveWorkspaceId(ws.id)
-        await spawnAndAddTerminal(ws.id)
+        await activateWorkspace(ws.id)
       } else {
         setWorkspaces(wsList)
         setActiveWorkspaceId(wsList[0].id)
@@ -342,8 +344,19 @@ export default function App() {
     if (values.defaultPath !== null) {
       useAppStore.getState().setWorkspaceDefaultPath(ws.id, values.defaultPath)
     }
+
+    // Hide browser panes of old workspace before switching
+    const prevId = prevActiveWorkspaceIdRef.current
+    if (prevId) {
+      const prevPanes = useAppStore.getState().browserPanesByTab[prevId] ?? []
+      for (const pane of prevPanes) {
+        invoke('hide_browser_pane', { id: pane.id }).catch(() => {})
+      }
+    }
+    prevActiveWorkspaceIdRef.current = ws.id
+
     setActiveWorkspaceId(ws.id)
-    await spawnAndAddTerminal(ws.id)
+    await activateWorkspace(ws.id)
     setShowCreateModal(false)
     useAppStore.getState().addToast('Workspace created', 'success')
   }
@@ -405,6 +418,14 @@ export default function App() {
 
     addWorkspace(newWs);
 
+    // Create a default tab for the new duplicated workspace
+    const newTab = await invoke<import('./types').WorkspaceTab>('create_tab', { workspaceId: newWs.id, name: 'Tab 1' }).catch(console.error);
+    if (newTab) {
+      useAppStore.getState().setTabs(newWs.id, [newTab]);
+      useAppStore.getState().setActiveTabId(newWs.id, newTab.id);
+    }
+    const tabIdToUse = newTab?.id || newWs.id;
+
     const sourceTerminals = state.terminalsByTab[id] || [];
     const sourceBrowsers = state.browserPanesByTab[id] || [];
     const sourceEditors = state.editorPanesByTab[id] || [];
@@ -413,7 +434,7 @@ export default function App() {
     for (const t of sourceTerminals) {
       try {
         const newTerminal = await invoke<Terminal>('spawn_terminal', {
-          tabId: useAppStore.getState().activeTabIds[newWs.id] || newWs.id,
+          tabId: tabIdToUse,
           shell: t.shell,
           cwd: t.cwd
         });
@@ -422,23 +443,23 @@ export default function App() {
         console.error('Failed to duplicate terminal', err);
       }
     }
-    setTerminals(newWs.id, newTerminals);
+    setTerminals(tabIdToUse, newTerminals);
 
     const newBrowsers: BrowserPane[] = sourceBrowsers.map(b => ({
       ...b,
       id: crypto.randomUUID(),
-      tabId: useAppStore.getState().activeTabIds[newWs.id] || newWs.id,
+      tabId: tabIdToUse,
       createdAt: Date.now()
     }));
-    useAppStore.getState().setBrowserPanes(newWs.id, newBrowsers);
+    useAppStore.getState().setBrowserPanes(tabIdToUse, newBrowsers);
 
     const newEditors: EditorPane[] = sourceEditors.map(e => ({
       ...e,
       id: Math.random().toString(36).substring(2, 9),
-      tabId: useAppStore.getState().activeTabIds[newWs.id] || newWs.id,
+      tabId: tabIdToUse,
       createdAt: Date.now()
     }));
-    useAppStore.getState().setEditorPanes(newWs.id, newEditors);
+    useAppStore.getState().setEditorPanes(tabIdToUse, newEditors);
 
     setActiveWorkspaceId(newWs.id);
     useAppStore.getState().addToast('Workspace duplicated', 'success');
@@ -665,6 +686,7 @@ export default function App() {
           <SettingsModal onClose={() => setShowSettingsModal(false)} />
         )}
       </AnimatePresence>
+      <MarkdownModal />
       <AnimatePresence>
         {username === null && (
           <UsernameModal

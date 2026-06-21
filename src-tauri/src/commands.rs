@@ -42,7 +42,30 @@ pub struct SystemStats {
 fn get_mac_gpu_utilization() -> f32 {
     #[cfg(target_os = "macos")]
     {
+        // Try Apple Silicon (AGXAccelerator)
+        let output_res0 = {
+            let _lock = SPAWN_LOCK.lock();
+            std::process::Command::new("ioreg")
+                .args(&["-c", "AGXAccelerator", "-r", "-l"])
+                .output()
+        };
+        if let Ok(output) = output_res0 {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                if let Some(idx) = line.find("\"Device Utilization %\"=") {
+                    let remainder = &line[idx + 23..];
+                    if let Some(num_str) = remainder.split(|c| c == ',' || c == '}').next() {
+                        if let Ok(val) = num_str.trim().parse::<f32>() {
+                            return val;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try Intel/AMD (IOGraphicsAccelerator2)
         let output_res = {
+            let _lock = SPAWN_LOCK.lock();
             std::process::Command::new("ioreg")
                 .args(&["-c", "IOGraphicsAccelerator2", "-r", "-l"])
                 .output()
@@ -60,6 +83,8 @@ fn get_mac_gpu_utilization() -> f32 {
                 }
             }
         }
+        
+        // Try older Intel (IGAccel)
         let output_res2 = {
             let _lock = SPAWN_LOCK.lock();
             std::process::Command::new("ioreg")
@@ -439,6 +464,62 @@ pub fn is_terminal_busy(
     }
 
     Ok(is_busy)
+}
+
+#[tauri::command]
+pub fn get_terminal_remote_status(
+    ntm: State<NativeTerminalManager>,
+    state: State<SysInfoState>,
+    id: String,
+) -> Result<Option<String>, String> {
+    let shell_pid = match ntm.get_pid(&id) {
+        Some(pid) => pid,
+        None => return Ok(None),
+    };
+
+    let mut state_lock = state.0.lock();
+    let sys = &mut state_lock.0;
+
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+
+    for (_pid, process) in sys.processes() {
+        let mut is_descendant = false;
+        let mut curr = Some(process);
+        for _ in 0..10 {
+            if let Some(p) = curr {
+                if let Some(parent_pid) = p.parent() {
+                    if parent_pid.as_u32() == shell_pid {
+                        is_descendant = true;
+                        break;
+                    }
+                    curr = sys.process(parent_pid);
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        if is_descendant {
+            let name = process.name().to_string_lossy().to_lowercase();
+            if name.contains("ssh") {
+                return Ok(Some("SSH".to_string()));
+            } else if name.contains("kubectl") {
+                let cmd = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
+                if cmd.contains("exec") || cmd.contains("attach") || cmd.contains("port-forward") {
+                    return Ok(Some("K8S".to_string()));
+                }
+            } else if name.contains("docker") {
+                let cmd = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
+                if cmd.contains("exec") || cmd.contains("run") || cmd.contains("attach") {
+                    return Ok(Some("DOCKER".to_string()));
+                }
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 #[tauri::command]
@@ -1480,4 +1561,57 @@ pub fn search_files(root_path: String, query: String) -> Result<Vec<SearchResult
         }
     }
     Ok(results)
+}
+
+#[tauri::command]
+pub async fn get_docker_resources(resource: String) -> Result<String, String> {
+    let args = match resource.as_str() {
+        "containers" => vec!["ps", "-a", "--format", "json"],
+        "images" => vec!["images", "--format", "json"],
+        "volumes" => vec!["volume", "ls", "--format", "json"],
+        "networks" => vec!["network", "ls", "--format", "json"],
+        _ => return Err("Invalid resource type".into()),
+    };
+
+    let output = std::process::Command::new("docker")
+        .args(&args)
+        .output()
+        .map_err(|e| format!("Failed to run docker command: {}", e))?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(err);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    // JSON-lines to JSON Array
+    let mut items = Vec::new();
+    for line in stdout.lines() {
+        if line.trim().is_empty() { continue; }
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(line) {
+            items.push(parsed);
+        }
+    }
+
+    let result = serde_json::json!({
+        "items": items
+    });
+
+    Ok(result.to_string())
+}
+
+#[tauri::command]
+pub async fn execute_docker_action(args: Vec<String>) -> Result<String, String> {
+    let output = std::process::Command::new("docker")
+        .args(&args)
+        .output()
+        .map_err(|e| format!("Failed to run docker command: {}", e))?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(err);
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }

@@ -10,7 +10,6 @@ import { MarkdownPreview } from './MarkdownPreview'
 import { readTextFileContent, writeTextFileContent } from '../utils/fs'
 import { useAppStore } from '../store/useAppStore'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
-import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { ensureLspConnection } from '../utils/lspManager'
 
 interface EditorPaneComponentProps {
@@ -21,6 +20,120 @@ interface EditorPaneComponentProps {
 
 const BINARY_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'svg', 'zip', 'tar', 'gz', 'mp4', 'mp3', 'pdf']
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'svg']
+
+const EDITOR_THEMES: Record<string, {
+  base: 'vs' | 'vs-dark'
+  bg: string
+  panel: string
+  surface: string
+  border: string
+  text: string
+  muted: string
+  dim: string
+  accent: string
+  keyword: string
+  string: string
+  function: string
+  type: string
+  comment: string
+}> = {
+  'warm-dark': {
+    base: 'vs-dark',
+    bg: '#0c0c0e',
+    panel: '#131316',
+    surface: '#1c1c21',
+    border: '#25252c',
+    text: '#d4d4d8',
+    muted: '#a1a1aa',
+    dim: '#71717a',
+    accent: '#6366f1',
+    keyword: '#a78bfa',
+    string: '#4ade80',
+    function: '#fbbf24',
+    type: '#60a5fa',
+    comment: '#71717a',
+  },
+  'cold-dark': {
+    base: 'vs-dark',
+    bg: '#11131d',
+    panel: '#171925',
+    surface: '#202333',
+    border: '#2a2f44',
+    text: '#c0caf5',
+    muted: '#9aa5ce',
+    dim: '#565f89',
+    accent: '#7dcfff',
+    keyword: '#bb9af7',
+    string: '#9ece6a',
+    function: '#e0af68',
+    type: '#7aa2f7',
+    comment: '#565f89',
+  },
+  'catppuccin-mocha': {
+    base: 'vs-dark',
+    bg: '#181825',
+    panel: '#11111b',
+    surface: '#24243a',
+    border: '#313244',
+    text: '#cdd6f4',
+    muted: '#bac2de',
+    dim: '#6c7086',
+    accent: '#89b4fa',
+    keyword: '#cba6f7',
+    string: '#a6e3a1',
+    function: '#f9e2af',
+    type: '#89b4fa',
+    comment: '#6c7086',
+  },
+  synthwave: {
+    base: 'vs-dark',
+    bg: '#21182d',
+    panel: '#1a1224',
+    surface: '#302342',
+    border: '#49336b',
+    text: '#f5d7ff',
+    muted: '#b89bb4',
+    dim: '#8b6f87',
+    accent: '#36f9f6',
+    keyword: '#ff7edb',
+    string: '#72f1b8',
+    function: '#fede5d',
+    type: '#36f9f6',
+    comment: '#8b6f87',
+  },
+  fruity: {
+    base: 'vs-dark',
+    bg: '#151515',
+    panel: '#111111',
+    surface: '#222222',
+    border: '#333333',
+    text: '#f8f8f2',
+    muted: '#a8a8a2',
+    dim: '#6272a4',
+    accent: '#ff79c6',
+    keyword: '#bd93f9',
+    string: '#50fa7b',
+    function: '#f1fa8c',
+    type: '#8be9fd',
+    comment: '#6272a4',
+  },
+  light: {
+    base: 'vs',
+    bg: '#fbfbfc',
+    panel: '#f4f4f5',
+    surface: '#ffffff',
+    border: '#e4e4e7',
+    text: '#18181b',
+    muted: '#52525b',
+    dim: '#a1a1aa',
+    accent: '#2563eb',
+    keyword: '#7c3aed',
+    string: '#15803d',
+    function: '#b45309',
+    type: '#0369a1',
+    comment: '#71717a',
+  },
+}
 
 const isBinaryFile = (path: string) => {
   const ext = path.split('.').pop()?.toLowerCase()
@@ -61,6 +174,16 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
   const editorRef = useRef<any>(null)
   const blameDecorationRef = useRef<any>(null)
   const blameTimeoutRef = useRef<any>(null)
+
+  const selectAllInEditor = useCallback(() => {
+    const editor = editorRef.current
+    const model = editor?.getModel?.()
+    if (!editor || !model) return false
+
+    editor.setSelection(model.getFullModelRange())
+    editor.focus()
+    return true
+  }, [])
 
   useEffect(() => {
     if (editorPane?.activeFilePath && editorPane?.rootPath) {
@@ -124,30 +247,16 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
         // Only handle if this pane is active
         if (!isActive) return;
 
-        e.preventDefault();
-        e.stopPropagation();
-
-        if (editorRef.current) {
-          const content = editorRef.current.getValue();
-          writeText(content).then(() => {
-            addToast('File content copied to clipboard', 'success');
-          }).catch(err => {
-            console.error('Failed to copy text:', err);
-            addToast('Failed to copy file content', 'error');
-          });
-
-          const model = editorRef.current.getModel();
-          if (model) {
-            editorRef.current.setSelection(model.getFullModelRange());
-            editorRef.current.focus();
-          }
+        if (selectAllInEditor()) {
+          e.preventDefault();
+          e.stopPropagation();
         }
       }
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, { capture: true });
-  }, [isActive, addToast]);
+  }, [isActive, selectAllInEditor]);
 
   useEffect(() => {
     if (monaco) {
@@ -177,24 +286,50 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
         diagnosticCodesToIgnore: [2307, 2792, 80001]
       })
 
-      const bgMap: Record<string, string> = {
-        'warm-dark': '#1c1c1c',
-        'cold-dark': '#1a1b26',
-        'light': '#ffffff',
-        'catppuccin-mocha': '#1e1e2e',
-        'synthwave': '#2b213a',
-        'fruity': '#1e1e1e'
-      }
-      const solidBg = bgMap[settings.theme] || '#1c1c1c'
-      const baseTheme = settings.theme === 'light' ? 'vs' : 'vs-dark'
+      const theme = EDITOR_THEMES[settings.theme] || EDITOR_THEMES['warm-dark']
 
       monaco.editor.defineTheme('termspace-dynamic', {
-        base: baseTheme,
+        base: theme.base,
         inherit: true,
-        rules: [],
+        rules: [
+          { token: 'comment', foreground: theme.comment.slice(1), fontStyle: 'italic' },
+          { token: 'keyword', foreground: theme.keyword.slice(1) },
+          { token: 'string', foreground: theme.string.slice(1) },
+          { token: 'number', foreground: theme.function.slice(1) },
+          { token: 'type', foreground: theme.type.slice(1) },
+          { token: 'type.identifier', foreground: theme.type.slice(1) },
+          { token: 'function', foreground: theme.function.slice(1) },
+          { token: 'identifier.function', foreground: theme.function.slice(1) },
+          { token: 'delimiter', foreground: theme.muted.slice(1) },
+          { token: 'operator', foreground: theme.keyword.slice(1) },
+        ],
         colors: {
-          'editor.background': '#00000000',
-          'editorStickyScroll.background': solidBg,
+          'editor.background': theme.bg,
+          'editor.foreground': theme.text,
+          'editorLineNumber.foreground': theme.dim,
+          'editorLineNumber.activeForeground': theme.muted,
+          'editorCursor.foreground': theme.accent,
+          'editor.selectionBackground': `${theme.accent}55`,
+          'editor.inactiveSelectionBackground': `${theme.accent}2d`,
+          'editor.lineHighlightBackground': `${theme.surface}80`,
+          'editor.lineHighlightBorder': `${theme.accent}66`,
+          'editorIndentGuide.background1': `${theme.border}`,
+          'editorIndentGuide.activeBackground1': `${theme.muted}`,
+          'editorGutter.background': theme.bg,
+          'editorWidget.background': theme.surface,
+          'editorWidget.border': theme.border,
+          'editorSuggestWidget.background': theme.surface,
+          'editorSuggestWidget.border': theme.border,
+          'editorSuggestWidget.foreground': theme.text,
+          'editorSuggestWidget.highlightForeground': theme.accent,
+          'editorSuggestWidget.selectedBackground': `${theme.accent}26`,
+          'editorHoverWidget.background': theme.surface,
+          'editorHoverWidget.border': theme.border,
+          'editorStickyScroll.background': theme.bg,
+          'minimap.background': theme.bg,
+          'scrollbarSlider.background': `${theme.muted}33`,
+          'scrollbarSlider.hoverBackground': `${theme.muted}55`,
+          'scrollbarSlider.activeBackground': `${theme.muted}77`,
         }
       })
       monaco.editor.setTheme('termspace-dynamic')
@@ -312,6 +447,10 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
       handleSave();
     });
 
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyA, () => {
+      selectAllInEditor();
+    });
+
     // macOS native menus swallow Cmd+Z / Cmd+Shift+Z and convert them to native undo/redo actions.
     // Monaco doesn't always catch these natively, so we intercept the beforeinput events.
     const handleBeforeInput = (e: Event) => {
@@ -413,36 +552,37 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
 
   return (
     <div 
+      className="editor-pane-shell"
       style={{
         display: 'flex', flexDirection: 'column', height: '100%', width: '100%',
-        backgroundColor: 'var(--bg-main)', borderRadius: 8, overflow: 'hidden',
+        backgroundColor: 'var(--editor-bg)', borderRadius: 8, overflow: 'hidden',
         position: 'relative', border: '1px solid',
-        borderColor: isActive ? 'var(--accent)' : 'var(--border-inactive)',
-        boxShadow: isActive ? '0 10px 25px rgba(0,0,0,0.2)' : '0 4px 6px rgba(0,0,0,0.1)',
+        borderColor: isActive ? 'var(--editor-accent)' : 'var(--editor-border)',
+        boxShadow: isActive ? '0 0 0 1px color-mix(in srgb, var(--editor-accent) 45%, transparent), 0 18px 45px rgba(0,0,0,0.28)' : '0 10px 28px rgba(0,0,0,0.18)',
         zIndex: isActive ? 10 : 0,
         minWidth: 0, minHeight: 0
       }}
     >
       {/* Header Area */}
       <div style={{
-        display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-main)',
-        borderBottom: '1px solid var(--border-inactive)', userSelect: 'none', flexShrink: 0
+        display: 'flex', flexDirection: 'column', backgroundColor: 'var(--editor-panel)',
+        borderBottom: '1px solid var(--editor-border)', userSelect: 'none', flexShrink: 0
       }}>
         {/* Top Row: Breadcrumbs and Actions */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', height: 32 }}>
            {/* Breadcrumbs */}
            {filePathParts.length > 0 ? (
-             <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-dim)', overflow: 'hidden', flex: 1 }}>
+             <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--editor-dim)', overflow: 'hidden', flex: 1 }}>
                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>root</span>
                {filePathParts.map((part, idx) => (
                  <React.Fragment key={idx}>
                    <ChevronRight size={10} style={{ flexShrink: 0, opacity: 0.5 }} />
-                   <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 150 }}>{part}</span>
+                   <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 150, color: idx === filePathParts.length - 1 ? 'var(--editor-text)' : undefined }}>{part}</span>
                  </React.Fragment>
                ))}
              </div>
            ) : (
-             <div style={{ fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic', flex: 1 }}>No file selected</div>
+             <div style={{ fontSize: 11, color: 'var(--editor-dim)', fontStyle: 'italic', flex: 1 }}>No file selected</div>
            )}
 
            {/* Command Center Search Bar */}
@@ -451,17 +591,17 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
                onClick={() => useAppStore.getState().setShowCommandPalette(true)}
                style={{
                  width: '100%', maxWidth: 300, height: 24, borderRadius: 6,
-                 backgroundColor: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-inactive)',
+                 backgroundColor: 'var(--editor-bg)', border: '1px solid var(--editor-border)',
                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                 color: 'var(--text-dim)', fontSize: 11, cursor: 'pointer', transition: 'all 0.2s',
+                 color: 'var(--editor-muted)', fontSize: 11, cursor: 'pointer', transition: 'all 0.2s',
                }}
                onMouseEnter={(e) => {
-                 e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.08)'
-                 e.currentTarget.style.color = 'var(--text-inactive)'
+                 e.currentTarget.style.backgroundColor = 'var(--editor-surface)'
+                 e.currentTarget.style.color = 'var(--editor-text)'
                }}
                onMouseLeave={(e) => {
-                 e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)'
-                 e.currentTarget.style.color = 'var(--text-dim)'
+                 e.currentTarget.style.backgroundColor = 'var(--editor-bg)'
+                 e.currentTarget.style.color = 'var(--editor-muted)'
                }}
              >
                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -472,16 +612,17 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
            {/* Actions */}
            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, justifyContent: 'flex-end' }}>
              <button 
+               className="editor-icon-button"
                onClick={handleSave}
                disabled={!isDirty || !editorPane.activeFilePath || isBinary}
                style={{
-                 padding: 4, borderRadius: 6, transition: 'colors 0.2s', border: 'none', background: 'none', cursor: (isDirty && !isBinary) ? 'pointer' : 'not-allowed',
-                 color: (isDirty && !isBinary) ? 'var(--accent)' : 'var(--text-dim)',
+                 padding: 4, borderRadius: 6, cursor: (isDirty && !isBinary) ? 'pointer' : 'not-allowed',
+                 color: (isDirty && !isBinary) ? 'var(--editor-accent)' : 'var(--editor-dim)',
                  opacity: (isDirty && !isBinary) ? 1 : 0.3
                }}
                title="Save (Cmd+S)"
                onMouseEnter={(e) => {
-                 if (isDirty && !isBinary) e.currentTarget.style.backgroundColor = 'rgba(6, 182, 212, 0.1)'
+                 if (isDirty && !isBinary) e.currentTarget.style.backgroundColor = 'color-mix(in srgb, var(--editor-accent) 16%, transparent)'
                }}
                onMouseLeave={(e) => {
                  e.currentTarget.style.backgroundColor = 'transparent'
@@ -492,18 +633,19 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
 
               {editorPane.activeFilePath?.toLowerCase().endsWith('.md') && (
                 <button 
+                  className="editor-icon-button"
                   onClick={() => setShowPreview(!showPreview)} 
                   style={{
-                   padding: 4, borderRadius: 4, transition: 'colors 0.2s', border: 'none', background: 'none', cursor: 'pointer',
-                   color: showPreview ? 'var(--accent)' : 'var(--text-dim)'
+                   padding: 4, borderRadius: 4, cursor: 'pointer',
+                   color: showPreview ? 'var(--editor-accent)' : 'var(--editor-dim)'
                  }}
                  title={showPreview ? "Hide Preview" : "Show Preview"}
                  onMouseEnter={(e) => {
-                   e.currentTarget.style.color = 'var(--text-active)'
-                   e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)'
+                   e.currentTarget.style.color = 'var(--editor-text)'
+                   e.currentTarget.style.backgroundColor = 'var(--editor-surface-hover)'
                  }}
                  onMouseLeave={(e) => {
-                   e.currentTarget.style.color = showPreview ? 'var(--accent)' : 'var(--text-dim)'
+                   e.currentTarget.style.color = showPreview ? 'var(--editor-accent)' : 'var(--editor-dim)'
                    e.currentTarget.style.backgroundColor = 'transparent'
                  }}
                >
@@ -513,36 +655,38 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
 
              {/* Split Buttons */}
              <button 
+               className="editor-icon-button"
                onClick={() => splitEditor(workspaceId, editorPaneId, 'horizontal')} 
                style={{
-                 padding: 4, borderRadius: 4, transition: 'colors 0.2s', border: 'none', background: 'none', cursor: 'pointer',
-                 color: 'var(--text-dim)'
+                 padding: 4, borderRadius: 4, cursor: 'pointer',
+                 color: 'var(--editor-dim)'
                }}
                title="Split Right"
                onMouseEnter={(e) => {
-                 e.currentTarget.style.color = 'var(--text-active)'
-                 e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)'
+                 e.currentTarget.style.color = 'var(--editor-text)'
+                 e.currentTarget.style.backgroundColor = 'var(--editor-surface-hover)'
                }}
                onMouseLeave={(e) => {
-                 e.currentTarget.style.color = 'var(--text-dim)'
+                 e.currentTarget.style.color = 'var(--editor-dim)'
                  e.currentTarget.style.backgroundColor = 'transparent'
                }}
              >
                <Columns size={14} />
              </button>
              <button 
+               className="editor-icon-button"
                onClick={() => splitEditor(workspaceId, editorPaneId, 'vertical')} 
                style={{
-                 padding: 4, borderRadius: 4, transition: 'colors 0.2s', border: 'none', background: 'none', cursor: 'pointer',
-                 color: 'var(--text-dim)'
+                 padding: 4, borderRadius: 4, cursor: 'pointer',
+                 color: 'var(--editor-dim)'
                }}
                title="Split Down"
                onMouseEnter={(e) => {
-                 e.currentTarget.style.color = 'var(--text-active)'
-                 e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)'
+                 e.currentTarget.style.color = 'var(--editor-text)'
+                 e.currentTarget.style.backgroundColor = 'var(--editor-surface-hover)'
                }}
                onMouseLeave={(e) => {
-                 e.currentTarget.style.color = 'var(--text-dim)'
+                 e.currentTarget.style.color = 'var(--editor-dim)'
                  e.currentTarget.style.backgroundColor = 'transparent'
                }}
              >
@@ -550,18 +694,19 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
              </button>
 
              <button 
+               className="editor-icon-button"
                onClick={() => removeEditorPane(workspaceId, editorPaneId)}
                style={{
-                 padding: 4, borderRadius: 4, transition: 'colors 0.2s', border: 'none', background: 'none', cursor: 'pointer',
-                 color: 'var(--text-dim)'
+                 padding: 4, borderRadius: 4, cursor: 'pointer',
+                 color: 'var(--editor-dim)'
                }}
                title="Close Editor Pane"
                onMouseEnter={(e) => {
-                 e.currentTarget.style.color = 'var(--text-active)'
-                 e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)'
+                 e.currentTarget.style.color = 'var(--editor-text)'
+                 e.currentTarget.style.backgroundColor = 'var(--editor-surface-hover)'
                }}
                onMouseLeave={(e) => {
-                 e.currentTarget.style.color = 'var(--text-dim)'
+                 e.currentTarget.style.color = 'var(--editor-dim)'
                  e.currentTarget.style.backgroundColor = 'transparent'
                }}
              >
@@ -574,8 +719,8 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
         <div
           style={{
             display: 'flex', height: 36, alignItems: 'center',
-            backgroundColor: 'var(--bg-secondary)',
-            borderTop: '1px solid var(--border-inactive)',
+            backgroundColor: 'var(--editor-panel)',
+            borderTop: '1px solid var(--editor-border)',
             overflow: 'hidden'
           }}
         >
@@ -600,10 +745,10 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
                 style={{
                   display: 'flex', alignItems: 'center', height: '100%', gap: 6,
                   backgroundColor: editorPane.activeFilePath === path ? 'var(--bg-terminal)' : 'transparent',
-                  color: statusColor || (editorPane.activeFilePath === path ? 'var(--accent)' : 'var(--text-dim)'),
-                  borderTop: `2px solid ${editorPane.activeFilePath === path ? 'var(--accent)' : 'transparent'}`,
+                  color: statusColor || (editorPane.activeFilePath === path ? 'var(--editor-text)' : 'var(--editor-muted)'),
+                  borderTop: `2px solid ${editorPane.activeFilePath === path ? 'var(--editor-accent)' : 'transparent'}`,
                   cursor: 'pointer',
-                  borderRight: '1px solid var(--border-inactive)',
+                  borderRight: '1px solid var(--editor-border)',
                   opacity: editorPane.activeFilePath === path ? 1 : 0.6,
                   transition: 'background-color 0.2s, opacity 0.2s',
                   padding: '0 12px',
@@ -614,7 +759,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
               >
                 <FileCode 
                   size={12} 
-                  style={{ color: statusColor || (editorPane.activeFilePath === path ? 'var(--accent)' : 'var(--text-dim)') }} 
+                  style={{ color: statusColor || (editorPane.activeFilePath === path ? 'var(--editor-accent)' : 'var(--editor-dim)') }} 
                 />
                 <span style={{ 
                   fontSize: 11, 
@@ -626,29 +771,29 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
                   textOverflow: 'ellipsis'
                 }}>
                   {path.split('/').pop()}
-                  {isDirty && editorPane.activeFilePath === path && <span style={{ color: 'var(--accent)', marginLeft: 2 }}>*</span>}
+                  {isDirty && editorPane.activeFilePath === path && <span style={{ color: 'var(--editor-accent)', marginLeft: 2 }}>*</span>}
                 </span>
                 {status && (
                   <span style={{ fontSize: '9px', fontWeight: 'bold', opacity: 0.8 }}>{status === '??' ? 'U' : status}</span>
                 )}
                 {isDirty && editorPane.activeFilePath === path && (
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'var(--accent)', flexShrink: 0, marginLeft: 4 }} />
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'var(--editor-accent)', flexShrink: 0, marginLeft: 4 }} />
                 )}
                 <button 
-                  className="editor-tab-close"
+                  className="editor-icon-button editor-tab-close"
                   onClick={(e) => { e.stopPropagation(); closeEditorFile(workspaceId, editorPaneId, path); }}
                   style={{
-                    padding: 2, borderRadius: 4, transition: 'all 0.2s', border: 'none', background: 'none', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-inactive)'
+                    padding: 2, borderRadius: 4, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--editor-muted)'
                   }}
                   title="Close Tab"
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'
-                    e.currentTarget.style.color = 'var(--text-active)'
+                    e.currentTarget.style.backgroundColor = 'var(--editor-surface-hover)'
+                    e.currentTarget.style.color = 'var(--editor-text)'
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = 'transparent'
-                    e.currentTarget.style.color = 'var(--text-inactive)'
+                    e.currentTarget.style.color = 'var(--editor-muted)'
                   }}
                 >
                   <X size={12} />
@@ -657,25 +802,26 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
             )
           })}
           {editorPane.openFiles.length === 0 && (
-            <div style={{ padding: '0 12px', fontSize: 11, color: 'var(--text-dim)', fontStyle: 'italic' }}>No open files</div>
+            <div style={{ padding: '0 12px', fontSize: 11, color: 'var(--editor-dim)', fontStyle: 'italic' }}>No open files</div>
           )}
           </div>
 
           {/* Save / Save All / Auto Save */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: 4, padding: '0 8px',
-            borderLeft: '1px solid var(--border-inactive)', flexShrink: 0, height: '100%'
+            borderLeft: '1px solid var(--editor-border)', flexShrink: 0, height: '100%'
           }}>
             <button
+              className="editor-icon-button"
               onClick={handleSave}
               disabled={!isDirty || !editorPane.activeFilePath || isBinary}
               title="Save (Cmd+S)"
               style={{
                 display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px',
                 borderRadius: 5, border: '1px solid',
-                borderColor: (isDirty && !isBinary) ? 'var(--accent)' : 'var(--border-inactive)',
+                borderColor: (isDirty && !isBinary) ? 'var(--editor-accent)' : 'var(--editor-border)',
                 background: 'none', cursor: (isDirty && !isBinary) ? 'pointer' : 'not-allowed',
-                color: (isDirty && !isBinary) ? 'var(--accent)' : 'var(--text-dim)',
+                color: (isDirty && !isBinary) ? 'var(--editor-accent)' : 'var(--editor-dim)',
                 fontSize: 11, opacity: (isDirty && !isBinary) ? 1 : 0.4,
                 transition: 'all 0.2s'
               }}
@@ -685,22 +831,23 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
             </button>
 
             <button
+              className="editor-icon-button"
               onClick={() => window.dispatchEvent(new Event('save-all-editors'))}
               title="Save All"
               style={{
                 display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px',
-                borderRadius: 5, border: '1px solid var(--border-inactive)',
+                borderRadius: 5, border: '1px solid var(--editor-border)',
                 background: 'none', cursor: 'pointer',
-                color: 'var(--text-dim)', fontSize: 11,
+                color: 'var(--editor-dim)', fontSize: 11,
                 transition: 'all 0.2s'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'var(--text-active)'
-                e.currentTarget.style.borderColor = 'var(--text-inactive)'
+                e.currentTarget.style.color = 'var(--editor-text)'
+                e.currentTarget.style.borderColor = 'var(--editor-muted)'
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--text-dim)'
-                e.currentTarget.style.borderColor = 'var(--border-inactive)'
+                e.currentTarget.style.color = 'var(--editor-dim)'
+                e.currentTarget.style.borderColor = 'var(--editor-border)'
               }}
             >
               <Save size={11} />
@@ -713,17 +860,17 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
               title={settings.autosave ? 'Auto Save: On' : 'Auto Save: Off'}
               style={{
                 display: 'flex', alignItems: 'center', gap: 5, padding: '2px 6px',
-                borderRadius: 5, border: '1px solid var(--border-inactive)',
+                borderRadius: 5, border: '1px solid var(--editor-border)',
                 cursor: 'pointer', userSelect: 'none', transition: 'all 0.2s',
-                color: settings.autosave ? 'var(--accent)' : 'var(--text-dim)', fontSize: 11
+                color: settings.autosave ? 'var(--editor-accent)' : 'var(--editor-dim)', fontSize: 11
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--text-inactive)')}
-              onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--border-inactive)')}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--editor-muted)')}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--editor-border)')}
             >
               {/* pill toggle */}
               <div style={{
                 width: 24, height: 13, borderRadius: 7, position: 'relative', flexShrink: 0,
-                backgroundColor: settings.autosave ? 'var(--accent)' : 'rgba(255,255,255,0.15)',
+                backgroundColor: settings.autosave ? 'var(--editor-accent)' : 'rgba(255,255,255,0.15)',
                 transition: 'background-color 0.2s'
               }}>
                 <div style={{
@@ -740,7 +887,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
 
       {/* Main Content Split */}
       <div 
-        style={{ flex: 1, overflow: 'hidden', backgroundColor: 'var(--bg-main)' }} 
+        style={{ flex: 1, overflow: 'hidden', backgroundColor: 'var(--editor-bg)' }} 
         onMouseDown={(e) => e.stopPropagation()}
       >
         <Group orientation="horizontal">
@@ -760,24 +907,27 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
           >
             <div style={{ display: 'flex', height: '100%' }}>
               <div style={{ 
-                width: 48, backgroundColor: 'var(--bg-main)', borderRight: '1px solid var(--border-inactive)',
+                width: 48, backgroundColor: 'var(--editor-panel)', borderRight: '1px solid var(--editor-border)',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 16, gap: 16
               }}>
                 <button 
+                  className={`editor-icon-button editor-activity-button ${(!editorPane.activeSidebarTab || editorPane.activeSidebarTab === 'explorer') ? 'active' : ''}`}
                   onClick={() => updateEditorPaneLayout(workspaceId, editorPaneId, { activeSidebarTab: 'explorer' })}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: (!editorPane.activeSidebarTab || editorPane.activeSidebarTab === 'explorer') ? 'var(--text-active)' : 'var(--text-dim)' }}
+                  style={{ width: 36, height: 36, borderRadius: 6, cursor: 'pointer', color: (!editorPane.activeSidebarTab || editorPane.activeSidebarTab === 'explorer') ? 'var(--editor-text)' : 'var(--editor-dim)' }}
                 >
                   <Folder size={20} />
                 </button>
                 <button 
+                  className={`editor-icon-button editor-activity-button ${editorPane.activeSidebarTab === 'search' ? 'active' : ''}`}
                   onClick={() => updateEditorPaneLayout(workspaceId, editorPaneId, { activeSidebarTab: 'search' })}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: editorPane.activeSidebarTab === 'search' ? 'var(--text-active)' : 'var(--text-dim)' }}
+                  style={{ width: 36, height: 36, borderRadius: 6, cursor: 'pointer', color: editorPane.activeSidebarTab === 'search' ? 'var(--editor-text)' : 'var(--editor-dim)' }}
                 >
                   <Search size={20} />
                 </button>
                 <button 
+                  className={`editor-icon-button editor-activity-button ${editorPane.activeSidebarTab === 'git' ? 'active' : ''}`}
                   onClick={() => updateEditorPaneLayout(workspaceId, editorPaneId, { activeSidebarTab: 'git' })}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: editorPane.activeSidebarTab === 'git' ? 'var(--text-active)' : 'var(--text-dim)' }}
+                  style={{ width: 36, height: 36, borderRadius: 6, cursor: 'pointer', color: editorPane.activeSidebarTab === 'git' ? 'var(--editor-text)' : 'var(--editor-dim)' }}
                 >
                   <GitBranch size={20} />
                 </button>
@@ -800,27 +950,27 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
           <Separator 
             style={{ 
               width: 1, 
-              backgroundColor: 'var(--border-inactive)', 
+              backgroundColor: 'var(--editor-border)', 
               zIndex: 10,
               cursor: 'col-resize',
               transition: 'all 0.2s'
             }} 
           />
           
-          <Panel defaultSize={80} minSize={30} style={{ height: '100%', position: 'relative', backgroundColor: 'var(--bg-main)' }}>
+          <Panel defaultSize={80} minSize={30} style={{ height: '100%', position: 'relative', backgroundColor: 'var(--editor-bg)' }}>
             {editorPane.activeFilePath ? (
               isLoading ? (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-dim)', fontSize: 13 }}>
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--editor-muted)', fontSize: 13, background: 'var(--editor-bg)' }}>
                   <div style={{ 
-                    width: 16, height: 16, borderRadius: '50%', border: '2px solid var(--text-dim)', 
-                    borderTopColor: 'var(--accent)', marginRight: 12, animation: 'spin 1s linear infinite' 
+                    width: 16, height: 16, borderRadius: '50%', border: '2px solid var(--editor-dim)', 
+                    borderTopColor: 'var(--editor-accent)', marginRight: 12, animation: 'spin 1s linear infinite' 
                   }} /> Loading file content...
                 </div>
               ) : isImageFile(editorPane.activeFilePath) ? (
                 <div style={{
                   position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', 
-                  justifyContent: 'center', padding: 32, background: 'var(--bg-secondary)',
-                  overflow: 'auto', backgroundImage: 'repeating-conic-gradient(#333 0% 25%, #444 0% 50%)',
+                  justifyContent: 'center', padding: 32, background: 'var(--editor-surface)',
+                  overflow: 'auto', backgroundImage: 'repeating-conic-gradient(color-mix(in srgb, var(--editor-surface) 72%, black) 0% 25%, var(--editor-surface-hover) 0% 50%)',
                   backgroundSize: '20px 20px'
                 }}>
                   <img 
@@ -832,12 +982,12 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
               ) : isBinary ? (
                 <div style={{
                   position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', color: 'var(--text-dim)',
-                  backgroundColor: 'var(--bg-secondary)'
+                  alignItems: 'center', justifyContent: 'center', color: 'var(--editor-muted)',
+                  backgroundColor: 'var(--editor-bg)'
                 }}>
                    <ImageIcon size={48} style={{ marginBottom: 16, opacity: 0.2 }} />
                    <p style={{ fontSize: 14 }}>The file is not displayed in the editor because it is either binary or uses an unsupported text encoding.</p>
-                   <p style={{ fontSize: 12, opacity: 0.7, marginTop: 8, fontFamily: 'monospace', backgroundColor: 'var(--bg-primary)', padding: '4px 8px', borderRadius: 4 }}>{fileName}</p>
+                   <p style={{ fontSize: 12, opacity: 0.7, marginTop: 8, fontFamily: 'var(--terminal-font-family, monospace)', backgroundColor: 'var(--editor-surface)', padding: '4px 8px', borderRadius: 4 }}>{fileName}</p>
                 </div>
               ) : editorPane.diffViewEnabled ? (
                 <DiffEditor
@@ -896,8 +1046,8 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
             ) : (
               <div style={{
                 position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', color: 'var(--text-dim)',
-                backgroundColor: 'var(--bg-secondary)', opacity: 0.5
+                alignItems: 'center', justifyContent: 'center', color: 'var(--editor-dim)',
+                backgroundColor: 'var(--editor-bg)', opacity: 0.75
               }}>
                 <FileCode size={48} style={{ marginBottom: 16, opacity: 0.5 }} />
                 <p style={{ fontSize: 14 }}>Select a file to start editing</p>

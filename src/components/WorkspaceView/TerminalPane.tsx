@@ -10,6 +10,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../../store/useAppStore'
 import '@xterm/xterm/css/xterm.css'
 import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager'
+import { AnimatePresence } from 'framer-motion'
+import { ConfirmModal } from '../ConfirmModal/ConfirmModal'
 
 interface Props {
   terminalId: string
@@ -150,6 +152,16 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitleValue, setEditTitleValue] = useState('')
   const [gitBranch, setGitBranch] = useState<string | null>(null)
+  const [remoteStatus, setRemoteStatus] = useState<string | null>(null)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      invoke<string | null>('get_terminal_remote_status', { id: terminalId })
+        .then(status => setRemoteStatus(status))
+        .catch(() => setRemoteStatus(null))
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [terminalId])
 
   useEffect(() => {
     if (!terminal?.cwd) {
@@ -173,6 +185,14 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
       invoke('rename_terminal', { id: terminalId, title: editTitleValue.trim() }).catch(console.error)
     }
   }
+  const [pendingPasteText, setPendingPasteText] = useState<string | null>(null)
+
+  const executePaste = React.useCallback((textToPaste: string) => {
+    // Wrap in bracketed paste mode escape sequences
+    const wrappedText = `\x1b[200~${textToPaste}\x1b[201~`
+    writeTerminalChunked(terminalId, wrappedText).catch(console.error)
+    setPendingPasteText(null)
+  }, [terminalId])
 
   const handlePaste = React.useCallback(async () => {
     try {
@@ -185,12 +205,17 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
       const text = await readText();
       if (text) {
         const sanitizedText = text.replace(/\r?\n/g, '\r');
-        writeTerminalChunked(terminalId, sanitizedText).catch(console.error);
+        const lines = sanitizedText.split('\r').length;
+        if (sanitizedText.length > 4000 || lines > 5) {
+          setPendingPasteText(sanitizedText);
+          return;
+        }
+        executePaste(sanitizedText);
       }
     } catch (err) {
       console.error('Paste failed:', err);
     }
-  }, [terminalId]);
+  }, [executePaste, terminalId]);
 
 
   const settings = useAppStore((s) => s.settings)
@@ -203,12 +228,15 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
 
   // Apply settings to XTerm whenever they change
   useEffect(() => {
-    if (xtermRef.current) {
-      xtermRef.current.options.theme = XTERM_THEMES[settings.theme]
-      xtermRef.current.options.fontSize = settings.fontSize
-      xtermRef.current.options.fontFamily = settings.terminalFontFamily || '"JetBrains Mono", "Fira Code", Menlo, monospace'
+    if (!xtermRef.current) return
+    const theme = XTERM_THEMES[settings.theme as keyof typeof XTERM_THEMES] || XTERM_THEMES['warm-dark']
+    xtermRef.current.options.theme = {
+      ...theme,
+      background: remoteStatus ? '#000000' : theme.background
     }
-  }, [settings])
+    xtermRef.current.options.fontSize = settings.fontSize
+    xtermRef.current.options.fontFamily = settings.terminalFontFamily || '"JetBrains Mono", "Fira Code", Menlo, monospace'
+  }, [settings.theme, settings.fontSize, settings.terminalFontFamily, remoteStatus])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -251,46 +279,38 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
         }
 
         const links: any[] = []
-        const regex = /(?:^|\s|\"|\')((?:\.\/|\/|~\|[a-zA-Z]:\\)?[^\s"']+\.md)(?:\s|\"|\'|$)/g
+        const regex = /(?:^|\s|\"|\')((?:\.\/|\/|~\|[a-zA-Z]:\\)?[^\s"']+\.md(?::\d+)?)(?=\s|\"|\'|$)/g
         let match
         while ((match = regex.exec(line)) !== null) {
+          const startIndex = match.index + match[0].indexOf(match[1]);
           links.push({
             range: {
-              start: { x: match.index + 1 + (match[0].length - match[1].length), y: bufferLineNumber },
-              end: { x: match.index + (match[0].length - match[1].length) + match[1].length, y: bufferLineNumber }
+              start: { x: startIndex + 1, y: bufferLineNumber },
+              end: { x: startIndex + match[1].length, y: bufferLineNumber }
             },
             text: match[1],
             activate: (_e: any, text: string) => {
-               let fullPath = text
+               if (!_e.metaKey && !_e.ctrlKey) return;
+               
+               const parts = text.split(':')
+               let filePath = parts[0]
+               if (filePath.startsWith('~/')) {
+                 filePath = '/Users/samirkumal/' + filePath.slice(2)
+               }
+               
+               let fullPath = filePath
                const existingEditor = useAppStore.getState().editorPanesByTab[workspaceId]?.[0]
                const rootPath = existingEditor?.rootPath || terminal?.cwd || ''
                
                if (rootPath) {
-                 if (text.startsWith('./')) {
-                   fullPath = `${rootPath}/${text.slice(2)}`
-                 } else if (!text.startsWith('/')) {
-                   fullPath = `${rootPath}/${text}`
+                 if (filePath.startsWith('./')) {
+                   fullPath = `${rootPath}/${filePath.slice(2)}`
+                 } else if (!filePath.startsWith('/')) {
+                   fullPath = `${rootPath}/${filePath}`
                  }
                }
                
-               const editorPanes = useAppStore.getState().editorPanesByTab[workspaceId] || []
-               if (editorPanes.length > 0) {
-                 useAppStore.getState().updateEditorPaneFile(workspaceId, editorPanes[0].id, fullPath)
-               } else {
-                 if (rootPath) {
-                   useAppStore.getState().addEditorPane(workspaceId, {
-                     id: crypto.randomUUID(),
-                     tabId: workspaceId,
-                     rootPath,
-                     openFiles: [fullPath],
-                     activeFilePath: fullPath,
-                     mruStack: [fullPath],
-                     fileTreeWidth: 20,
-                     position: 0,
-                     createdAt: Date.now()
-                   }, terminalId, 'vertical')
-                 }
-               }
+               useAppStore.getState().setMarkdownModalFilePath(fullPath)
             }
           })
         }
@@ -636,9 +656,10 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
         boxShadow: isDragOver
           ? '0 8px 24px rgba(0,0,0,0.15)'
           : 'none',
-        background: XTERM_THEMES[settings.theme as keyof typeof XTERM_THEMES]?.background || 'var(--bg-terminal)', cursor: 'text',
+        background: remoteStatus ? '#000000' : (XTERM_THEMES[settings.theme as keyof typeof XTERM_THEMES]?.background || 'var(--bg-terminal)'),
+        cursor: 'text',
         position: 'relative',
-        transition: 'border 0.2s',
+        transition: 'border 0.2s, background 0.3s',
         opacity: isDragOver ? 0.7 : 1,
       }}
     >
@@ -741,6 +762,16 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
               }}
             >
               {terminal?.title || defaultTitle}
+              {remoteStatus && (
+                <span style={{
+                  marginLeft: 8, background: '#ef4444', color: 'white',
+                  fontSize: 9, fontWeight: 'bold', padding: '1px 4px', borderRadius: 4,
+                  lineHeight: 1, textTransform: 'uppercase', display: 'inline-block',
+                  verticalAlign: 'middle', marginBottom: 2
+                }}>
+                  {remoteStatus}
+                </span>
+              )}
               {(terminal?.notificationCount ?? 0) > 0 && (
                 <span style={{
                   position: 'absolute', top: -6, right: -12, background: '#ef4444', color: 'white',
@@ -828,6 +859,19 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
       >
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
       </div>
+
+      <AnimatePresence>
+        {pendingPasteText && (
+          <ConfirmModal
+            title="Paste Large Amount of Text?"
+            message={`You are about to paste ${pendingPasteText.split('\r').length} lines (${pendingPasteText.length} characters) into the terminal. Are you sure you want to proceed?`}
+            confirmText="Paste Anyway"
+            cancelText="Cancel"
+            onConfirm={() => executePaste(pendingPasteText)}
+            onCancel={() => setPendingPasteText(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 })

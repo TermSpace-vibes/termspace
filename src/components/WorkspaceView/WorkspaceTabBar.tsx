@@ -1,8 +1,11 @@
 import React from 'react'
 import { useAppStore } from '../../store/useAppStore'
+import { WorkspaceTab } from '../../types'
+
+const EMPTY_TABS: WorkspaceTab[] = []
 
 export const WorkspaceTabBar: React.FC<{ workspaceId: string }> = ({ workspaceId }) => {
-  const tabs = useAppStore(s => s.tabsByWorkspace[workspaceId] || [])
+  const tabs = useAppStore(s => s.tabsByWorkspace[workspaceId] || EMPTY_TABS)
   const activeTabId = useAppStore(s => s.activeTabIds[workspaceId])
   const setActiveTabId = useAppStore(s => s.setActiveTabId)
   const createTab = useAppStore(s => s.createTab)
@@ -125,7 +128,13 @@ export const WorkspaceTabBar: React.FC<{ workspaceId: string }> = ({ workspaceId
         )
       })}
       <button 
-        onClick={() => createTab(workspaceId, 'New Tab')}
+        onClick={() => {
+          const maxNum = tabs.reduce((max, tab) => {
+            const match = tab.name.match(/^Tab (\d+)$/);
+            return match ? Math.max(max, parseInt(match[1], 10)) : max;
+          }, 0);
+          createTab(workspaceId, `Tab ${maxNum + 1}`);
+        }}
         style={{
           padding: '0 12px',
           color: 'var(--text-inactive, #5a5040)',
