@@ -12,6 +12,7 @@ Termspace is more than just a terminal—it is a fully integrated environment th
 
 - **Workspaces** — Named terminal sessions you can create, rename, and delete
 - **Split Pane Layout** — Arbitrary horizontal/vertical splits with resizable panels
+- **Workspace Tabs** — Group related panes into tabs within a workspace for better organization
 - **Terminal, Browser & Editor Panes** — Seamlessly mix terminal instances, an embedded web browser, and a code editor with a file tree and markdown preview
 - **Drag-and-Drop Reordering** — Drag terminals into new positions within a workspace
 - **Command Palette (Cmd+K)** — Quick action menu for navigating workspaces and managing panes
@@ -20,6 +21,7 @@ Termspace is more than just a terminal—it is a fully integrated environment th
 - **Context Menus** — Right-click terminals or workspaces for quick actions
 - **Toast Notifications** — Non-intrusive confirmation feedback for background actions
 - **Settings** — Configure shell, font size, themes, and keybindings
+- **State Persistence** — Restores your entire grid layout and sessions automatically across restarts
 
 ## Tech Stack
 
@@ -84,8 +86,8 @@ See [open issues](../../issues) for planned features and known bugs.
 | Command palette (Cmd+K) | ✅ Done |
 | Browser integration | ✅ Done |
 | Editor integration (File Tree & Markdown) | ✅ Done |
-| Terminal tabs overlay | 🗓 Planned |
-| State persistence | 🗓 Planned |
+| Terminal tabs overlay | ✅ Done |
+| State persistence | ✅ Done |
 
 ## Versioning
 
