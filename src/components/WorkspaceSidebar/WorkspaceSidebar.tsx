@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore } from '../../store/useAppStore'
 import { AddWorkspaceButton } from './AddWorkspaceButton'
 import { WorkspaceItem } from './WorkspaceItem'
@@ -8,6 +8,7 @@ import { ChevronRight, ChevronDown, Search } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { Workspace } from '../../types'
+import { getVersion } from '@tauri-apps/api/app'
 
 interface Props {
   isCollapsed: boolean
@@ -31,6 +32,11 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
 
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [searchQuery, setSearchQuery] = useState('')
+  const [appVersion, setAppVersion] = useState<string>('...')
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(console.error)
+  }, [])
 
   const initials = username.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
 
@@ -93,7 +99,7 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
           flexShrink: 0,
         }}
       >
-        <span data-tauri-drag-region>v0.5.0</span>
+        <span data-tauri-drag-region>v{appVersion}</span>
       </div>
 
       {!isCollapsed && (

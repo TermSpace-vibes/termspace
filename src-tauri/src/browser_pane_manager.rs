@@ -104,7 +104,7 @@ impl BrowserPaneManager {
         y: f64,
         w: f64,
         h: f64,
-        workspace_id: Option<&str>,
+        tab_id: Option<&str>,
         adblock_enabled: bool,
     ) -> Result<(), tauri::Error> {
         // Reject non-positive dimensions. This is a transient startup race
@@ -153,8 +153,8 @@ impl BrowserPaneManager {
         let download_app_handle = app_handle.clone();
         let download_id = id_owned.clone();
 
-        let data_dir_name = if let Some(ws_id) = workspace_id {
-            format!("browser_profile_{}", ws_id)
+        let data_dir_name = if let Some(t_id) = tab_id {
+            format!("browser_profile_{}", t_id)
         } else {
             "browser_profile".to_string()
         };

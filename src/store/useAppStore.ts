@@ -17,6 +17,8 @@ interface AppState {
   activeTabIds: Record<string, string>
   setActiveTabId: (workspaceId: string, tabId: string) => void
   createTab: (workspaceId: string, name: string) => Promise<void>
+  removeTab: (workspaceId: string, tabId: string) => Promise<void>
+  renameTab: (workspaceId: string, tabId: string, name: string) => Promise<void>
   setTabs: (workspaceId: string, tabs: WorkspaceTab[]) => void
   activeTerminalId: string | null
   toolingTerminalsByWorkspace: Record<string, Terminal[]>
@@ -235,7 +237,38 @@ export const useAppStore = create<AppState>()(
           const currentTabs = s.tabsByWorkspace[workspaceId] || []
           return {
             tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceId]: [...currentTabs, tab] },
-            activeTabIds: { ...s.activeTabIds, [workspaceId]: tab.id }
+            activeTabIds: { ...s.activeTabIds, [workspaceId]: tab.id },
+            terminalsByTab: { ...s.terminalsByTab, [tab.id]: [] },
+            browserPanesByTab: { ...s.browserPanesByTab, [tab.id]: [] },
+            editorPanesByTab: { ...s.editorPanesByTab, [tab.id]: [] },
+            kubernetesPanesByTab: { ...s.kubernetesPanesByTab, [tab.id]: [] }
+          }
+        })
+      },
+      removeTab: async (workspaceId, tabId) => {
+        await invoke('delete_tab', { id: tabId })
+        set((s) => {
+          const currentTabs = s.tabsByWorkspace[workspaceId] || []
+          const nextTabs = currentTabs.filter(t => t.id !== tabId)
+          let nextActiveId = s.activeTabIds[workspaceId]
+          if (nextActiveId === tabId) {
+            nextActiveId = nextTabs.length > 0 ? nextTabs[nextTabs.length - 1].id : ''
+          }
+          return {
+            tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceId]: nextTabs },
+            activeTabIds: { ...s.activeTabIds, [workspaceId]: nextActiveId }
+          }
+        })
+      },
+      renameTab: async (workspaceId, tabId, name) => {
+        await invoke('rename_tab', { id: tabId, name })
+        set((s) => {
+          const currentTabs = s.tabsByWorkspace[workspaceId] || []
+          return {
+            tabsByWorkspace: {
+              ...s.tabsByWorkspace,
+              [workspaceId]: currentTabs.map(t => t.id === tabId ? { ...t, name } : t)
+            }
           }
         })
       },

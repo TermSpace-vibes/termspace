@@ -30,7 +30,8 @@ export function CommandPalette({ onNewWorkspace, onOpenSettings, onNewTerminal, 
   const workspaces = useAppStore(s => s.workspaces)
   const setActiveWorkspaceId = useAppStore(s => s.setActiveWorkspaceId)
   const activeWorkspaceId = useAppStore(s => s.activeWorkspaceId)
-  const activeTabId = activeWorkspaceId ? useAppStore(s => s.activeTabIds[activeWorkspaceId]) || activeWorkspaceId : null
+  const activeTabIds = useAppStore(s => s.activeTabIds)
+  const activeTabId = activeWorkspaceId ? activeTabIds[activeWorkspaceId] || activeWorkspaceId : null
   const editorPanesByWorkspace = useAppStore(s => s.editorPanesByTab)
   const editorPanes = activeWorkspaceId ? (editorPanesByWorkspace[activeWorkspaceId] || EMPTY_ARRAY) : EMPTY_ARRAY
   const updateEditorPaneFile = useAppStore(s => s.updateEditorPaneFile)

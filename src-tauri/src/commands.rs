@@ -177,6 +177,18 @@ pub fn set_workspace_default_path(
 }
 
 #[tauri::command]
+pub fn rename_tab(id: String, name: String, db: tauri::State<'_, DbState>) -> Result<(), String> {
+    let conn = db.0.lock();
+    db::rename_tab(&conn, &id, &name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_tab(id: String, db: tauri::State<'_, DbState>) -> Result<(), String> {
+    let conn = db.0.lock();
+    db::delete_tab(&conn, &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn delete_workspace(
     db: State<DbState>,
     ntm: State<NativeTerminalManager>,
@@ -203,10 +215,21 @@ pub fn delete_workspace(
 }
 
 #[tauri::command]
-pub fn get_terminals(db: State<DbState>, workspace_id: String) -> Result<Vec<Terminal>, String> {
+pub fn get_tabs(db: State<DbState>, workspace_id: String) -> Result<Vec<db::WorkspaceTab>, String> {
+    db::get_tabs(&db.0.lock(), &workspace_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_tab(db: State<DbState>, workspace_id: String, name: String) -> Result<db::WorkspaceTab, String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    db::create_tab(&db.0.lock(), &id, &workspace_id, &name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_terminals(db: State<DbState>, tab_id: String) -> Result<Vec<Terminal>, String> {
     #[cfg(debug_assertions)]
-    println!(">>> RUST: get_terminals called for ws {}", workspace_id);
-    db::get_terminals(&db.0.lock(), &workspace_id).map_err(|e| e.to_string())
+    println!(">>> RUST: get_terminals called for tab {}", tab_id);
+    db::get_terminals(&db.0.lock(), &tab_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -270,14 +293,14 @@ pub fn spawn_terminal(
     app: AppHandle,
     db: State<DbState>,
     ntm: State<NativeTerminalManager>,
-    workspace_id: String,
+    tab_id: String,
     shell: String,
     cwd: String,
 ) -> Result<Terminal, String> {
     #[cfg(debug_assertions)]
     println!(
-        ">>> RUST: spawn_terminal called for ws {} (shell: {}, cwd: {})",
-        workspace_id, shell, cwd
+        ">>> RUST: spawn_terminal called for tab {} (shell: {}, cwd: {})",
+        tab_id, shell, cwd
     );
     // resolve empty cwd to user home directory
     let resolved_cwd = if cwd.is_empty() {
@@ -314,7 +337,7 @@ pub fn spawn_terminal(
         db::create_terminal_with_id(
             &conn,
             &temp_id,
-            &workspace_id,
+            &tab_id,
             &resolved_shell,
             &resolved_cwd,
         )
@@ -446,7 +469,7 @@ pub fn create_browser_pane(
     db: State<DbState>,
     browser: State<BrowserPaneManager>,
     app: tauri::AppHandle,
-    workspace_id: String,
+    tab_id: String,
     url: String,
     x: f64,
     y: f64,
@@ -470,7 +493,7 @@ pub fn create_browser_pane(
             y,
             w,
             h,
-            Some(&workspace_id),
+            Some(&tab_id),
             adblock_enabled,
         )
         .map_err(|e| {
@@ -478,7 +501,7 @@ pub fn create_browser_pane(
             println!(">>> RUST: create_browser_pane failed: {}", e);
             e.to_string()
         })?;
-    db::create_browser_pane(&db.0.lock(), &id, &workspace_id, &url).map_err(|e| {
+    db::create_browser_pane(&db.0.lock(), &id, &tab_id, &url).map_err(|e| {
         browser.destroy(&id); // rollback native webview if DB insert fails
         e.to_string()
     })
@@ -659,9 +682,9 @@ pub async fn browser_preconnect(url: String) -> Result<(), String> {
 #[tauri::command]
 pub fn get_browser_panes(
     db: State<DbState>,
-    workspace_id: String,
+    tab_id: String,
 ) -> Result<Vec<db::BrowserPane>, String> {
-    db::get_browser_panes(&db.0.lock(), &workspace_id).map_err(|e| e.to_string())
+    db::get_browser_panes(&db.0.lock(), &tab_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

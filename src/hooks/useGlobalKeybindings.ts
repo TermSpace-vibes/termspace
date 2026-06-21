@@ -7,7 +7,8 @@ import { Terminal as TerminalType } from '../types'
 export function useKeybindingHandler() {
   const settings = useAppStore((s) => s.settings)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
-  const activeTabId = activeWorkspaceId ? useAppStore((s) => s.activeTabIds[activeWorkspaceId]) || activeWorkspaceId : null
+  const activeTabIds = useAppStore((s) => s.activeTabIds)
+  const activeTabId = activeWorkspaceId ? activeTabIds[activeWorkspaceId] || activeWorkspaceId : null
   const activeTerminalId = useAppStore((s) => s.activeTerminalId)
   const terminalsByTab = useAppStore((s) => s.terminalsByTab)
   const addTerminal = useAppStore((s) => s.addTerminal)
