@@ -23,7 +23,7 @@ interface Props {
 export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace, onSelectWorkspace, onDeleteWorkspace, onEditWorkspace, onOpenSettings, onDuplicateWorkspace }: Props) {
   const workspaces = useAppStore((s) => s.workspaces)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
-  const terminalsByWorkspace = useAppStore((s) => s.terminalsByWorkspace)
+  const terminalsByWorkspace = useAppStore((s) => s.terminalsByTab)
   const showContextMenu = useAppStore((s) => s.showContextMenu)
   const username = useAppStore((s) => s.username) || 'User'
   const activatingWorkspaces = useAppStore((s) => s.activatingWorkspaces)

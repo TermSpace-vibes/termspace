@@ -53,7 +53,7 @@ export default function App() {
   const removeWorkspace = useAppStore((s) => s.removeWorkspace)
   const setActiveTerminalId = useAppStore((s) => s.setActiveTerminalId)
   const addEditorPane = useAppStore((s) => s.addEditorPane)
-  const editorPanesByWorkspace = useAppStore((s) => s.editorPanesByWorkspace)
+  const editorPanesByWorkspace = useAppStore((s) => s.editorPanesByTab)
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -119,9 +119,9 @@ export default function App() {
         label: 'Open Browser',
         onClick: () => {
           let targetWorkspaceId = useAppStore.getState().activeWorkspaceId;
-          const { terminalsByWorkspace } = useAppStore.getState();
+          const { terminalsByTab } = useAppStore.getState();
           
-          for (const [wsId, terminals] of Object.entries(terminalsByWorkspace)) {
+          for (const [wsId, terminals] of Object.entries(terminalsByTab)) {
             if (terminals.find(t => t.id === terminal_id)) {
               targetWorkspaceId = wsId;
               break;
@@ -132,7 +132,7 @@ export default function App() {
           
           const pane = {
             id: crypto.randomUUID(),
-            workspaceId: targetWorkspaceId,
+            tabId: targetWorkspaceId,
             url: `http://localhost:${port}`,
             position: 0,
             createdAt: Date.now()
@@ -165,26 +165,53 @@ export default function App() {
 
   async function spawnAndAddTerminal(workspaceId: string, targetId?: string, direction?: 'horizontal' | 'vertical') {
     const ws = useAppStore.getState().workspaces.find(w => w.id === workspaceId)
+    const state = useAppStore.getState()
+    let tabId = state.activeTabIds[workspaceId]
+    if (!tabId) {
+      const tabs = state.tabsByWorkspace[workspaceId]
+      if (tabs && tabs.length > 0) {
+        tabId = tabs[0].id
+        state.setActiveTabId(workspaceId, tabId)
+      } else {
+        tabId = workspaceId
+      }
+    }
     const terminal = await withTimeout(
-      invoke<Terminal>('spawn_terminal', { workspaceId, shell: useAppStore.getState().settings.defaultShell || 'zsh', cwd: ws?.defaultPath || '' }),
+      invoke<Terminal>('spawn_terminal', { tabId, shell: state.settings.defaultShell || 'zsh', cwd: ws?.defaultPath || '' }),
       5000,
       'spawn_terminal'
     );
-    addTerminal(workspaceId, terminal, targetId, direction)
+    addTerminal(tabId, terminal, targetId, direction)
     setActiveTerminalId(terminal.id)
   }
 
   async function activateWorkspace(workspaceId: string) {
     useAppStore.getState().setActivatingWorkspace(workspaceId, true);
     try {
+      // 1. Fetch tabs for workspace
+      let tabs = await withTimeout(invoke<import('./types').WorkspaceTab[]>('get_tabs', { workspaceId }), 5000, 'get_tabs').catch(() => []);
+      if (tabs.length === 0) {
+        // Create default tab if none exists
+        const defaultTab = await invoke<import('./types').WorkspaceTab>('create_tab', { workspaceId, name: 'Tab 1' }).catch(console.error);
+        if (defaultTab) tabs = [defaultTab];
+      }
+      useAppStore.getState().setTabs(workspaceId, tabs);
+      
+      let tabId = useAppStore.getState().activeTabIds[workspaceId];
+      if (!tabId && tabs.length > 0) {
+        tabId = tabs[0].id;
+        useAppStore.getState().setActiveTabId(workspaceId, tabId);
+      }
+      if (!tabId) return;
+
       const saved = await withTimeout(
-        invoke<Terminal[]>('get_terminals', { workspaceId }),
+        invoke<Terminal[]>('get_terminals', { tabId }),
         5000,
         'get_terminals'
       );
       
       const savedBrowserPanes = await withTimeout(
-        invoke<BrowserPane[]>('get_browser_panes', { workspaceId }),
+        invoke<BrowserPane[]>('get_browser_panes', { tabId }),
         5000,
         'get_browser_panes'
       ).catch((err) => {
@@ -192,12 +219,12 @@ export default function App() {
         return [] as BrowserPane[];
       });
 
-      const savedEditorPanes = useAppStore.getState().editorPanesByWorkspace[workspaceId] ?? [];
-      const savedKubernetesPanes = useAppStore.getState().kubernetesPanesByWorkspace[workspaceId] ?? [];
+      const savedEditorPanes = useAppStore.getState().editorPanesByTab[tabId] ?? [];
+      const savedKubernetesPanes = useAppStore.getState().kubernetesPanesByTab[tabId] ?? [];
 
       if (saved.length === 0 && savedBrowserPanes.length === 0 && savedEditorPanes.length === 0 && savedKubernetesPanes.length === 0) {
-        setTerminals(workspaceId, [])
-        useAppStore.getState().setBrowserPanes(workspaceId, [])
+        setTerminals(tabId, [])
+        useAppStore.getState().setBrowserPanes(tabId, [])
         await spawnAndAddTerminal(workspaceId)
         return
       }
@@ -208,7 +235,7 @@ export default function App() {
         await withTimeout(invoke<void>('respawn_terminal', { id: t.id, shell: t.shell, cwd: t.cwd || '' }), 5000, 'respawn_terminal');
         spawned.push(t)
       }
-      setTerminals(workspaceId, spawned)
+      setTerminals(tabId, spawned)
       if (spawned.length > 0) {
         setActiveTerminalId(spawned[0].id)
       }
@@ -229,7 +256,7 @@ export default function App() {
         });
         respawnedBrowserPanes.push(p)
       }
-      useAppStore.getState().setBrowserPanes(workspaceId, respawnedBrowserPanes)
+      useAppStore.getState().setBrowserPanes(tabId, respawnedBrowserPanes)
 
     } finally {
       useAppStore.getState().setActivatingWorkspace(workspaceId, false);
@@ -286,7 +313,7 @@ export default function App() {
     // Hide browser panes of old workspace before switching
     const prevId = prevActiveWorkspaceIdRef.current
     if (prevId) {
-      const prevPanes = useAppStore.getState().browserPanesByWorkspace[prevId] ?? []
+      const prevPanes = useAppStore.getState().browserPanesByTab[prevId] ?? []
       for (const pane of prevPanes) {
         invoke('hide_browser_pane', { id: pane.id }).catch(() => {})
       }
@@ -297,12 +324,12 @@ export default function App() {
     setActiveTerminalId(null)
 
     // Only activate if we haven't loaded/spawned terminals for this workspace yet
-    const currentTerminals = useAppStore.getState().terminalsByWorkspace[id]
+    const currentTerminals = useAppStore.getState().terminalsByTab[id]
     if (!currentTerminals) {
       await activateWorkspace(id)
     } else {
       // Already loaded — just re-show browser panes that were hidden on switch-away
-      const panes = useAppStore.getState().browserPanesByWorkspace[id] ?? []
+      const panes = useAppStore.getState().browserPanesByTab[id] ?? []
       for (const pane of panes) {
         invoke('show_browser_pane', { id: pane.id }).catch(() => {})
       }
@@ -346,7 +373,7 @@ export default function App() {
     // which picks the next available workspace; activate it here
     const next = useAppStore.getState().activeWorkspaceId
     if (next) {
-      const currentTerminals = useAppStore.getState().terminalsByWorkspace[next]
+      const currentTerminals = useAppStore.getState().terminalsByTab[next]
       if (!currentTerminals) {
         await activateWorkspace(next)
       }
@@ -378,15 +405,15 @@ export default function App() {
 
     addWorkspace(newWs);
 
-    const sourceTerminals = state.terminalsByWorkspace[id] || [];
-    const sourceBrowsers = state.browserPanesByWorkspace[id] || [];
-    const sourceEditors = state.editorPanesByWorkspace[id] || [];
+    const sourceTerminals = state.terminalsByTab[id] || [];
+    const sourceBrowsers = state.browserPanesByTab[id] || [];
+    const sourceEditors = state.editorPanesByTab[id] || [];
 
     const newTerminals: Terminal[] = [];
     for (const t of sourceTerminals) {
       try {
         const newTerminal = await invoke<Terminal>('spawn_terminal', {
-          workspaceId: newWs.id,
+          tabId: useAppStore.getState().activeTabIds[newWs.id] || newWs.id,
           shell: t.shell,
           cwd: t.cwd
         });
@@ -400,7 +427,7 @@ export default function App() {
     const newBrowsers: BrowserPane[] = sourceBrowsers.map(b => ({
       ...b,
       id: crypto.randomUUID(),
-      workspaceId: newWs.id,
+      tabId: useAppStore.getState().activeTabIds[newWs.id] || newWs.id,
       createdAt: Date.now()
     }));
     useAppStore.getState().setBrowserPanes(newWs.id, newBrowsers);
@@ -408,7 +435,7 @@ export default function App() {
     const newEditors: EditorPane[] = sourceEditors.map(e => ({
       ...e,
       id: Math.random().toString(36).substring(2, 9),
-      workspaceId: newWs.id,
+      tabId: useAppStore.getState().activeTabIds[newWs.id] || newWs.id,
       createdAt: Date.now()
     }));
     useAppStore.getState().setEditorPanes(newWs.id, newEditors);
@@ -438,9 +465,9 @@ export default function App() {
           if (activeWorkspaceId) {
             try {
               const activeTerminalId = useAppStore.getState().activeTerminalId;
-              const activeTerminal = activeTerminalId ? useAppStore.getState().terminalsByWorkspace[activeWorkspaceId]?.find(t => t.id === activeTerminalId) : null;
+              const activeTerminal = activeTerminalId ? useAppStore.getState().terminalsByTab[activeWorkspaceId]?.find(t => t.id === activeTerminalId) : null;
               const terminal = await invoke<Terminal>('spawn_terminal', {
-                workspaceId: activeWorkspaceId,
+                tabId: useAppStore.getState().activeTabIds[activeWorkspaceId] || activeWorkspaceId,
                 shell: useAppStore.getState().settings.defaultShell || 'zsh',
                 cwd: activeTerminal?.cwd || '',
               })
@@ -466,7 +493,7 @@ export default function App() {
             
             const pane: EditorPane = {
               id: Math.random().toString(36).substring(2, 9),
-              workspaceId: activeWorkspaceId,
+              tabId: useAppStore.getState().activeTabIds[activeWorkspaceId] || activeWorkspaceId,
               rootPath,
               openFiles: [],
               activeFilePath: null,

@@ -3,6 +3,7 @@ import { invoke } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
 import { Workspace, Terminal, BrowserPane as BrowserPaneType, EditorPane as EditorPaneType } from '../../types'
 import { TerminalGrid } from './TerminalGrid'
+import { WorkspaceTabBar } from './WorkspaceTabBar'
 import { ToolingPane } from './ToolingPane'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import { WorkspaceHeader } from './WorkspaceHeader'
@@ -60,8 +61,9 @@ const SystemStats = memo(() => {
 })
 
 export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
+  const activeTabId = useAppStore((s) => s.activeTabIds[workspace.id])
 
-  const rawTerminals = useAppStore((s) => s.terminalsByWorkspace[workspace.id])
+  const rawTerminals = useAppStore((s) => activeTabId ? s.terminalsByTab[activeTabId] : undefined)
   const terminals = rawTerminals ?? EMPTY_TERMINALS
   const isLoaded = rawTerminals !== undefined
   const isLoading = useAppStore((s) => s.activatingWorkspaces[workspace.id] === true)
@@ -70,17 +72,18 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
   const terminalToCloseId = useAppStore((s) => s.terminalToCloseId)
   const setTerminalToCloseId = useAppStore((s) => s.setTerminalToCloseId)
   const settings = useAppStore((s) => s.settings)
-  const browserPanes = useAppStore((s) => s.browserPanesByWorkspace[workspace.id] ?? EMPTY_BROWSER_PANES)
-  const editorPanes = useAppStore((s) => s.editorPanesByWorkspace[workspace.id] ?? EMPTY_EDITOR_PANES)
-  const kubernetesPanes = useAppStore((s) => s.kubernetesPanesByWorkspace[workspace.id] ?? EMPTY_KUBERNETES_PANES)
+  const browserPanes = useAppStore((s) => activeTabId ? s.browserPanesByTab[activeTabId] ?? EMPTY_BROWSER_PANES : EMPTY_BROWSER_PANES)
+  const editorPanes = useAppStore((s) => activeTabId ? s.editorPanesByTab[activeTabId] ?? EMPTY_EDITOR_PANES : EMPTY_EDITOR_PANES)
+  const kubernetesPanes = useAppStore((s) => activeTabId ? s.kubernetesPanesByTab[activeTabId] ?? EMPTY_KUBERNETES_PANES : EMPTY_KUBERNETES_PANES)
 
 
 
   const handleAddTerminal = useCallback(async (targetId?: string, direction?: 'horizontal' | 'vertical') => {
+    if (!activeTabId) return;
     try {
       const state = useAppStore.getState()
       const currentActiveId = state.activeTerminalId
-      const activeTerminal = currentActiveId ? state.terminalsByWorkspace[workspace.id]?.find(t => t.id === currentActiveId) : null;
+      const activeTerminal = currentActiveId ? state.terminalsByTab[activeTabId]?.find(t => t.id === currentActiveId) : null;
       
       let cwd = activeTerminal?.cwd || workspace.defaultPath || '';
       if (activeTerminal) {
@@ -93,18 +96,18 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
       }
 
       const terminal = await invoke<Terminal>('spawn_terminal', {
-        workspaceId: workspace.id,
+        tabId: activeTabId,
         shell: useAppStore.getState().settings.defaultShell || 'zsh',
         cwd,
       })
-      state.addTerminal(workspace.id, terminal, targetId, direction)
+      state.addTerminal(activeTabId, terminal, targetId, direction)
       state.setActiveTerminalId(terminal.id)
       state.addToast('Terminal created', 'info')
     } catch (err) {
       console.error('spawn_terminal failed:', err)
       useAppStore.getState().addToast('Failed to spawn terminal', 'error')
     }
-  }, [workspace.id])
+  }, [activeTabId, workspace.defaultPath])
 
   const executeCloseTerminal = useCallback(async (terminalId: string, action: 'save-editor' | 'save-ai' | 'leave') => {
 
@@ -123,11 +126,12 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
     }
     
     const state = useAppStore.getState()
-    state.removeTerminal(workspace.id, terminalId)
+    if (!activeTabId) return;
+    state.removeTerminal(activeTabId, terminalId)
     state.addToast('Terminal closed', 'info')
     
     if (state.activeTerminalId === terminalId) {
-      const remaining = state.terminalsByWorkspace[workspace.id]?.filter((t) => t.id !== terminalId) ?? []
+      const remaining = state.terminalsByTab[activeTabId]?.filter((t) => t.id !== terminalId) ?? []
       if (remaining.length > 0) {
         state.setActiveTerminalId(remaining[remaining.length - 1].id)
       } else {
@@ -161,17 +165,18 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
   }, [workspace.id, executeCloseTerminal])
 
   const handleAddBrowserPane = useCallback(async (targetId?: string, direction?: 'horizontal' | 'vertical', initialUrl?: string) => {
+    if (!activeTabId) return;
     try {
       const state = useAppStore.getState()
       const adblockEnabled = state.settings.adblockEnabled ?? true
 
       const pane = await invoke<BrowserPaneType>('create_browser_pane', {
-        workspaceId: workspace.id,
+        tabId: activeTabId,
         url: initialUrl || 'termspace://newtab',
         x: -10000, y: -10000, w: 800, h: 600,
         adblockEnabled,
       })
-      state.addBrowserPane(workspace.id, pane, targetId, direction)
+      state.addBrowserPane(activeTabId, pane, targetId, direction)
       state.setActiveTerminalId(pane.id)
       state.addToast('Browser pane created', 'info')
     } catch (err) {
@@ -182,13 +187,14 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
 
   const handleCloseBrowserPane = useCallback(async (browserPaneId: string) => {
     try {
+      if (!activeTabId) return;
       await invoke('destroy_browser_pane', { id: browserPaneId })
       const state = useAppStore.getState()
-      state.removeBrowserPane(workspace.id, browserPaneId)
+      state.removeBrowserPane(activeTabId, browserPaneId)
       state.addToast('Browser pane closed', 'info')
       if (state.activeTerminalId === browserPaneId) {
-        const remainingTerminals = state.terminalsByWorkspace[workspace.id] ?? []
-        const remainingBrowsers = state.browserPanesByWorkspace[workspace.id] ?? []
+        const remainingTerminals = state.terminalsByTab[activeTabId] ?? []
+        const remainingBrowsers = state.browserPanesByTab[activeTabId] ?? []
         const remaining = [...remainingTerminals, ...remainingBrowsers].filter(p => p.id !== browserPaneId)
         state.setActiveTerminalId(remaining.length > 0 ? remaining[remaining.length - 1].id : null)
       }
@@ -199,14 +205,15 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
   }, [workspace.id])
 
   const handleAddEditorPane = useCallback(async (targetId?: string, direction?: 'horizontal' | 'vertical') => {
+    if (!activeTabId) return;
     try {
       const selectedPath = await open({ directory: true, multiple: false })
       const state = useAppStore.getState()
-      const currentEditors = state.editorPanesByWorkspace[workspace.id] ?? []
+      const currentEditors = state.editorPanesByTab[activeTabId] ?? []
       
       const pane: EditorPaneType = {
         id: Math.random().toString(36).substring(2, 9),
-        workspaceId: workspace.id,
+        tabId: activeTabId,
         rootPath: selectedPath ?? null,
         openFiles: [],
         activeFilePath: null,
@@ -216,7 +223,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
         createdAt: Date.now()
       }
       
-      state.addEditorPane(workspace.id, pane, targetId, direction)
+      state.addEditorPane(activeTabId, pane, targetId, direction)
       state.setActiveTerminalId(pane.id)
       state.addToast('Editor opened', 'info')
     } catch (err) {
@@ -226,18 +233,19 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
   }, [workspace.id])
 
   const handleAddKubernetesPane = useCallback((targetId?: string, direction?: 'horizontal' | 'vertical') => {
+    if (!activeTabId) return;
     const state = useAppStore.getState()
-    const currentK8s = state.kubernetesPanesByWorkspace[workspace.id] ?? []
+    const currentK8s = state.kubernetesPanesByTab[activeTabId] ?? []
     const pane: import('../../types').KubernetesPane = {
       id: Math.random().toString(36).substring(2, 9),
-      workspaceId: workspace.id,
+      tabId: activeTabId,
       position: currentK8s.length,
       createdAt: Date.now()
     }
-    state.addKubernetesPane(workspace.id, pane, targetId, direction)
+    state.addKubernetesPane(activeTabId, pane, targetId, direction)
     state.setActiveTerminalId(pane.id)
     state.addToast('Kubernetes pane opened', 'info')
-  }, [workspace.id])
+  }, [activeTabId])
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -254,13 +262,14 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
         onCloseTerminal={handleCloseTerminal}
         showTabBar={settings.showTabBar !== false}
       />
+      <WorkspaceTabBar workspaceId={workspace.id} />
       {terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || kubernetesPanes.length > 0 ? (
         <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
           <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
             <Panel defaultSize={75} minSize={20}>
               <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
                 <TerminalGrid
-                  workspaceId={workspace.id}
+                  workspaceId={activeTabId!}
                   activeTerminalId={activeTerminalId}
                   onFocus={setActiveTerminalId}
                   onClose={handleCloseTerminal}
@@ -275,7 +284,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
               <>
                 <Separator style={{ height: 4, cursor: 'row-resize', background: 'var(--border-inactive)' }} />
                 <Panel defaultSize={25} minSize={10}>
-                  <ToolingPane workspaceId={workspace.id} />
+                  <ToolingPane workspaceId={activeTabId!} />
                 </Panel>
               </>
             )}

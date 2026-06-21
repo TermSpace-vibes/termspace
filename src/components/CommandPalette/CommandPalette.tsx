@@ -30,7 +30,8 @@ export function CommandPalette({ onNewWorkspace, onOpenSettings, onNewTerminal, 
   const workspaces = useAppStore(s => s.workspaces)
   const setActiveWorkspaceId = useAppStore(s => s.setActiveWorkspaceId)
   const activeWorkspaceId = useAppStore(s => s.activeWorkspaceId)
-  const editorPanesByWorkspace = useAppStore(s => s.editorPanesByWorkspace)
+  const activeTabId = activeWorkspaceId ? useAppStore(s => s.activeTabIds[activeWorkspaceId]) || activeWorkspaceId : null
+  const editorPanesByWorkspace = useAppStore(s => s.editorPanesByTab)
   const editorPanes = activeWorkspaceId ? (editorPanesByWorkspace[activeWorkspaceId] || EMPTY_ARRAY) : EMPTY_ARRAY
   const updateEditorPaneFile = useAppStore(s => s.updateEditorPaneFile)
   
@@ -77,7 +78,7 @@ export function CommandPalette({ onNewWorkspace, onOpenSettings, onNewTerminal, 
               // Find the pane that has this file or the first editor pane
               const targetPane = editorPanes.find(p => p.openFiles.includes(m.path)) || editorPanes[0]
               if (targetPane && activeWorkspaceId) {
-                updateEditorPaneFile(activeWorkspaceId, targetPane.id, m.path, m.line_number)
+                updateEditorPaneFile(activeTabId!, targetPane.id, m.path, m.line_number)
               }
             }
           }))
@@ -96,7 +97,7 @@ export function CommandPalette({ onNewWorkspace, onOpenSettings, onNewTerminal, 
               onSelect: () => {
                 const targetPane = editorPanes[0]
                 if (targetPane && activeWorkspaceId) {
-                  updateEditorPaneFile(activeWorkspaceId, targetPane.id, `${targetPane.rootPath}/${f}`)
+                  updateEditorPaneFile(activeTabId!, targetPane.id, `${targetPane.rootPath}/${f}`)
                 }
               }
             }))

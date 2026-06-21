@@ -49,8 +49,8 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, acti
   const [maximizedTerminalId, setMaximizedTerminalId] = useState<string | null>(null)
   const reorderTerminals = useAppStore((s) => s.reorderTerminals)
   const updateLayoutSizes = useAppStore((s) => s.updateLayoutSizes)
-  const layout = useAppStore((s) => s.layoutsByWorkspace[workspaceId])
-  const browserPanes = useAppStore((s) => s.browserPanesByWorkspace[workspaceId] ?? EMPTY_BROWSER_PANES)
+  const layout = useAppStore((s) => s.layoutsByTab[workspaceId])
+  const browserPanes = useAppStore((s) => s.browserPanesByTab[workspaceId] ?? EMPTY_BROWSER_PANES)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
   const terminalRenderer = useAppStore((s) => s.settings.terminalRenderer) || 'native'
   

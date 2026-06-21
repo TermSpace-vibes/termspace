@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
-import { Workspace, Terminal, BrowserPane, EditorPane, LayoutNode, LayoutDirection, Settings, GitStatus, WorkspaceTab } from '../types'
+import { Workspace, WorkspaceTab, Terminal, BrowserPane, EditorPane, LayoutNode, LayoutDirection, Settings, GitStatus } from '../types'
 import {
   addTerminalToLayout, removeTerminalFromLayout, swapTerminalsInLayout,
   updateSplitSizes,
@@ -13,21 +13,18 @@ import {
 interface AppState {
   workspaces: Workspace[]
   activeWorkspaceId: string | null
-  tabsByWorkspace: Record<string, WorkspaceTab[]>
-  activeTabIds: Record<string, string>
-  setActiveTabId: (workspaceId: string, tabId: string) => void
-  createTab: (workspaceId: string, name: string) => Promise<void>
-  setTabs: (workspaceId: string, tabs: WorkspaceTab[]) => void
   activeTerminalId: string | null
   toolingTerminalsByWorkspace: Record<string, Terminal[]>
   activeToolingTerminalId: string | null
+  tabsByWorkspace: Record<string, WorkspaceTab[]>
+  activeTabId: string | null
   terminalsByTab: Record<string, Terminal[]>
   browserPanesByTab: Record<string, BrowserPane[]>
   editorPanesByTab: Record<string, EditorPane[]>
   kubernetesPanesByTab: Record<string, import('../types').KubernetesPane[]>
   layoutsByTab: Record<string, LayoutNode | null>
   gitStatusByWorkspace: Record<string, GitStatus>
-  activeFileByTab: Record<string, string | null>
+  activeFileByWorkspace: Record<string, string | null>
   settings: Settings
   contextMenu: {
     x: number
@@ -43,6 +40,10 @@ interface AppState {
   setUsername: (name: string | null) => void
   
   setWorkspaces: (workspaces: Workspace[]) => void
+  setTabs: (workspaceId: string, tabs: WorkspaceTab[]) => void
+  addTab: (workspaceId: string, tab: WorkspaceTab) => void
+  removeTab: (workspaceId: string, tabId: string) => void
+  setActiveTabId: (id: string | null) => void
   addWorkspace: (workspace: Workspace) => void
   updateWorkspace: (workspace: Workspace) => void
   removeWorkspace: (id: string) => void
@@ -68,14 +69,14 @@ interface AppState {
   addKubernetesPane: (tabId: string, pane: import('../types').KubernetesPane, targetId?: string, direction?: LayoutDirection) => void
   removeKubernetesPane: (tabId: string, kubernetesPaneId: string) => void
   updateKubernetesPane: (tabId: string, kubernetesPaneId: string, updates: Partial<import('../types').KubernetesPane>) => void
-  updateEditorPaneFile: (tabId: string, editorPaneId: string, openFilePath: string | null, lineNumber?: number) => void
-  closeEditorFile: (tabId: string, editorPaneId: string, filePath: string) => void
+  updateEditorPaneFile: (workspaceId: string, tabId: string, editorPaneId: string, openFilePath: string | null, lineNumber?: number) => void
+  closeEditorFile: (workspaceId: string, tabId: string, editorPaneId: string, filePath: string) => void
   updateEditorPaneLayout: (tabId: string, editorPaneId: string, layout: Partial<EditorPane>) => void
   splitEditor: (tabId: string, editorPaneId: string, direction: LayoutDirection) => void
   reorderTerminals: (tabId: string, sourceTerminalId: string, targetTerminalId: string) => void
   updateLayoutSizes: (tabId: string, splitId: string, sizes: number[]) => void
   setActiveTerminalId: (id: string | null) => void
-  setActiveFile: (tabId: string, filePath: string | null) => void
+  setActiveFile: (workspaceId: string, filePath: string | null) => void
   updateSettings: (settings: Partial<Settings>) => void
   showContextMenu: (x: number, y: number, items: NonNullable<AppState['contextMenu']>['items']) => void
   hideContextMenu: () => void
@@ -97,6 +98,8 @@ interface AppState {
   activatingWorkspaces: Record<string, boolean>
   setActivatingWorkspace: (id: string, activating: boolean) => void
 
+  repairWorkspaceLayout: (tabId: string) => void
+
   terminalToCloseId: { workspaceId: string, terminalId: string } | null
   setTerminalToCloseId: (data: { workspaceId: string, terminalId: string } | null) => void
 
@@ -115,18 +118,18 @@ export const useAppStore = create<AppState>()(
     (set) => ({
       workspaces: [],
       activeWorkspaceId: null,
-      tabsByWorkspace: {},
-      activeTabIds: {},
       activeTerminalId: null,
       toolingTerminalsByWorkspace: {},
       activeToolingTerminalId: null,
+      tabsByWorkspace: {},
+      activeTabId: null,
       terminalsByTab: {},
       browserPanesByTab: {},
       editorPanesByTab: {},
       kubernetesPanesByTab: {},
       layoutsByTab: {},
       gitStatusByWorkspace: {},
-      activeFileByTab: {},
+      activeFileByWorkspace: {},
       contextMenu: null,
       browserHistory: [],
       bookmarks: [],
@@ -227,22 +230,10 @@ export const useAppStore = create<AppState>()(
       },
 
       setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
-      setActiveTabId: (workspaceId, tabId) => set((s) => ({ activeTabIds: { ...s.activeTabIds, [workspaceId]: tabId } })),
-      setTabs: (workspaceId, tabs) => set((s) => ({ tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceId]: tabs } })),
-      createTab: async (workspaceId, name) => {
-        const tab = await invoke<WorkspaceTab>('create_tab', { workspaceId, name })
-        set((s) => {
-          const currentTabs = s.tabsByWorkspace[workspaceId] || []
-          return {
-            tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceId]: [...currentTabs, tab] },
-            activeTabIds: { ...s.activeTabIds, [workspaceId]: tab.id }
-          }
-        })
-      },
 
-      setTerminals: (tabId, terminals) =>
+      setTerminals: (workspaceId, terminals) =>
         set((s) => {
-          let layout = s.layoutsByTab[tabId] ?? null
+          let layout = s.layoutsByWorkspace[workspaceId] ?? null
           
           const validIds = new Set(terminals.map(t => t.id))
           const cleanLayout = (node: LayoutNode | null): LayoutNode | null => {
@@ -271,94 +262,99 @@ export const useAppStore = create<AppState>()(
           }
 
           return {
-            terminalsByTab: { ...s.terminalsByTab, [tabId]: terminals },
-            layoutsByTab: { ...s.layoutsByTab, [tabId]: layout },
+            terminalsByWorkspace: { ...s.terminalsByWorkspace, [workspaceId]: terminals },
+            layoutsByWorkspace: { ...s.layoutsByWorkspace, [workspaceId]: layout },
           }
         }),
 
-      addTerminal: (tabId, terminal, targetId, direction) =>
+      addTerminal: (workspaceId, terminal, targetId, direction) =>
         set((s) => {
-          const layout = s.layoutsByTab[tabId] ?? null
+          const layout = s.layoutsByWorkspace[workspaceId] ?? null
           return {
-            terminalsByTab: {
-              ...s.terminalsByTab,
-              [tabId]: [...(s.terminalsByTab[tabId] ?? []), terminal],
+            terminalsByWorkspace: {
+              ...s.terminalsByWorkspace,
+              [workspaceId]: [...(s.terminalsByWorkspace[workspaceId] ?? []), terminal],
             },
-            layoutsByTab: {
-              ...s.layoutsByTab,
-              [tabId]: addTerminalToLayout(layout, terminal.id, targetId, direction),
+            layoutsByWorkspace: {
+              ...s.layoutsByWorkspace,
+              [workspaceId]: addTerminalToLayout(layout, terminal.id, targetId, direction),
             }
           }
         }),
 
-      removeTerminal: (tabId, terminalId) =>
+      removeTerminal: (workspaceId, terminalId) =>
         set((s) => {
-          const layout = s.layoutsByTab[tabId] ?? null
+          const layout = s.layoutsByWorkspace[workspaceId] ?? null
           return {
-            terminalsByTab: {
-              ...s.terminalsByTab,
-              [tabId]: (s.terminalsByTab[tabId] ?? []).filter(
+            terminalsByWorkspace: {
+              ...s.terminalsByWorkspace,
+              [workspaceId]: (s.terminalsByWorkspace[workspaceId] ?? []).filter(
                 (t) => t.id !== terminalId,
               ),
             },
-            layoutsByTab: {
-              ...s.layoutsByTab,
-              [tabId]: removeTerminalFromLayout(layout, terminalId),
+            layoutsByWorkspace: {
+              ...s.layoutsByWorkspace,
+              [workspaceId]: removeTerminalFromLayout(layout, terminalId),
             }
           }
         }),
 
-      renameTerminal: (tabId, terminalId, title) =>
+      renameTerminal: (workspaceId, terminalId, title) =>
         set((s) => {
           return {
-            terminalsByTab: {
-              ...s.terminalsByTab,
-              [tabId]: (s.terminalsByTab[tabId] ?? []).map((t) =>
+            terminalsByWorkspace: {
+              ...s.terminalsByWorkspace,
+              [workspaceId]: (s.terminalsByWorkspace[workspaceId] ?? []).map((t) =>
                 t.id === terminalId ? { ...t, title } : t
               ),
             },
           }
         }),
 
-      updateTerminalCwd: (tabId, terminalId, cwd) =>
+      updateTerminalCwd: (workspaceId, terminalId, cwd) =>
         set((s) => ({
-          terminalsByTab: {
-            ...s.terminalsByTab,
-            [tabId]: (s.terminalsByTab[tabId] || []).map((t) =>
+          terminalsByWorkspace: {
+            ...s.terminalsByWorkspace,
+            [workspaceId]: (s.terminalsByWorkspace[workspaceId] || []).map((t) =>
               t.id === terminalId ? { ...t, cwd } : t
             ),
           },
         })),
 
-      setTerminalNotification: (tabId, terminalId, count) =>
+      setTerminalNotification: (workspaceId, terminalId, count) =>
         set((s) => {
-          const workspaceTerminals = s.terminalsByTab[tabId] || []
+          const workspaceTerminals = s.terminalsByWorkspace[workspaceId] || []
           const nextTerminals = workspaceTerminals.map((t) =>
             t.id === terminalId ? { ...t, notificationCount: count } : t
           )
           
+          const totalNotifications = nextTerminals.reduce((sum, t) => sum + (t.notificationCount || 0), 0)
+          const nextWorkspaces = s.workspaces.map(w => 
+            w.id === workspaceId ? { ...w, notificationCount: totalNotifications } : w
+          )
+
           return {
-            terminalsByTab: {
-              ...s.terminalsByTab,
-              [tabId]: nextTerminals,
-            }
-            // Note: workspace total notification count is disabled until we map tabs to workspaces
+            terminalsByWorkspace: {
+              ...s.terminalsByWorkspace,
+              [workspaceId]: nextTerminals,
+            },
+            workspaces: nextWorkspaces
           }
         }),
 
-      setTerminalExecutionState: (tabId, terminalId, executionState) =>
+      setTerminalExecutionState: (workspaceId, terminalId, executionState) =>
         set((s) => ({
-          terminalsByTab: {
-            ...s.terminalsByTab,
-            [tabId]: (s.terminalsByTab[tabId] || []).map((t) =>
+          terminalsByWorkspace: {
+            ...s.terminalsByWorkspace,
+            [workspaceId]: (s.terminalsByWorkspace[workspaceId] || []).map((t) =>
               t.id === terminalId ? { ...t, executionState } : t
             ),
           },
         })),
 
-      setBrowserPanes: (tabId, panes) =>
+      setBrowserPanes: (workspaceId, panes) =>
         set((s) => {
-          let layout = s.layoutsByTab[tabId] ?? null
+          let layout = s.layoutsByWorkspace[workspaceId] ?? null
           const validIds = new Set(panes.map(p => p.id))
           const cleanLayout = (node: LayoutNode | null): LayoutNode | null => {
             if (!node) return null
@@ -393,55 +389,55 @@ export const useAppStore = create<AppState>()(
             }
           }
           return {
-            browserPanesByTab: { ...s.browserPanesByTab, [tabId]: panes },
-            layoutsByTab: { ...s.layoutsByTab, [tabId]: layout },
+            browserPanesByWorkspace: { ...s.browserPanesByWorkspace, [workspaceId]: panes },
+            layoutsByWorkspace: { ...s.layoutsByWorkspace, [workspaceId]: layout },
           }
         }),
 
-      addBrowserPane: (tabId, pane, targetId, direction) =>
+      addBrowserPane: (workspaceId, pane, targetId, direction) =>
         set((s) => {
-          const layout = s.layoutsByTab[tabId] ?? null
+          const layout = s.layoutsByWorkspace[workspaceId] ?? null
           return {
-            browserPanesByTab: {
-              ...s.browserPanesByTab,
-              [tabId]: [...(s.browserPanesByTab[tabId] ?? []), pane],
+            browserPanesByWorkspace: {
+              ...s.browserPanesByWorkspace,
+              [workspaceId]: [...(s.browserPanesByWorkspace[workspaceId] ?? []), pane],
             },
-            layoutsByTab: {
-              ...s.layoutsByTab,
-              [tabId]: addBrowserPaneToLayout(layout, pane.id, targetId, direction),
+            layoutsByWorkspace: {
+              ...s.layoutsByWorkspace,
+              [workspaceId]: addBrowserPaneToLayout(layout, pane.id, targetId, direction),
             },
           }
         }),
-      updateBrowserPane: (tabId, paneId, updates) =>
+      updateBrowserPane: (workspaceId, paneId, updates) =>
         set((s) => ({
-          browserPanesByTab: {
-            ...s.browserPanesByTab,
-            [tabId]: (s.browserPanesByTab[tabId] ?? []).map((p) =>
+          browserPanesByWorkspace: {
+            ...s.browserPanesByWorkspace,
+            [workspaceId]: (s.browserPanesByWorkspace[workspaceId] ?? []).map((p) =>
               p.id === paneId ? { ...p, ...updates } : p
             ),
           },
         })),
 
-      removeBrowserPane: (tabId, browserPaneId) =>
+      removeBrowserPane: (workspaceId, browserPaneId) =>
         set((s) => {
-          const layout = s.layoutsByTab[tabId] ?? null
+          const layout = s.layoutsByWorkspace[workspaceId] ?? null
           return {
-            browserPanesByTab: {
-              ...s.browserPanesByTab,
-              [tabId]: (s.browserPanesByTab[tabId] ?? []).filter(
+            browserPanesByWorkspace: {
+              ...s.browserPanesByWorkspace,
+              [workspaceId]: (s.browserPanesByWorkspace[workspaceId] ?? []).filter(
                 (p) => p.id !== browserPaneId,
               ),
             },
-            layoutsByTab: {
-              ...s.layoutsByTab,
-              [tabId]: removeBrowserPaneFromLayout(layout, browserPaneId),
+            layoutsByWorkspace: {
+              ...s.layoutsByWorkspace,
+              [workspaceId]: removeBrowserPaneFromLayout(layout, browserPaneId),
             },
           }
         }),
 
-      setEditorPanes: (tabId, panes) =>
+      setEditorPanes: (workspaceId, panes) =>
         set((s) => {
-          let layout = s.layoutsByTab[tabId] ?? null
+          let layout = s.layoutsByWorkspace[workspaceId] ?? null
           const validIds = new Set(panes.map(p => p.id))
           const cleanLayout = (node: LayoutNode | null): LayoutNode | null => {
             if (!node) return null
@@ -476,98 +472,98 @@ export const useAppStore = create<AppState>()(
             }
           }
           return {
-            editorPanesByTab: { ...s.editorPanesByTab, [tabId]: panes },
-            layoutsByTab: { ...s.layoutsByTab, [tabId]: layout },
+            editorPanesByWorkspace: { ...s.editorPanesByWorkspace, [workspaceId]: panes },
+            layoutsByWorkspace: { ...s.layoutsByWorkspace, [workspaceId]: layout },
           }
         }),
 
-      addEditorPane: (tabId, pane, targetId, direction) =>
+      addEditorPane: (workspaceId, pane, targetId, direction) =>
         set((s) => {
-          const layout = s.layoutsByTab[tabId] ?? null
+          const layout = s.layoutsByWorkspace[workspaceId] ?? null
           return {
-            editorPanesByTab: {
-              ...s.editorPanesByTab,
-              [tabId]: [...(s.editorPanesByTab[tabId] ?? []), pane],
+            editorPanesByWorkspace: {
+              ...s.editorPanesByWorkspace,
+              [workspaceId]: [...(s.editorPanesByWorkspace[workspaceId] ?? []), pane],
             },
-            layoutsByTab: {
-              ...s.layoutsByTab,
-              [tabId]: addEditorPaneToLayout(layout, pane.id, targetId, direction),
+            layoutsByWorkspace: {
+              ...s.layoutsByWorkspace,
+              [workspaceId]: addEditorPaneToLayout(layout, pane.id, targetId, direction),
             },
           }
         }),
 
-      removeEditorPane: (tabId, editorPaneId) =>
+      removeEditorPane: (workspaceId, editorPaneId) =>
         set((s) => {
-          const layout = s.layoutsByTab[tabId] ?? null
-          const remaining = (s.editorPanesByTab[tabId] ?? []).filter(
+          const layout = s.layoutsByWorkspace[workspaceId] ?? null
+          const remaining = (s.editorPanesByWorkspace[workspaceId] ?? []).filter(
             (p) => p.id !== editorPaneId,
           )
           return {
-            editorPanesByTab: {
-              ...s.editorPanesByTab,
-              [tabId]: remaining,
+            editorPanesByWorkspace: {
+              ...s.editorPanesByWorkspace,
+              [workspaceId]: remaining,
             },
-            layoutsByTab: {
-              ...s.layoutsByTab,
-              [tabId]: removeEditorPaneFromLayout(layout, editorPaneId),
+            layoutsByWorkspace: {
+              ...s.layoutsByWorkspace,
+              [workspaceId]: removeEditorPaneFromLayout(layout, editorPaneId),
             },
             ...(remaining.length === 0 && { settings: { ...s.settings, showToolingPane: false } }),
           }
         }),
 
-      addKubernetesPane: (tabId, pane, targetId, direction) =>
+      addKubernetesPane: (workspaceId, pane, targetId, direction) =>
         set((s) => {
-          const layout = s.layoutsByTab[tabId] ?? null
+          const layout = s.layoutsByWorkspace[workspaceId] ?? null
           return {
-            kubernetesPanesByTab: {
-              ...s.kubernetesPanesByTab,
-              [tabId]: [...(s.kubernetesPanesByTab[tabId] ?? []), pane],
+            kubernetesPanesByWorkspace: {
+              ...s.kubernetesPanesByWorkspace,
+              [workspaceId]: [...(s.kubernetesPanesByWorkspace[workspaceId] ?? []), pane],
             },
-            layoutsByTab: {
-              ...s.layoutsByTab,
-              [tabId]: addKubernetesPaneToLayout(layout, pane.id, targetId, direction),
+            layoutsByWorkspace: {
+              ...s.layoutsByWorkspace,
+              [workspaceId]: addKubernetesPaneToLayout(layout, pane.id, targetId, direction),
             },
           }
         }),
 
-      removeKubernetesPane: (tabId, kubernetesPaneId) =>
+      removeKubernetesPane: (workspaceId, kubernetesPaneId) =>
         set((s) => {
-          const layout = s.layoutsByTab[tabId] ?? null
+          const layout = s.layoutsByWorkspace[workspaceId] ?? null
           return {
-            kubernetesPanesByTab: {
-              ...s.kubernetesPanesByTab,
-              [tabId]: (s.kubernetesPanesByTab[tabId] ?? []).filter(
+            kubernetesPanesByWorkspace: {
+              ...s.kubernetesPanesByWorkspace,
+              [workspaceId]: (s.kubernetesPanesByWorkspace[workspaceId] ?? []).filter(
                 (p) => p.id !== kubernetesPaneId,
               ),
             },
-            layoutsByTab: {
-              ...s.layoutsByTab,
-              [tabId]: removeKubernetesPaneFromLayout(layout, kubernetesPaneId),
+            layoutsByWorkspace: {
+              ...s.layoutsByWorkspace,
+              [workspaceId]: removeKubernetesPaneFromLayout(layout, kubernetesPaneId),
             },
           }
         }),
 
-      updateKubernetesPane: (tabId, kubernetesPaneId, updates) =>
+      updateKubernetesPane: (workspaceId, kubernetesPaneId, updates) =>
         set((s) => {
           return {
-            kubernetesPanesByTab: {
-              ...s.kubernetesPanesByTab,
-              [tabId]: (s.kubernetesPanesByTab[tabId] ?? []).map((p) =>
+            kubernetesPanesByWorkspace: {
+              ...s.kubernetesPanesByWorkspace,
+              [workspaceId]: (s.kubernetesPanesByWorkspace[workspaceId] ?? []).map((p) =>
                 p.id === kubernetesPaneId ? { ...p, ...updates } : p
               ),
             },
           }
         }),
 
-      updateEditorPaneFile: (tabId: string, editorPaneId: string, openFilePath: string | null, lineNumber?: number) =>
+      updateEditorPaneFile: (workspaceId: string, tabId: string, editorPaneId: string, openFilePath: string | null, lineNumber?: number) =>
         set((s) => ({
-          activeFileByTab: {
-            ...s.activeFileByTab,
-            [tabId]: openFilePath
+          activeFileByWorkspace: {
+            ...s.activeFileByWorkspace,
+            [workspaceId]: openFilePath
           },
-          editorPanesByTab: {
-            ...s.editorPanesByTab,
-            [tabId]: (s.editorPanesByTab[tabId] ?? []).map((p) => {
+          editorPanesByWorkspace: {
+            ...s.editorPanesByWorkspace,
+            [workspaceId]: (s.editorPanesByWorkspace[workspaceId] ?? []).map((p) => {
               if (p.id !== editorPaneId) return p
               if (!openFilePath) return { ...p, activeFilePath: null, jumpToLine: null }
               const newOpenFiles = p.openFiles.includes(openFilePath) ? p.openFiles : [...p.openFiles, openFilePath]
@@ -583,9 +579,9 @@ export const useAppStore = create<AppState>()(
           },
         })),
 
-      closeEditorFile: (tabId, editorPaneId, filePath) =>
+      closeEditorFile: (workspaceId, editorPaneId, filePath) =>
         set((s) => {
-          const workspaceEditors = s.editorPanesByTab[tabId] ?? []
+          const workspaceEditors = s.editorPanesByWorkspace[workspaceId] ?? []
           const nextEditors = workspaceEditors.map((p) => {
             if (p.id !== editorPaneId) return p
             const newOpenFiles = p.openFiles.filter(f => f !== filePath)
@@ -595,20 +591,20 @@ export const useAppStore = create<AppState>()(
           })
           
           // Update activeFileByWorkspace if the closed file was the globally active one
-          let nextActiveFile = s.activeFileByTab[tabId]
+          let nextActiveFile = s.activeFileByWorkspace[workspaceId]
           if (nextActiveFile === filePath) {
              const activeEditor = nextEditors.find(e => e.id === editorPaneId)
              nextActiveFile = activeEditor?.activeFilePath ?? null
           }
 
           return {
-            editorPanesByTab: {
-              ...s.editorPanesByTab,
-              [tabId]: nextEditors
+            editorPanesByWorkspace: {
+              ...s.editorPanesByWorkspace,
+              [workspaceId]: nextEditors
             },
-            activeFileByTab: {
-              ...s.activeFileByTab,
-              [tabId]: nextActiveFile
+            activeFileByWorkspace: {
+              ...s.activeFileByWorkspace,
+              [workspaceId]: nextActiveFile
             }
           }
         }),
@@ -617,80 +613,80 @@ export const useAppStore = create<AppState>()(
         set((s) => {
           fetch('http://localhost:1420/__log_error', { method: 'POST', body: 'updateEditorPaneLayout: ' + JSON.stringify(layout) })
           return {
-            editorPanesByTab: {
-              ...s.editorPanesByTab,
-              [tabId]: (s.editorPanesByTab[tabId] ?? []).map((p) => 
+            editorPanesByWorkspace: {
+              ...s.editorPanesByWorkspace,
+              [workspaceId]: (s.editorPanesByWorkspace[workspaceId] ?? []).map((p) => 
                 p.id === editorPaneId ? { ...p, ...layout } : p
               )
             }
           }
         }),
 
-      splitEditor: (tabId, editorPaneId, direction) =>
+      splitEditor: (workspaceId, editorPaneId, direction) =>
         set((s) => {
-          const layout = s.layoutsByTab[tabId]
+          const layout = s.layoutsByWorkspace[workspaceId]
           if (!layout) return {}
 
-          const originalPane = s.editorPanesByTab[tabId]?.find(p => p.id === editorPaneId)
+          const originalPane = s.editorPanesByWorkspace[workspaceId]?.find(p => p.id === editorPaneId)
           if (!originalPane) return {}
 
           const newPaneId = Math.random().toString(36).substring(2, 9)
           const newPane: EditorPane = {
             ...originalPane,
             id: newPaneId,
-            position: (s.editorPanesByTab[tabId]?.length || 0),
+            position: (s.editorPanesByWorkspace[workspaceId]?.length || 0),
             createdAt: Date.now()
           }
 
           const newLayout = addEditorPaneToLayout(layout, newPaneId, editorPaneId, direction)
 
           return {
-            layoutsByTab: { ...s.layoutsByTab, [tabId]: newLayout },
-            editorPanesByTab: {
-              ...s.editorPanesByTab,
-              [tabId]: [...(s.editorPanesByTab[tabId] || []), newPane]
+            layoutsByWorkspace: { ...s.layoutsByWorkspace, [workspaceId]: newLayout },
+            editorPanesByWorkspace: {
+              ...s.editorPanesByWorkspace,
+              [workspaceId]: [...(s.editorPanesByWorkspace[workspaceId] || []), newPane]
             }
           }
         }),
 
-      reorderTerminals: (tabId, sourceTerminalId, targetTerminalId) =>
+      reorderTerminals: (workspaceId, sourceTerminalId, targetTerminalId) =>
 
         set((s) => {
-          const currentTerminals = s.terminalsByTab[tabId] ?? []
+          const currentTerminals = s.terminalsByWorkspace[workspaceId] ?? []
           const sourceIndex = currentTerminals.findIndex((t) => t.id === sourceTerminalId)
           const targetIndex = currentTerminals.findIndex((t) => t.id === targetTerminalId)
           if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) return s
 
-          const layout = s.layoutsByTab[tabId] ?? null
+          const layout = s.layoutsByWorkspace[workspaceId] ?? null
           
           return {
-            layoutsByTab: {
-              ...s.layoutsByTab,
-              [tabId]: swapTerminalsInLayout(layout, sourceTerminalId, targetTerminalId),
+            layoutsByWorkspace: {
+              ...s.layoutsByWorkspace,
+              [workspaceId]: swapTerminalsInLayout(layout, sourceTerminalId, targetTerminalId),
             },
           }
         }),
 
-      updateLayoutSizes: (tabId, splitId, sizes) => 
+      updateLayoutSizes: (workspaceId, splitId, sizes) => 
         set((s) => {
-          const layout = s.layoutsByTab[tabId] ?? null
+          const layout = s.layoutsByWorkspace[workspaceId] ?? null
           const newLayout = updateSplitSizes(layout, splitId, sizes)
           if (layout === newLayout) return s // Bail out without making changes if layout is identical
           return {
-            layoutsByTab: {
-              ...s.layoutsByTab,
-              [tabId]: newLayout,
+            layoutsByWorkspace: {
+              ...s.layoutsByWorkspace,
+              [workspaceId]: newLayout,
             }
           }
         }),
 
       setActiveTerminalId: (id) => set({ activeTerminalId: id }),
 
-      setActiveFile: (tabId, filePath) => 
+      setActiveFile: (workspaceId, filePath) => 
         set((s) => ({
-          activeFileByTab: {
-            ...s.activeFileByTab,
-            [tabId]: filePath
+          activeFileByWorkspace: {
+            ...s.activeFileByWorkspace,
+            [workspaceId]: filePath
           }
         })),
 
@@ -739,6 +735,22 @@ export const useAppStore = create<AppState>()(
       setActivatingWorkspace: (id, activating) => set((s) => ({
         activatingWorkspaces: { ...s.activatingWorkspaces, [id]: activating }
       })),
+      repairWorkspaceLayout: (workspaceId) => set((s) => {
+        let newLayout: LayoutNode | null = null;
+        const terminals = s.terminalsByWorkspace[workspaceId] || [];
+        const browsers = s.browserPanesByWorkspace[workspaceId] || [];
+        const editors = s.editorPanesByWorkspace[workspaceId] || [];
+        const k8s = s.kubernetesPanesByWorkspace[workspaceId] || [];
+        
+        terminals.forEach(t => newLayout = addTerminalToLayout(newLayout, t.id));
+        browsers.forEach(b => newLayout = addBrowserPaneToLayout(newLayout, b.id));
+        editors.forEach(e => newLayout = addEditorPaneToLayout(newLayout, e.id));
+        k8s.forEach(k => newLayout = addKubernetesPaneToLayout(newLayout, k.id));
+        
+        return {
+          layoutsByWorkspace: { ...s.layoutsByWorkspace, [workspaceId]: newLayout }
+        };
+      }),
       setTerminalToCloseId: (data) => set({ terminalToCloseId: data }),
       setTasksCollapsed: (collapsed) => set({ tasksCollapsed: collapsed }),
       setDraggedTerminalId: (id) => set({ draggedTerminalId: id }),
@@ -749,11 +761,11 @@ export const useAppStore = create<AppState>()(
         settings: state.settings,
         toolingTerminalsByWorkspace: state.toolingTerminalsByWorkspace,
         activeToolingTerminalId: state.activeToolingTerminalId,
-        layoutsByWorkspace: state.layoutsByTab,
+        layoutsByWorkspace: state.layoutsByWorkspace,
         browserHistory: state.browserHistory,
         bookmarks: state.bookmarks,
-        editorPanesByWorkspace: state.editorPanesByTab,
-        kubernetesPanesByWorkspace: state.kubernetesPanesByTab,
+        editorPanesByWorkspace: state.editorPanesByWorkspace,
+        kubernetesPanesByWorkspace: state.kubernetesPanesByWorkspace,
         gitStatusByWorkspace: state.gitStatusByWorkspace,
         tasksCollapsed: state.tasksCollapsed,
         dictationButtonPosition: state.dictationButtonPosition

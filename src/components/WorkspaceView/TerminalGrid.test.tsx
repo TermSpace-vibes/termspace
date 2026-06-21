@@ -33,7 +33,7 @@ const makeLayout = (n: number): LayoutNode | null => {
 describe('TerminalGrid', () => {
   const setupLayout = (n: number) => {
     useAppStore.setState({
-      layoutsByWorkspace: {
+      layoutsByTab: {
         'ws-1': makeLayout(n)
       }
     })
