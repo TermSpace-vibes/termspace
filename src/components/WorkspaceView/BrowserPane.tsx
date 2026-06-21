@@ -9,6 +9,7 @@ const EMPTY_ARRAY: any[] = []
 
 interface Props {
   workspaceId: string
+  tabId: string
   browserPaneId: string
   initialUrl: string
   isActive: boolean
@@ -23,7 +24,7 @@ interface Props {
 const HEADER_HEIGHT = 72 // 28 (tab bar) + 44 (url bar)
 
 export function BrowserPane({
-  workspaceId, browserPaneId, initialUrl, isActive, isMaximized: _isMaximized, isHidden,
+  workspaceId, tabId, browserPaneId, initialUrl, isActive, isMaximized: _isMaximized, isHidden,
   onFocus, onClose, onSplit, onToggleMaximize,
 }: Props) {
   // Tabs state
@@ -43,9 +44,10 @@ export function BrowserPane({
   
   const [showHistory, setShowHistory] = useState(false)
   const [showBookmarks, setShowBookmarks] = useState(false)
-  const autoReload = useAppStore(s => s.browserPanesByTab[workspaceId]?.find(p => p.id === browserPaneId)?.autoReload ?? false)
+  // Tab-keyed store lookups must use tabId, not workspaceId
+  const autoReload = useAppStore(s => s.browserPanesByTab[tabId]?.find(p => p.id === browserPaneId)?.autoReload ?? false)
   const updateBrowserPane = useAppStore(s => s.updateBrowserPane)
-  const setAutoReload = (val: boolean) => updateBrowserPane(workspaceId, browserPaneId, { autoReload: val })
+  const setAutoReload = (val: boolean) => updateBrowserPane(tabId, browserPaneId, { autoReload: val })
   const isModalOpen = useAppStore(s => s.isModalOpen)
   
   const adblockEnabled = useAppStore(s => s.settings?.adblockEnabled ?? true)
@@ -384,8 +386,9 @@ export function BrowserPane({
     }
   }, [activeTabId, browserPaneId]) // Removed tabs dependency to avoid redefining listeners constantly
 
-  const editorPanes = useAppStore(s => s.editorPanesByTab[workspaceId] || EMPTY_ARRAY) as import('../../types').EditorPane[];
-  const terminals = useAppStore(s => s.terminalsByTab[workspaceId] || EMPTY_ARRAY) as import('../../types').Terminal[];
+  // tabId is used for tab-keyed store lookups; workspaceId is for Rust watcher IPC
+  const editorPanes = useAppStore(s => s.editorPanesByTab[tabId] || EMPTY_ARRAY) as import('../../types').EditorPane[];
+  const terminals = useAppStore(s => s.terminalsByTab[tabId] || EMPTY_ARRAY) as import('../../types').Terminal[];
   const targetPath = editorPanes.length > 0 ? editorPanes[0].rootPath : (terminals.length > 0 ? terminals[0].cwd : '');
 
   useEffect(() => {
@@ -403,12 +406,12 @@ export function BrowserPane({
       unlisten.then(f => f());
       // Only stop the watcher if no other browser pane in this workspace has autoReload enabled
       const { browserPanesByTab } = useAppStore.getState();
-      const otherPanesWithAutoReload = browserPanesByTab[workspaceId]?.filter(p => p.id !== browserPaneId && p.autoReload) || [];
+      const otherPanesWithAutoReload = browserPanesByTab[tabId]?.filter(p => p.id !== browserPaneId && p.autoReload) || [];
       if (otherPanesWithAutoReload.length === 0) {
         invoke('stop_workspace_watcher', { workspaceId: workspaceId }).catch(console.error);
       }
     };
-  }, [autoReload, targetPath, workspaceId, browserPaneId, activeTabId]);
+  }, [autoReload, targetPath, workspaceId, tabId, browserPaneId, activeTabId]);
 
   const tabsRef = useRef(tabs)
   useEffect(() => {

@@ -198,6 +198,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
       <div style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}>
         <BrowserPane
           workspaceId={workspaceId}
+          tabId={tabId}
           browserPaneId={pane.id}
           initialUrl={pane.url}
           isActive={pane.id === activeTerminalId}
@@ -271,7 +272,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
             e.preventDefault()
             const sourceId = draggedTerminalId
             if (sourceId && node.type === 'pane' && sourceId !== node.terminalId) {
-              reorderTerminals(workspaceId, sourceId, node.terminalId)
+              reorderTerminals(tabId, sourceId, node.terminalId)
             }
           }}
           // By dynamically toggling pointer-events based on draggedTerminalId state,
