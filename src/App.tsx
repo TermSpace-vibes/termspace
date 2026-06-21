@@ -312,10 +312,14 @@ export default function App() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSelectWorkspace(id: string) {
-    // Hide browser panes of old workspace before switching
+    const state = useAppStore.getState()
+
+    // Hide browser panes of old workspace before switching.
+    // Browser panes are keyed by tabId, so resolve the previous workspace's active tab.
     const prevId = prevActiveWorkspaceIdRef.current
     if (prevId) {
-      const prevPanes = useAppStore.getState().browserPanesByTab[prevId] ?? []
+      const prevTabId = state.activeTabIds[prevId]
+      const prevPanes = (prevTabId ? state.browserPanesByTab[prevTabId] : null) ?? []
       for (const pane of prevPanes) {
         invoke('hide_browser_pane', { id: pane.id }).catch(() => {})
       }
@@ -325,13 +329,20 @@ export default function App() {
     setActiveWorkspaceId(id)
     setActiveTerminalId(null)
 
-    // Only activate if we haven't loaded/spawned terminals for this workspace yet
-    const currentTerminals = useAppStore.getState().terminalsByTab[id]
-    if (!currentTerminals) {
+    // Resolve the active tabId for this workspace so we can check the correct
+    // slot in terminalsByTab (which is keyed by tabId, NOT workspaceId).
+    const activeTabId = state.activeTabIds[id]
+      ?? state.tabsByWorkspace[id]?.[0]?.id
+
+    // Only run activateWorkspace (which calls respawn_terminal and kills
+    // running processes) when this workspace has never been loaded before.
+    const alreadyLoaded = activeTabId != null && state.terminalsByTab[activeTabId] != null
+
+    if (!alreadyLoaded) {
       await activateWorkspace(id)
     } else {
-      // Already loaded — just re-show browser panes that were hidden on switch-away
-      const panes = useAppStore.getState().browserPanesByTab[id] ?? []
+      // Already loaded — just re-show browser panes that were hidden on switch-away.
+      const panes = (activeTabId ? state.browserPanesByTab[activeTabId] : null) ?? []
       for (const pane of panes) {
         invoke('show_browser_pane', { id: pane.id }).catch(() => {})
       }
@@ -383,11 +394,13 @@ export default function App() {
     useAppStore.getState().addToast('Workspace deleted', 'info')
     
     // activateWorkspace is triggered via the store's removeWorkspace selector
-    // which picks the next available workspace; activate it here
+    // which picks the next available workspace; activate it here only if not already loaded.
     const next = useAppStore.getState().activeWorkspaceId
     if (next) {
-      const currentTerminals = useAppStore.getState().terminalsByTab[next]
-      if (!currentTerminals) {
+      const nextState = useAppStore.getState()
+      const nextTabId = nextState.activeTabIds[next] ?? nextState.tabsByWorkspace[next]?.[0]?.id
+      const alreadyLoaded = nextTabId != null && nextState.terminalsByTab[nextTabId] != null
+      if (!alreadyLoaded) {
         await activateWorkspace(next)
       }
     }
