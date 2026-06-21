@@ -129,6 +129,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [cwd, setCwd] = useState('')
+  const [gitBranch, setGitBranch] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitleValue, setEditTitleValue] = useState('')
@@ -856,6 +857,18 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     }
   }
 
+  // ── Git branch — re-fetch whenever cwd changes ────────────────────────────
+  useEffect(() => {
+    const dir = cwd || terminal?.cwd || ''
+    if (!dir) { setGitBranch(null); return }
+    const timer = setTimeout(() => {
+      invoke<string>('get_git_branch', { cwd: dir })
+        .then(branch => setGitBranch(branch || null))
+        .catch(() => setGitBranch(null))
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [cwd, terminal?.cwd])
+
   // ── Derived display values ─────────────────────────────────────────────────
   const displayTitle = terminal?.title || title || `Terminal ${terminalIndex}`
   const displayCwd = formatCwd(cwd || terminal?.cwd || '')
@@ -1118,20 +1131,58 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
             </div>
           )}
 
-          {/* CWD display */}
+          {/* CWD + git branch display */}
           <span
             style={{
-              fontSize: 11,
-              color: 'var(--text-dim)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
               marginLeft: 16,
-              fontFamily: 'SF Mono, Menlo, monospace',
               flex: 1,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
+              minWidth: 0,
             }}
           >
-            {displayCwd}
+            <span
+              style={{
+                fontSize: 11,
+                color: 'var(--text-dim)',
+                fontFamily: 'SF Mono, Menlo, monospace',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                minWidth: 0,
+              }}
+            >
+              {displayCwd}
+            </span>
+            {gitBranch && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  fontSize: 10,
+                  color: 'var(--accent)',
+                  background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)',
+                  borderRadius: 4,
+                  padding: '1px 5px',
+                  fontFamily: 'SF Mono, Menlo, monospace',
+                  flexShrink: 0,
+                  lineHeight: 1.4,
+                }}
+              >
+                {/* git branch icon */}
+                <svg width="9" height="10" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+                  <circle cx="5" cy="3" r="2" stroke="currentColor" strokeWidth="1.8"/>
+                  <circle cx="5" cy="13" r="2" stroke="currentColor" strokeWidth="1.8"/>
+                  <circle cx="11" cy="7" r="2" stroke="currentColor" strokeWidth="1.8"/>
+                  <path d="M5 5v6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                  <path d="M5 5c0-1 1-3 3-3s3 1.5 3 3v2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+                </svg>
+                {gitBranch}
+              </span>
+            )}
           </span>
 
           {/* Action buttons */}
