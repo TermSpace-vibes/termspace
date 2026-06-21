@@ -10,11 +10,12 @@ export interface Workspace {
   groupName?: string
   isPinned?: boolean
   isArchived?: boolean
+  defaultPath?: string
 }
 
 export interface Terminal {
   id: string
-  workspaceId: string
+  tabId: string
   title?: string
   shell: string
   cwd: string
@@ -29,7 +30,7 @@ export interface Terminal {
 
 export interface BrowserPane {
   id: string
-  workspaceId: string
+  tabId: string
   url: string
   position: number
   createdAt: number
@@ -38,8 +39,8 @@ export interface BrowserPane {
 
 export interface EditorPane {
   id: string
-  workspaceId: string
-  rootPath: string
+  tabId: string
+  rootPath: string | null
   openFiles: string[]
   activeFilePath: string | null
   jumpToLine?: number | null
@@ -54,7 +55,7 @@ export interface EditorPane {
 
 export interface KubernetesPane {
   id: string
-  workspaceId: string
+  tabId: string
   position: number
   createdAt: number
   autoReload?: boolean
@@ -100,6 +101,8 @@ export interface Settings {
   dictationPrompt?: string
   minimapEnabled?: boolean
   showToolingPane?: boolean
+  discardTabsAfterMs?: number | 'never'
+  showWorkspaceDefaultPaths?: boolean
 }
 
 export type LayoutDirection = 'horizontal' | 'vertical'
@@ -127,3 +130,10 @@ export interface DetectedProject {
   tasks: DetectedTask[]
 }
 
+export interface WorkspaceTab {
+    id: string;
+    workspaceId: string;
+    name: string;
+    position: number;
+    createdAt: number;
+}

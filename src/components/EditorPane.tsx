@@ -38,7 +38,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
   editorPaneId,
   isActive = false,
 }) => {
-  const editorPane = useAppStore(s => s.editorPanesByWorkspace[workspaceId]?.find(p => p.id === editorPaneId))
+  const editorPane = useAppStore(s => s.editorPanesByTab[workspaceId]?.find(p => p.id === editorPaneId))
   const removeEditorPane = useAppStore(s => s.removeEditorPane)
   const updateEditorPaneFile = useAppStore(s => s.updateEditorPaneFile)
   const updateEditorPaneLayout = useAppStore(s => s.updateEditorPaneLayout)
@@ -106,7 +106,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
 
   useEffect(() => {
     if (editorPane?.rootPath) {
-      refreshGitStatus(workspaceId, editorPane.rootPath)
+      refreshGitStatus(workspaceId, editorPane.rootPath || "")
     }
   }, [workspaceId, editorPane?.rootPath, refreshGitStatus])
 
@@ -284,7 +284,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
       await writeTextFileContent(editorPane.activeFilePath, fileContent)
       setIsDirty(false)
       addToast('File saved', 'success')
-      refreshGitStatus(workspaceId, editorPane.rootPath)
+      refreshGitStatus(workspaceId, editorPane.rootPath || "")
     } catch (err) {
       console.error('Failed to save file:', err)
       addToast('Failed to save file', 'error')
@@ -347,7 +347,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
       blameTimeoutRef.current = setTimeout(async () => {
         try {
           const state = useAppStore.getState();
-          const panes = state.editorPanesByWorkspace[workspaceId];
+          const panes = state.editorPanesByTab[workspaceId];
           const pane = panes?.find((p: any) => p.id === editorPaneId);
           const activePath = pane?.activeFilePath || editorPane?.activeFilePath;
           
@@ -408,7 +408,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
   if (!editorPane) return null
 
   const fileName = editorPane.activeFilePath ? editorPane.activeFilePath.split('/').pop() : 'No file open'
-  const filePathParts = editorPane.activeFilePath ? editorPane.activeFilePath.replace(editorPane.rootPath, '').split('/').filter(Boolean) : []
+  const filePathParts = editorPane.activeFilePath ? editorPane.activeFilePath.replace(editorPane.rootPath || '', '').split('/').filter(Boolean) : []
   const isBinary = editorPane.activeFilePath ? isBinaryFile(editorPane.activeFilePath) : false
 
   return (
@@ -465,7 +465,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
                }}
              >
                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-               <span>Search {editorPane.rootPath.split('/').pop()}</span>
+               <span>Search {(editorPane.rootPath || '').split('/').pop()}</span>
              </div>
            </div>
 
@@ -784,11 +784,11 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
               </div>
               <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
                 {editorPane.activeSidebarTab === 'git' ? (
-                  <GitPanel workspaceId={workspaceId} editorPaneId={editorPaneId} rootPath={editorPane.rootPath} onFileSelect={handleFileSelect} />
+                  <GitPanel workspaceId={workspaceId} editorPaneId={editorPaneId} rootPath={editorPane.rootPath || ''} onFileSelect={handleFileSelect} />
                 ) : editorPane.activeSidebarTab === 'search' ? (
-                  <SearchPanel workspaceId={workspaceId} editorPaneId={editorPaneId} rootPath={editorPane.rootPath} onFileSelect={handleFileSelect} />
+                  <SearchPanel workspaceId={workspaceId} editorPaneId={editorPaneId} rootPath={editorPane.rootPath || ''} onFileSelect={handleFileSelect} />
                 ) : (
-                  <FileTree workspaceId={workspaceId} rootPath={editorPane.rootPath} onFileSelect={(path) => {
+                  <FileTree workspaceId={workspaceId} rootPath={editorPane.rootPath || ''} onFileSelect={(path) => {
                     if (editorPane.diffViewEnabled) updateEditorPaneLayout(workspaceId, editorPaneId, { diffViewEnabled: false });
                     handleFileSelect(path);
                   }} />

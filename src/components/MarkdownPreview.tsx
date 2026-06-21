@@ -17,7 +17,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({ content, works
       e.preventDefault()
       addBrowserPane(workspaceId, {
         id: crypto.randomUUID(),
-        workspaceId,
+        tabId: workspaceId,
         url: href,
         position: 0,
         createdAt: Date.now()

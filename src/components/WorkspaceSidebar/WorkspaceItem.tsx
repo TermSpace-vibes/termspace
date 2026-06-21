@@ -1,4 +1,9 @@
 import { useState } from 'react'
+
+function shortenPath(p: string): string {
+  const parts = p.replace(/\\/g, '/').split('/').filter(Boolean)
+  return parts.slice(-2).join('/')
+}
 import { Workspace } from '../../types'
 import { useAppStore } from '../../store/useAppStore'
 
@@ -26,6 +31,7 @@ export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isP
   const runningTerminalsCount = terminals.filter(t => t.executionState === 'running').length
 
   const gitStatus = useAppStore(s => s.gitStatusByWorkspace[workspace.id])
+  const showPathHint = useAppStore((s) => s.settings.showWorkspaceDefaultPaths !== false)
   const hasGitStatus = gitStatus && Object.keys(gitStatus).length > 0
   const hasUncommitted = hasGitStatus && Object.values(gitStatus).some(s => s === 'M' || s === '??')
 
@@ -134,6 +140,28 @@ export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isP
               </div>
             )}
           </div>
+          {showPathHint && workspace.defaultPath && (
+            <div
+              style={{
+                fontSize: 10,
+                color: 'var(--text-muted)',
+                opacity: 0.6,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 3,
+                marginTop: 1,
+              }}
+              title={workspace.defaultPath}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
+              {shortenPath(workspace.defaultPath)}
+            </div>
+          )}
         </div>
       )}
       {!isCollapsed && (workspace.notificationCount ?? 0) > 0 && (

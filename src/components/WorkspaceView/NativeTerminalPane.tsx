@@ -146,10 +146,10 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   // ── Store selectors ────────────────────────────────────────────────────────
   const settings = useAppStore(s => s.settings)
   const terminal = useAppStore(s =>
-    s.terminalsByWorkspace[workspaceId]?.find(t => t.id === terminalId)
+    s.terminalsByTab[workspaceId]?.find(t => t.id === terminalId)
   )
   const terminalIndex = useAppStore(s =>
-    (s.terminalsByWorkspace[workspaceId]?.findIndex(t => t.id === terminalId) ?? -1) + 1
+    (s.terminalsByTab[workspaceId]?.findIndex(t => t.id === terminalId) ?? -1) + 1
   )
   const setDraggedTerminalId = useAppStore(s => s.setDraggedTerminalId)
   const renameTerminal = useAppStore(s => s.renameTerminal)
@@ -446,7 +446,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       if (document.activeElement === canvasRef.current) return
 
       const current =
-        useAppStore.getState().terminalsByWorkspace[workspaceId]
+        useAppStore.getState().terminalsByTab[workspaceId]
           ?.find(t => t.id === terminalId)
           ?.notificationCount ?? 0
       setTerminalNotification(workspaceId, terminalId, current + 1)

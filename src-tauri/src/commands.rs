@@ -1,19 +1,29 @@
 use crate::browser_pane_manager::BrowserPaneManager;
 use crate::db::{self, Terminal, Workspace};
 use crate::native_terminal_manager::NativeTerminalManager;
+use notify_debouncer_mini::{
+    new_debouncer,
+    notify::{self, RecursiveMode},
+};
+use parking_lot::Mutex;
 use rusqlite::Connection;
 use std::collections::HashMap;
-use parking_lot::Mutex;
-use tauri::{AppHandle, Manager, State, Emitter};
 use std::sync::Arc;
-use whisper_rs::{WhisperContext, FullParams};
-use notify_debouncer_mini::{new_debouncer, notify::{self, RecursiveMode}};
-use tauri_plugin_clipboard_manager::ClipboardExt;
 use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_clipboard_manager::ClipboardExt;
+use whisper_rs::{FullParams, WhisperContext};
 pub struct DbState(pub Mutex<Connection>);
 pub struct SysInfoState(pub Mutex<(sysinfo::System, sysinfo::Networks)>);
 pub struct WhisperState(pub Arc<Mutex<Option<WhisperContext>>>);
-pub struct WatcherState(pub std::sync::Mutex<std::collections::HashMap<String, notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>>>);
+pub struct WatcherState(
+    pub  std::sync::Mutex<
+        std::collections::HashMap<
+            String,
+            notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>,
+        >,
+    >,
+);
 
 // macOS concurrent fork/posix_spawn workaround
 static SPAWN_LOCK: Mutex<()> = Mutex::new(());
@@ -128,7 +138,8 @@ pub async fn get_system_stats(state: State<'_, SysInfoState>) -> Result<SystemSt
 
 #[tauri::command]
 pub fn get_workspaces(db: State<DbState>) -> Result<Vec<Workspace>, String> {
-    #[cfg(debug_assertions)] println!(">>> RUST: get_workspaces called");
+    #[cfg(debug_assertions)]
+    println!(">>> RUST: get_workspaces called");
     db::get_workspaces(&db.0.lock()).map_err(|e| e.to_string())
 }
 
@@ -139,7 +150,8 @@ pub fn create_workspace(
     emoji: String,
     color: String,
 ) -> Result<Workspace, String> {
-    #[cfg(debug_assertions)] println!(">>> RUST: create_workspace called for {}", name);
+    #[cfg(debug_assertions)]
+    println!(">>> RUST: create_workspace called for {}", name);
     db::create_workspace(&db.0.lock(), &name, &emoji, &color).map_err(|e| e.to_string())
 }
 
@@ -151,8 +163,29 @@ pub fn update_workspace(
     emoji: String,
     color: String,
 ) -> Result<(), String> {
-    db::update_workspace(&db.0.lock(), &id, &name, &emoji, &color)
+    db::update_workspace(&db.0.lock(), &id, &name, &emoji, &color).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_workspace_default_path(
+    db: State<DbState>,
+    workspace_id: String,
+    path: Option<String>,
+) -> Result<(), String> {
+    db::set_workspace_default_path(&db.0.lock(), &workspace_id, path.as_deref())
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn rename_tab(id: String, name: String, db: tauri::State<'_, DbState>) -> Result<(), String> {
+    let conn = db.0.lock();
+    db::rename_tab(&conn, &id, &name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_tab(id: String, db: tauri::State<'_, DbState>) -> Result<(), String> {
+    let conn = db.0.lock();
+    db::delete_tab(&conn, &id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -182,9 +215,21 @@ pub fn delete_workspace(
 }
 
 #[tauri::command]
-pub fn get_terminals(db: State<DbState>, workspace_id: String) -> Result<Vec<Terminal>, String> {
-    #[cfg(debug_assertions)] println!(">>> RUST: get_terminals called for ws {}", workspace_id);
-    db::get_terminals(&db.0.lock(), &workspace_id).map_err(|e| e.to_string())
+pub fn get_tabs(db: State<DbState>, workspace_id: String) -> Result<Vec<db::WorkspaceTab>, String> {
+    db::get_tabs(&db.0.lock(), &workspace_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_tab(db: State<DbState>, workspace_id: String, name: String) -> Result<db::WorkspaceTab, String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    db::create_tab(&db.0.lock(), &id, &workspace_id, &name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_terminals(db: State<DbState>, tab_id: String) -> Result<Vec<Terminal>, String> {
+    #[cfg(debug_assertions)]
+    println!(">>> RUST: get_terminals called for tab {}", tab_id);
+    db::get_terminals(&db.0.lock(), &tab_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -202,7 +247,10 @@ pub async fn get_terminal_active_cwd(
     {
         let mut state_lock = state.0.lock();
         let sys = &mut state_lock.0;
-        sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(shell_pid)]), true);
+        sys.refresh_processes(
+            sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(shell_pid)]),
+            true,
+        );
         if let Some(process) = sys.process(sysinfo::Pid::from_u32(shell_pid)) {
             if let Some(cwd) = process.cwd() {
                 if !cwd.as_os_str().is_empty() {
@@ -245,13 +293,14 @@ pub fn spawn_terminal(
     app: AppHandle,
     db: State<DbState>,
     ntm: State<NativeTerminalManager>,
-    workspace_id: String,
+    tab_id: String,
     shell: String,
     cwd: String,
 ) -> Result<Terminal, String> {
-    #[cfg(debug_assertions)] println!(
-        ">>> RUST: spawn_terminal called for ws {} (shell: {}, cwd: {})",
-        workspace_id, shell, cwd
+    #[cfg(debug_assertions)]
+    println!(
+        ">>> RUST: spawn_terminal called for tab {} (shell: {}, cwd: {})",
+        tab_id, shell, cwd
     );
     // resolve empty cwd to user home directory
     let resolved_cwd = if cwd.is_empty() {
@@ -288,7 +337,7 @@ pub fn spawn_terminal(
         db::create_terminal_with_id(
             &conn,
             &temp_id,
-            &workspace_id,
+            &tab_id,
             &resolved_shell,
             &resolved_cwd,
         )
@@ -309,7 +358,8 @@ pub fn respawn_terminal(
     shell: String,
     cwd: String,
 ) -> Result<(), String> {
-    #[cfg(debug_assertions)] println!(">>> RUST: respawn_terminal called for term {}", id);
+    #[cfg(debug_assertions)]
+    println!(">>> RUST: respawn_terminal called for term {}", id);
     // If the backend is still running (e.g., from a Vite HMR or frontend reload),
     // kill the old terminal process so we can cleanly respawn and attach new listeners.
     ntm.kill(&id);
@@ -337,7 +387,8 @@ pub fn respawn_terminal(
             24,
         )?;
     }
-    #[cfg(debug_assertions)] println!(">>> RUST: respawn_terminal finished for term {}", id);
+    #[cfg(debug_assertions)]
+    println!(">>> RUST: respawn_terminal finished for term {}", id);
     Ok(())
 }
 
@@ -372,7 +423,7 @@ pub fn is_terminal_busy(
 
     let mut state_lock = state.0.lock();
     let sys = &mut state_lock.0;
-    
+
     // Specifically refresh processes without grabbing all detailed attributes if possible
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
@@ -418,7 +469,7 @@ pub fn create_browser_pane(
     db: State<DbState>,
     browser: State<BrowserPaneManager>,
     app: tauri::AppHandle,
-    workspace_id: String,
+    tab_id: String,
     url: String,
     x: f64,
     y: f64,
@@ -428,16 +479,29 @@ pub fn create_browser_pane(
 ) -> Result<db::BrowserPane, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let keys: Vec<String> = app.windows().keys().cloned().collect();
-    let window = app.get_window("main")
+    let window = app
+        .get_window("main")
         .or_else(|| app.windows().into_values().next())
         .ok_or(format!("no main window. Available: {:?}", keys))?;
     browser
-        .create(&window, &app, &id, &url, x, y, w, h, Some(&workspace_id), adblock_enabled)
+        .create(
+            &window,
+            &app,
+            &id,
+            &url,
+            x,
+            y,
+            w,
+            h,
+            Some(&tab_id),
+            adblock_enabled,
+        )
         .map_err(|e| {
-            #[cfg(debug_assertions)] println!(">>> RUST: create_browser_pane failed: {}", e);
+            #[cfg(debug_assertions)]
+            println!(">>> RUST: create_browser_pane failed: {}", e);
             e.to_string()
         })?;
-    db::create_browser_pane(&db.0.lock(), &id, &workspace_id, &url).map_err(|e| {
+    db::create_browser_pane(&db.0.lock(), &id, &tab_id, &url).map_err(|e| {
         browser.destroy(&id); // rollback native webview if DB insert fails
         e.to_string()
     })
@@ -456,9 +520,14 @@ pub fn spawn_ephemeral_browser_pane(
     adblock_enabled: bool,
 ) -> Result<(), String> {
     let keys: Vec<String> = app.windows().keys().cloned().collect();
-    #[cfg(debug_assertions)] println!(">>> RUST: spawn_ephemeral_browser_pane windows keys: {:?}", keys);
+    #[cfg(debug_assertions)]
+    println!(
+        ">>> RUST: spawn_ephemeral_browser_pane windows keys: {:?}",
+        keys
+    );
 
-    let window = app.get_window("main")
+    let window = app
+        .get_window("main")
         .or_else(|| app.windows().into_values().next())
         .ok_or(format!("no main window. Available: {:?}", keys))?;
     browser
@@ -488,7 +557,8 @@ pub fn respawn_browser_pane(
     adblock_enabled: bool,
 ) -> Result<(), String> {
     let keys: Vec<String> = app.windows().keys().cloned().collect();
-    let window = app.get_window("main")
+    let window = app
+        .get_window("main")
         .or_else(|| app.windows().into_values().next())
         .ok_or(format!("no main window. Available: {:?}", keys))?;
     // To maintain profile isolation across restarts, we need the workspace_id.
@@ -572,7 +642,11 @@ pub fn browser_reload(browser: State<BrowserPaneManager>, id: String) -> Result<
 }
 
 #[tauri::command]
-pub fn browser_toggle_adblock(browser: State<BrowserPaneManager>, id: String, enabled: bool) -> Result<(), String> {
+pub fn browser_toggle_adblock(
+    browser: State<BrowserPaneManager>,
+    id: String,
+    enabled: bool,
+) -> Result<(), String> {
     browser.toggle_adblock(&id, enabled);
     Ok(())
 }
@@ -586,12 +660,14 @@ pub fn browser_open_devtools(browser: State<BrowserPaneManager>, id: String) -> 
 static HTTP_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
 
 pub fn get_http_client() -> reqwest::Client {
-    HTTP_CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(2))
-            .build()
-            .unwrap_or_default()
-    }).clone()
+    HTTP_CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(2))
+                .build()
+                .unwrap_or_default()
+        })
+        .clone()
 }
 
 #[tauri::command]
@@ -606,9 +682,9 @@ pub async fn browser_preconnect(url: String) -> Result<(), String> {
 #[tauri::command]
 pub fn get_browser_panes(
     db: State<DbState>,
-    workspace_id: String,
+    tab_id: String,
 ) -> Result<Vec<db::BrowserPane>, String> {
-    db::get_browser_panes(&db.0.lock(), &workspace_id).map_err(|e| e.to_string())
+    db::get_browser_panes(&db.0.lock(), &tab_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -770,7 +846,7 @@ pub fn search_in_files(paths: Vec<String>, query: String) -> Result<Vec<SearchMa
 pub fn search_files_by_name(path: String, query: String) -> Result<Vec<String>, String> {
     let mut files = Vec::new();
     let query_lower = query.to_lowercase();
-    
+
     // Try git ls-files first
     let output_res = {
         let _lock = SPAWN_LOCK.lock();
@@ -779,7 +855,7 @@ pub fn search_files_by_name(path: String, query: String) -> Result<Vec<String>, 
             .current_dir(&path)
             .output()
     };
-    
+
     if let Ok(output) = output_res {
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -794,15 +870,22 @@ pub fn search_files_by_name(path: String, query: String) -> Result<Vec<String>, 
             return Ok(files);
         }
     }
-    
+
     // Fallback to naive recursive search
-    fn walk_dir(dir: &std::path::Path, query: &str, results: &mut Vec<String>, base: &std::path::Path) {
-        if results.len() > 100 { return; }
+    fn walk_dir(
+        dir: &std::path::Path,
+        query: &str,
+        results: &mut Vec<String>,
+        base: &std::path::Path,
+    ) {
+        if results.len() > 100 {
+            return;
+        }
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 let is_dir = path.is_dir();
-                
+
                 if let Ok(rel_path) = path.strip_prefix(base) {
                     let rel_str = rel_path.to_string_lossy();
                     // skip hidden
@@ -815,15 +898,20 @@ pub fn search_files_by_name(path: String, query: String) -> Result<Vec<String>, 
                         }
                     }
                 }
-                
+
                 if is_dir {
                     walk_dir(&path, query, results, base);
                 }
             }
         }
     }
-    
-    walk_dir(std::path::Path::new(&path), &query_lower, &mut files, std::path::Path::new(&path));
+
+    walk_dir(
+        std::path::Path::new(&path),
+        &query_lower,
+        &mut files,
+        std::path::Path::new(&path),
+    );
     Ok(files)
 }
 
@@ -879,7 +967,9 @@ pub async fn transcribe_chunk(
         params.set_initial_prompt(p);
     }
 
-    state.full(params, &audio_samples).map_err(|e| e.to_string())?;
+    state
+        .full(params, &audio_samples)
+        .map_err(|e| e.to_string())?;
 
     let num_segments = state.full_n_segments();
     let mut result = String::new();
@@ -933,10 +1023,12 @@ pub async fn transcribe_openai(
         return Err(format!("API Error: {}", err));
     }
 
-    let response = res.json::<WhisperResponse>().await.map_err(|e| e.to_string())?;
+    let response = res
+        .json::<WhisperResponse>()
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(response.text)
 }
-
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -958,11 +1050,11 @@ pub struct DetectedProject {
 pub fn get_detected_projects(cwd: String) -> Result<Vec<DetectedProject>, String> {
     let mut projects = Vec::new();
     let base_path = std::path::Path::new(&cwd);
-    
+
     if !base_path.exists() || !base_path.is_dir() {
         return Ok(projects);
     }
-    
+
     let mut paths_to_check = vec![base_path.to_path_buf()];
     if let Ok(entries) = std::fs::read_dir(base_path) {
         for entry in entries.flatten() {
@@ -978,10 +1070,10 @@ pub fn get_detected_projects(cwd: String) -> Result<Vec<DetectedProject>, String
             }
         }
     }
-    
+
     for path in paths_to_check {
         let mut added = false;
-        
+
         let pkg_json = path.join("package.json");
         if pkg_json.exists() {
             if let Ok(content) = std::fs::read_to_string(&pkg_json) {
@@ -996,9 +1088,14 @@ pub fn get_detected_projects(cwd: String) -> Result<Vec<DetectedProject>, String
                         }
                     }
                     if !tasks.is_empty() {
-                        let proj_name = json.get("name").and_then(|n| n.as_str()).unwrap_or_else(|| {
-                            path.file_name().and_then(|n| n.to_str()).unwrap_or("Unknown")
-                        });
+                        let proj_name =
+                            json.get("name")
+                                .and_then(|n| n.as_str())
+                                .unwrap_or_else(|| {
+                                    path.file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("Unknown")
+                                });
                         projects.push(DetectedProject {
                             name: proj_name.to_string(),
                             path: path.to_string_lossy().to_string(),
@@ -1010,26 +1107,41 @@ pub fn get_detected_projects(cwd: String) -> Result<Vec<DetectedProject>, String
                 }
             }
         }
-        
+
         if !added {
             let cargo_toml = path.join("Cargo.toml");
             if cargo_toml.exists() {
-                let proj_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("Rust Project");
+                let proj_name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("Rust Project");
                 projects.push(DetectedProject {
                     name: proj_name.to_string(),
                     path: path.to_string_lossy().to_string(),
                     project_type: "rust".to_string(),
                     tasks: vec![
-                        DetectedTask { name: "build".into(), command: "cargo build".into() },
-                        DetectedTask { name: "run".into(), command: "cargo run".into() },
-                        DetectedTask { name: "test".into(), command: "cargo test".into() },
-                        DetectedTask { name: "check".into(), command: "cargo check".into() },
-                    ]
+                        DetectedTask {
+                            name: "build".into(),
+                            command: "cargo build".into(),
+                        },
+                        DetectedTask {
+                            name: "run".into(),
+                            command: "cargo run".into(),
+                        },
+                        DetectedTask {
+                            name: "test".into(),
+                            command: "cargo test".into(),
+                        },
+                        DetectedTask {
+                            name: "check".into(),
+                            command: "cargo check".into(),
+                        },
+                    ],
                 });
             }
         }
     }
-    
+
     Ok(projects)
 }
 
@@ -1064,7 +1176,7 @@ pub fn get_git_blame(path: String, line: u32) -> Result<Option<GitBlame>, String
         Some(p) if p.exists() => p,
         _ => return Ok(None),
     };
-    
+
     let file_name = match std::path::Path::new(&path).file_name() {
         Some(f) => f.to_string_lossy().to_string(),
         None => return Ok(None),
@@ -1094,7 +1206,7 @@ pub fn get_git_blame(path: String, line: u32) -> Result<Option<GitBlame>, String
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     let mut author = String::new();
     let mut time = String::new();
     let mut message = String::new();
@@ -1129,7 +1241,7 @@ pub fn git_commit(path: String, message: String) -> Result<(), String> {
         .current_dir(&path)
         .output()
         .map_err(|e| e.to_string())?;
-        
+
     if !add_output.status.success() {
         return Err(String::from_utf8_lossy(&add_output.stderr).to_string());
     }
@@ -1140,7 +1252,7 @@ pub fn git_commit(path: String, message: String) -> Result<(), String> {
         .current_dir(&path)
         .output()
         .map_err(|e| e.to_string())?;
-        
+
     if !commit_output.status.success() {
         return Err(String::from_utf8_lossy(&commit_output.stderr).to_string());
     }
@@ -1158,39 +1270,47 @@ pub fn play_notification_sound(player: State<'_, crate::audio::AudioPlayer>) -> 
 #[tauri::command]
 pub fn process_pasted_image(app: AppHandle) -> Result<Option<String>, String> {
     let clipboard = app.clipboard();
-    
+
     let clipboard_image = match clipboard.read_image() {
         Ok(img) => img,
         Err(_) => return Ok(None),
     };
-    
+
     let width = clipboard_image.width();
     let height = clipboard_image.height();
     let rgba = clipboard_image.rgba();
-    
+
     // Hash the image data to prevent duplicates
     let hash = seahash::hash(&rgba);
-    
-    let mut path = app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("/tmp"));
+
+    let mut path = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"));
     path.push("pasted_images");
     std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-    
+
     let file_path = path.join(format!("{:x}.png", hash));
-    
+
     if !file_path.exists() {
         let img_buffer = image::RgbaImage::from_raw(width, height, rgba.to_vec())
             .ok_or_else(|| "Failed to construct image buffer".to_string())?;
-        
+
         img_buffer.save(&file_path).map_err(|e| e.to_string())?;
     }
-    
+
     Ok(Some(file_path.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
 pub async fn get_k8s_resources(resource: String, namespace: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let mut args = vec!["get".to_string(), resource, "-o".to_string(), "json".to_string()];
+        let mut args = vec![
+            "get".to_string(),
+            resource,
+            "-o".to_string(),
+            "json".to_string(),
+        ];
         if !namespace.is_empty() && namespace != "all" {
             args.push("-n".to_string());
             args.push(namespace);
@@ -1255,16 +1375,21 @@ pub fn start_workspace_watcher(
     app: tauri::AppHandle,
     state: tauri::State<'_, WatcherState>,
     workspace_id: String,
-    path: String
+    path: String,
 ) -> Result<(), String> {
     let (tx, rx) = std::sync::mpsc::channel();
-    let mut debouncer = new_debouncer(Duration::from_millis(500), tx)
+    let mut debouncer = new_debouncer(Duration::from_millis(500), tx).map_err(|e| e.to_string())?;
+
+    debouncer
+        .watcher()
+        .watch(std::path::Path::new(&path), RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
 
-    debouncer.watcher().watch(std::path::Path::new(&path), RecursiveMode::Recursive)
-        .map_err(|e| e.to_string())?;
-
-    state.0.lock().unwrap().insert(workspace_id.clone(), debouncer);
+    state
+        .0
+        .lock()
+        .unwrap()
+        .insert(workspace_id.clone(), debouncer);
 
     std::thread::spawn(move || {
         for res in rx {
@@ -1279,27 +1404,37 @@ pub fn start_workspace_watcher(
                         break;
                     }
                 }
-                
+
                 if should_emit {
-                    let _ = app.emit("workspace-file-changed", ChangePayload {
-                        workspace_id: workspace_id.clone()
-                    });
+                    let _ = app.emit(
+                        "workspace-file-changed",
+                        ChangePayload {
+                            workspace_id: workspace_id.clone(),
+                        },
+                    );
                 }
             }
         }
     });
-    
+
     Ok(())
 }
 
 #[tauri::command]
-pub fn stop_workspace_watcher(state: tauri::State<'_, WatcherState>, workspace_id: String) -> Result<(), String> {
+pub fn stop_workspace_watcher(
+    state: tauri::State<'_, WatcherState>,
+    workspace_id: String,
+) -> Result<(), String> {
     state.0.lock().unwrap().remove(&workspace_id);
     Ok(())
 }
 
 #[tauri::command]
-pub fn spawn_lsp(app: tauri::AppHandle, language: String, root_path: String) -> Result<String, String> {
+pub fn spawn_lsp(
+    app: tauri::AppHandle,
+    language: String,
+    root_path: String,
+) -> Result<String, String> {
     crate::lsp_manager::spawn_lsp(app, language, root_path)
 }
 
@@ -1323,7 +1458,7 @@ pub fn search_files(root_path: String, query: String) -> Result<Vec<SearchResult
     }
     let query_lower = query.to_lowercase();
     let walker = ignore::WalkBuilder::new(&root_path).build();
-    
+
     for result in walker {
         if let Ok(entry) = result {
             if entry.file_type().map_or(false, |ft| ft.is_file()) {
@@ -1346,4 +1481,3 @@ pub fn search_files(root_path: String, query: String) -> Result<Vec<SearchResult
     }
     Ok(results)
 }
-

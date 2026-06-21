@@ -1,24 +1,24 @@
 #![allow(unexpected_cfgs)]
+mod agent_hook;
+mod audio;
 mod browser_pane_manager;
 mod commands;
 mod db;
-mod native_terminal_manager;
-mod audio;
-mod agent_hook;
 pub mod lsp_manager;
+mod native_terminal_manager;
 
 use browser_pane_manager::BrowserPaneManager;
 use commands::DbState;
 use native_terminal_manager::NativeTerminalManager;
 use parking_lot::Mutex;
-use tauri::Manager;
 use std::sync::Arc;
+use tauri::Manager;
 use whisper_rs::{WhisperContext, WhisperContextParameters};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_os::init());
 
     #[cfg(not(debug_assertions))]
     {
@@ -40,10 +40,16 @@ pub fn run() {
             {
                 let path = std::env::var("PATH").unwrap_or_default();
                 if !path.contains("/opt/homebrew/bin") {
-                    std::env::set_var("PATH", format!("{}:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin", path));
+                    std::env::set_var(
+                        "PATH",
+                        format!(
+                            "{}:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin",
+                            path
+                        ),
+                    );
                 }
             }
-            
+
             let data_dir = {
                 let mut d = app.path().app_data_dir().expect("no app data dir");
                 #[cfg(debug_assertions)]
@@ -53,13 +59,21 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir).unwrap();
             let conn = db::init_db(&data_dir.join("state.db")).expect("db init failed");
             app.manage(DbState(Mutex::new(conn)));
-            app.manage(commands::SysInfoState(Mutex::new((sysinfo::System::new(), sysinfo::Networks::new_with_refreshed_list()))));
+            app.manage(commands::SysInfoState(Mutex::new((
+                sysinfo::System::new(),
+                sysinfo::Networks::new_with_refreshed_list(),
+            ))));
             app.manage(NativeTerminalManager::new());
             app.manage(BrowserPaneManager::new());
             app.manage(audio::AudioPlayer::new());
-            app.manage(commands::WatcherState(std::sync::Mutex::new(std::collections::HashMap::new())));
+            app.manage(commands::WatcherState(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )));
 
-            let resource_path = app.path().resolve("resources/ggml-base.en.bin", tauri::path::BaseDirectory::Resource);
+            let resource_path = app.path().resolve(
+                "resources/ggml-base.en.bin",
+                tauri::path::BaseDirectory::Resource,
+            );
             let ctx = if let Ok(path) = resource_path {
                 let params = WhisperContextParameters::default();
                 WhisperContext::new_with_params(&*path.to_string_lossy(), params).ok()
@@ -80,7 +94,10 @@ pub fn run() {
 
             // Make the main webview transparent so child webviews can float behind it.
             // The NSWindow background color remains what was set in tauri.conf.json.
-            if let Some(window) = app.get_window("main").or_else(|| app.windows().into_values().next()) {
+            if let Some(window) = app
+                .get_window("main")
+                .or_else(|| app.windows().into_values().next())
+            {
                 // If it is a Window, we might need to get its webview or set background on the window itself.
                 // In Tauri v2, `Window` implements set_background_color directly if configured.
                 let _ = window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
@@ -98,7 +115,12 @@ pub fn run() {
             commands::get_workspaces,
             commands::create_workspace,
             commands::update_workspace,
+            commands::set_workspace_default_path,
             commands::delete_workspace,
+            commands::delete_tab,
+            commands::rename_tab,
+            commands::get_tabs,
+            commands::create_tab,
             commands::get_terminals,
             commands::get_terminal_active_cwd,
             commands::spawn_terminal,

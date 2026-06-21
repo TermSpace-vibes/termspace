@@ -11,10 +11,10 @@ beforeEach(() => {
     workspaces: [],
     activeWorkspaceId: null,
     activeTerminalId: null,
-    terminalsByWorkspace: {},
-    browserPanesByWorkspace: {},
-    editorPanesByWorkspace: {},
-    layoutsByWorkspace: {},
+    terminalsByTab: {},
+    browserPanesByTab: {},
+    editorPanesByTab: {},
+    layoutsByTab: {},
   })
 })
 
@@ -44,7 +44,7 @@ describe('useAppStore', () => {
 
   it('adds a terminal to a workspace', () => {
     act(() => useAppStore.getState().addTerminal('ws-1', t1))
-    expect(useAppStore.getState().terminalsByWorkspace['ws-1']).toHaveLength(1)
+    expect(useAppStore.getState().terminalsByTab['ws-1']).toHaveLength(1)
   })
 
   it('removes a terminal from a workspace', () => {
@@ -52,7 +52,7 @@ describe('useAppStore', () => {
       useAppStore.getState().addTerminal('ws-1', t1)
       useAppStore.getState().removeTerminal('ws-1', 't-1')
     })
-    expect(useAppStore.getState().terminalsByWorkspace['ws-1']).toHaveLength(0)
+    expect(useAppStore.getState().terminalsByTab['ws-1']).toHaveLength(0)
   })
 
   it('sets active terminal', () => {
@@ -71,7 +71,7 @@ describe('useAppStore', () => {
       useAppStore.getState().addEditorPane('ws-1', editor)
     })
 
-    const layoutBefore = useAppStore.getState().layoutsByWorkspace['ws-1']
+    const layoutBefore = useAppStore.getState().layoutsByTab['ws-1']
     expect(layoutBefore).not.toBeNull()
 
     act(() => {
@@ -79,7 +79,7 @@ describe('useAppStore', () => {
       useAppStore.getState().setTerminals('ws-1', [terminal])
     })
 
-    const layoutAfter = useAppStore.getState().layoutsByWorkspace['ws-1']
+    const layoutAfter = useAppStore.getState().layoutsByTab['ws-1']
     expect(layoutAfter).toEqual(layoutBefore)
   })
 })
@@ -91,11 +91,11 @@ describe('browser pane store', () => {
       position: 0, createdAt: 1000,
     }
     useAppStore.getState().addBrowserPane('ws-1', pane)
-    const panes = useAppStore.getState().browserPanesByWorkspace['ws-1']
+    const panes = useAppStore.getState().browserPanesByTab['ws-1']
     expect(panes).toHaveLength(1)
     expect(panes[0].id).toBe('bp-1')
 
-    const layout = useAppStore.getState().layoutsByWorkspace['ws-1']
+    const layout = useAppStore.getState().layoutsByTab['ws-1']
     expect(layout?.type).toBe('split')
     if (layout?.type === 'split') {
       expect(layout.children[0]).toMatchObject({ type: 'browser', browserPaneId: 'bp-1' })
@@ -109,9 +109,9 @@ describe('browser pane store', () => {
     }
     useAppStore.getState().addBrowserPane('ws-1', pane)
     useAppStore.getState().removeBrowserPane('ws-1', 'bp-1')
-    const panes = useAppStore.getState().browserPanesByWorkspace['ws-1']
+    const panes = useAppStore.getState().browserPanesByTab['ws-1']
     expect(panes).toHaveLength(0)
-    expect(useAppStore.getState().layoutsByWorkspace['ws-1']).toBeNull()
+    expect(useAppStore.getState().layoutsByTab['ws-1']).toBeNull()
   })
 })
 
@@ -127,7 +127,7 @@ describe('editor pane store', () => {
       useAppStore.getState().updateEditorPaneFile('ws-1', 'ep-1', 'file1.ts')
     })
     
-    const updated = useAppStore.getState().editorPanesByWorkspace['ws-1'][0]
+    const updated = useAppStore.getState().editorPanesByTab['ws-1'][0]
     expect(updated.openFiles).toEqual(['file1.ts'])
     expect(updated.activeFilePath).toBe('file1.ts')
     expect(updated.mruStack).toEqual(['file1.ts'])
@@ -135,7 +135,7 @@ describe('editor pane store', () => {
     act(() => {
       useAppStore.getState().updateEditorPaneFile('ws-1', 'ep-1', 'file2.ts')
     })
-    const updated2 = useAppStore.getState().editorPanesByWorkspace['ws-1'][0]
+    const updated2 = useAppStore.getState().editorPanesByTab['ws-1'][0]
     expect(updated2.openFiles).toEqual(['file1.ts', 'file2.ts'])
     expect(updated2.activeFilePath).toBe('file2.ts')
     expect(updated2.mruStack).toEqual(['file2.ts', 'file1.ts'])
@@ -152,7 +152,7 @@ describe('editor pane store', () => {
       useAppStore.getState().closeEditorFile('ws-1', 'ep-1', 'f2')
     })
     
-    const updated = useAppStore.getState().editorPanesByWorkspace['ws-1'][0]
+    const updated = useAppStore.getState().editorPanesByTab['ws-1'][0]
     expect(updated.openFiles).toEqual(['f1'])
     expect(updated.activeFilePath).toBe('f1')
     expect(updated.mruStack).toEqual(['f1'])
@@ -169,7 +169,7 @@ describe('editor pane store', () => {
       useAppStore.getState().updateEditorPaneLayout('ws-1', 'ep-1', { fileTreeWidth: 30 })
     })
     
-    const updated = useAppStore.getState().editorPanesByWorkspace['ws-1'][0]
+    const updated = useAppStore.getState().editorPanesByTab['ws-1'][0]
     expect(updated.fileTreeWidth).toBe(30)
   })
 
@@ -184,11 +184,11 @@ describe('editor pane store', () => {
       useAppStore.getState().splitEditor('ws-1', 'ep-1', 'vertical')
     })
 
-    const panes = useAppStore.getState().editorPanesByWorkspace['ws-1']
+    const panes = useAppStore.getState().editorPanesByTab['ws-1']
     expect(panes).toHaveLength(2)
     expect(panes[1].openFiles).toEqual(['f1']) // Should copy state
 
-    const layout = useAppStore.getState().layoutsByWorkspace['ws-1']
+    const layout = useAppStore.getState().layoutsByTab['ws-1']
     expect(layout?.type).toBe('split')
     if (layout?.type === 'split') {
       // Root split wraps in horizontal (deterministic).

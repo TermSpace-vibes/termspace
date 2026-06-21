@@ -53,12 +53,12 @@ export function KubernetesPaneComponent({ workspaceId, paneId, isActive }: Kuber
   }
 
   const activeTerminalId = useAppStore((s) => s.activeTerminalId)
-  const terminals = useAppStore((s) => s.terminalsByWorkspace[workspaceId] ?? EMPTY_TERMINALS)
+  const terminals = useAppStore((s) => s.terminalsByTab[workspaceId] ?? EMPTY_TERMINALS)
   const addTerminal = useAppStore((s) => s.addTerminal)
   const setActiveTerminalId = useAppStore((s) => s.setActiveTerminalId)
   const addToast = useAppStore((s) => s.addToast)
   
-  const pane = useAppStore((s) => s.kubernetesPanesByWorkspace[workspaceId]?.find(p => p.id === paneId))
+  const pane = useAppStore((s) => s.kubernetesPanesByTab[workspaceId]?.find(p => p.id === paneId))
   const updateKubernetesPane = useAppStore((s) => s.updateKubernetesPane)
   const removeKubernetesPane = useAppStore((s) => s.removeKubernetesPane)
   

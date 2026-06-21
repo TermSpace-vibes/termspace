@@ -47,7 +47,7 @@ describe('EditorPaneComponent', () => {
 
   beforeEach(() => {
     useAppStore.setState({
-      editorPanesByWorkspace: {
+      editorPanesByTab: {
         [workspaceId]: [
           {
             id: editorPaneId,

@@ -44,6 +44,7 @@ export function SettingsModal({ onClose }: Props) {
   const [timeFormat, setTimeFormat] = useState<Settings['timeFormat']>(settings.timeFormat || '24h')
   const [autosave, setAutosave] = useState(settings.autosave || false)
   const [showTabBar, setShowTabBar] = useState(settings.showTabBar !== false)
+  const [showWorkspaceDefaultPaths, setShowWorkspaceDefaultPaths] = useState(settings.showWorkspaceDefaultPaths !== false)
   const [iconTheme, setIconTheme] = useState<Settings['iconTheme']>(settings.iconTheme || 'colorful')
   const [defaultTerminalType, setDefaultTerminalType] = useState<'built-in' | 'ghostty'>(
     settings.defaultTerminalType || 'built-in'
@@ -77,7 +78,7 @@ export function SettingsModal({ onClose }: Props) {
   }, [])
 
   function handleSave() {
-    updateSettings({ theme, fontSize, lineHeight, defaultShell, uiFontFamily, terminalFontFamily, timeFormat, autosave, showTabBar, iconTheme, keybindings, defaultTerminalType, smoothCaret, terminalRenderer })
+    updateSettings({ theme, fontSize, lineHeight, defaultShell, uiFontFamily, terminalFontFamily, timeFormat, autosave, showTabBar, iconTheme, keybindings, defaultTerminalType, smoothCaret, terminalRenderer, showWorkspaceDefaultPaths })
     useAppStore.getState().addToast('Settings saved', 'success')
     onClose()
   }
@@ -467,15 +468,32 @@ export function SettingsModal({ onClose }: Props) {
                   </label>
 
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={showTabBar} 
+                    <input
+                      type="checkbox"
+                      checked={showTabBar}
                       onChange={(e) => setShowTabBar(e.target.checked)}
                       style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
                     />
                     <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>
                       Show Tab Bar (Workspace Header)
                     </span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={showWorkspaceDefaultPaths}
+                      onChange={(e) => setShowWorkspaceDefaultPaths(e.target.checked)}
+                      style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
+                    />
+                    <div>
+                      <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>
+                        Show Default Paths
+                      </span>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                        Display the default terminal path below each workspace name in the sidebar
+                      </div>
+                    </div>
                   </label>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>

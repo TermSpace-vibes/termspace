@@ -7,14 +7,16 @@ import { Terminal as TerminalType } from '../types'
 export function useKeybindingHandler() {
   const settings = useAppStore((s) => s.settings)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
+  const activeTabIds = useAppStore((s) => s.activeTabIds)
+  const activeTabId = activeWorkspaceId ? activeTabIds[activeWorkspaceId] || activeWorkspaceId : null
   const activeTerminalId = useAppStore((s) => s.activeTerminalId)
-  const terminalsByWorkspace = useAppStore((s) => s.terminalsByWorkspace)
+  const terminalsByTab = useAppStore((s) => s.terminalsByTab)
   const addTerminal = useAppStore((s) => s.addTerminal)
   const removeTerminal = useAppStore((s) => s.removeTerminal)
   const setTerminalToCloseId = useAppStore((s) => s.setTerminalToCloseId)
   const setActiveTerminalId = useAppStore((s) => s.setActiveTerminalId)
 
-  const terminals = activeWorkspaceId ? (terminalsByWorkspace[activeWorkspaceId] ?? []) : []
+  const terminals = activeWorkspaceId ? (terminalsByTab[activeTabId!] ?? []) : []
 
   const handleKeydown = useCallback((e: KeyboardEvent): boolean => {
     if (!activeWorkspaceId) return false
@@ -40,7 +42,7 @@ export function useKeybindingHandler() {
             shell: useAppStore.getState().settings.defaultShell || 'zsh',
             cwd: finalCwd,
           }).then((terminal) => {
-            addTerminal(activeWorkspaceId, terminal)
+            addTerminal(activeTabId!, terminal)
             setActiveTerminalId(terminal.id)
           }).catch(err => console.error('spawn_terminal failed:', err))
         }
@@ -67,10 +69,10 @@ export function useKeybindingHandler() {
           invoke<boolean>('is_terminal_busy', { id: activeTerminalId })
             .then(isBusy => {
               if (isBusy) {
-                setTerminalToCloseId({ workspaceId: activeWorkspaceId, terminalId: activeTerminalId })
+                setTerminalToCloseId({ workspaceId: activeTabId!, terminalId: activeTerminalId })
               } else {
                 invoke('close_terminal', { id: activeTerminalId, scrollback: [] }).catch(console.error)
-                removeTerminal(activeWorkspaceId, activeTerminalId)
+                removeTerminal(activeTabId!, activeTerminalId)
                 const remaining = terminals.filter((t) => t.id !== activeTerminalId)
                 if (remaining.length > 0) {
                   setActiveTerminalId(remaining[remaining.length - 1].id)
@@ -81,7 +83,7 @@ export function useKeybindingHandler() {
             })
             .catch(err => {
               console.error(err)
-              setTerminalToCloseId({ workspaceId: activeWorkspaceId, terminalId: activeTerminalId })
+              setTerminalToCloseId({ workspaceId: activeTabId!, terminalId: activeTerminalId })
             })
         }
         return true
@@ -91,12 +93,12 @@ export function useKeybindingHandler() {
     if (matchShortcut(e, keybindings.closeTab || 'CmdOrCtrl+W')) {
       e.preventDefault()
       const store = useAppStore.getState()
-      const editorPanes = store.editorPanesByWorkspace[activeWorkspaceId] || []
-      const activeFile = store.activeFileByWorkspace[activeWorkspaceId]
+      const editorPanes = store.editorPanesByTab[activeTabId!] || []
+      const activeFile = store.activeFileByTab[activeTabId!]
       if (activeFile) {
         const pane = editorPanes.find(p => p.openFiles.includes(activeFile))
         if (pane) {
-          store.closeEditorFile(activeWorkspaceId, pane.id, activeFile)
+          store.closeEditorFile(activeTabId!, pane.id, activeFile)
         }
       }
       return true
@@ -130,14 +132,14 @@ export function useKeybindingHandler() {
     if (matchShortcut(e, keybindings.switchTab || 'Ctrl+Tab')) {
       e.preventDefault()
       const store = useAppStore.getState()
-      const editorPanes = store.editorPanesByWorkspace[activeWorkspaceId] || []
-      const activeFile = store.activeFileByWorkspace[activeWorkspaceId]
+      const editorPanes = store.editorPanesByTab[activeTabId!] || []
+      const activeFile = store.activeFileByTab[activeTabId!]
       if (activeFile && editorPanes.length > 0) {
         const pane = editorPanes.find(p => p.openFiles.includes(activeFile)) || editorPanes[0]
         if (pane && pane.openFiles.length > 1) {
           const idx = pane.openFiles.indexOf(activeFile)
           const nextIdx = (idx + 1) % pane.openFiles.length
-          store.updateEditorPaneFile(activeWorkspaceId, pane.id, pane.openFiles[nextIdx])
+          store.updateEditorPaneFile(activeTabId!, pane.id, pane.openFiles[nextIdx])
         }
       }
       return true
@@ -146,12 +148,12 @@ export function useKeybindingHandler() {
     if (matchShortcut(e, keybindings.splitEditor || 'CmdOrCtrl+\\')) {
       e.preventDefault()
       const store = useAppStore.getState()
-      const editorPanes = store.editorPanesByWorkspace[activeWorkspaceId] || []
-      const activeFile = store.activeFileByWorkspace[activeWorkspaceId]
+      const editorPanes = store.editorPanesByTab[activeTabId!] || []
+      const activeFile = store.activeFileByTab[activeTabId!]
       if (activeFile && editorPanes.length > 0) {
         const pane = editorPanes.find(p => p.openFiles.includes(activeFile)) || editorPanes[0]
         if (pane) {
-          store.splitEditor(activeWorkspaceId, pane.id, 'horizontal')
+          store.splitEditor(activeTabId!, pane.id, 'horizontal')
         }
       }
       return true

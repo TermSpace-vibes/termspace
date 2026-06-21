@@ -41,7 +41,7 @@ export function BrowserPane({
   
   const [showHistory, setShowHistory] = useState(false)
   const [showBookmarks, setShowBookmarks] = useState(false)
-  const autoReload = useAppStore(s => s.browserPanesByWorkspace[workspaceId]?.find(p => p.id === browserPaneId)?.autoReload ?? false)
+  const autoReload = useAppStore(s => s.browserPanesByTab[workspaceId]?.find(p => p.id === browserPaneId)?.autoReload ?? false)
   const updateBrowserPane = useAppStore(s => s.updateBrowserPane)
   const setAutoReload = (val: boolean) => updateBrowserPane(workspaceId, browserPaneId, { autoReload: val })
   const isModalOpen = useAppStore(s => s.isModalOpen)
@@ -380,8 +380,8 @@ export function BrowserPane({
     }
   }, [activeTabId, browserPaneId]) // Removed tabs dependency to avoid redefining listeners constantly
 
-  const editorPanes = useAppStore(s => s.editorPanesByWorkspace[workspaceId] || []);
-  const terminals = useAppStore(s => s.terminalsByWorkspace[workspaceId] || []);
+  const editorPanes = useAppStore(s => s.editorPanesByTab[workspaceId] || []);
+  const terminals = useAppStore(s => s.terminalsByTab[workspaceId] || []);
   const targetPath = editorPanes.length > 0 ? editorPanes[0].rootPath : (terminals.length > 0 ? terminals[0].cwd : '');
 
   useEffect(() => {
@@ -398,8 +398,8 @@ export function BrowserPane({
     return () => {
       unlisten.then(f => f());
       // Only stop the watcher if no other browser pane in this workspace has autoReload enabled
-      const { browserPanesByWorkspace } = useAppStore.getState();
-      const otherPanesWithAutoReload = browserPanesByWorkspace[workspaceId]?.filter(p => p.id !== browserPaneId && p.autoReload) || [];
+      const { browserPanesByTab } = useAppStore.getState();
+      const otherPanesWithAutoReload = browserPanesByTab[workspaceId]?.filter(p => p.id !== browserPaneId && p.autoReload) || [];
       if (otherPanesWithAutoReload.length === 0) {
         invoke('stop_workspace_watcher', { workspaceId: workspaceId }).catch(console.error);
       }

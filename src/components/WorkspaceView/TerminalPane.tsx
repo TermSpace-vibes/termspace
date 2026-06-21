@@ -143,8 +143,8 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
   const searchInputRef = useRef<HTMLInputElement>(null)
   
   const setDraggedTerminalId = useAppStore(s => s.setDraggedTerminalId)
-  const terminal = useAppStore(s => s.terminalsByWorkspace[workspaceId]?.find(t => t.id === terminalId))
-  const terminalIndex = useAppStore(s => s.terminalsByWorkspace[workspaceId]?.findIndex(t => t.id === terminalId)) ?? -1
+  const terminal = useAppStore(s => s.terminalsByTab[workspaceId]?.find(t => t.id === terminalId))
+  const terminalIndex = useAppStore(s => s.terminalsByTab[workspaceId]?.findIndex(t => t.id === terminalId)) ?? -1
   const defaultTitle = `Terminal ${terminalIndex >= 0 ? terminalIndex + 1 : ''}`.trim()
   const renameTerminal = useAppStore(s => s.renameTerminal)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -234,7 +234,7 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
     const webLinksAddon = new WebLinksAddon((_event, uri) => {
       useAppStore.getState().addBrowserPane(workspaceId, {
         id: crypto.randomUUID(),
-        workspaceId,
+        tabId: workspaceId,
         url: uri,
         position: 0,
         createdAt: Date.now()
@@ -262,7 +262,7 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
             text: match[1],
             activate: (_e: any, text: string) => {
                let fullPath = text
-               const existingEditor = useAppStore.getState().editorPanesByWorkspace[workspaceId]?.[0]
+               const existingEditor = useAppStore.getState().editorPanesByTab[workspaceId]?.[0]
                const rootPath = existingEditor?.rootPath || terminal?.cwd || ''
                
                if (rootPath) {
@@ -273,14 +273,14 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
                  }
                }
                
-               const editorPanes = useAppStore.getState().editorPanesByWorkspace[workspaceId] || []
+               const editorPanes = useAppStore.getState().editorPanesByTab[workspaceId] || []
                if (editorPanes.length > 0) {
                  useAppStore.getState().updateEditorPaneFile(workspaceId, editorPanes[0].id, fullPath)
                } else {
                  if (rootPath) {
                    useAppStore.getState().addEditorPane(workspaceId, {
                      id: crypto.randomUUID(),
-                     workspaceId,
+                     tabId: workspaceId,
                      rootPath,
                      openFiles: [fullPath],
                      activeFilePath: fullPath,
@@ -315,7 +315,7 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
 
     xterm.parser.registerOscHandler(99, (data) => {
       if (data === 'NeedsAttention=1') {
-        const currentCount = useAppStore.getState().terminalsByWorkspace[workspaceId]?.find(t => t.id === terminalId)?.notificationCount || 0
+        const currentCount = useAppStore.getState().terminalsByTab[workspaceId]?.find(t => t.id === terminalId)?.notificationCount || 0
         useAppStore.getState().setTerminalNotification(workspaceId, terminalId, currentCount + 1)
       } else if (data === 'NeedsAttention=0') {
         useAppStore.getState().setTerminalNotification(workspaceId, terminalId, 0)
@@ -408,7 +408,7 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
     let outputBuffer = ''
     
     const triggerAttention = () => {
-      const currentCount = useAppStore.getState().terminalsByWorkspace[workspaceId]?.find(t => t.id === terminalId)?.notificationCount || 0
+      const currentCount = useAppStore.getState().terminalsByTab[workspaceId]?.find(t => t.id === terminalId)?.notificationCount || 0
       useAppStore.getState().setTerminalNotification(workspaceId, terminalId, currentCount + 1)
       if (!document.hasFocus() || !isActive) {
         getCurrentWindow().requestUserAttention(1).catch(() => {}) // 1 = Critical (continuous bounce until focused)

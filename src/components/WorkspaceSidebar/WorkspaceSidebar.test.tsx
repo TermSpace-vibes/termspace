@@ -10,7 +10,7 @@ const ws2: Workspace = { id: 'ws-2', name: 'Side', emoji: '🌿', color: '#e8a04
 beforeEach(() => {
   useAppStore.setState({
     workspaces: [ws1, ws2], activeWorkspaceId: 'ws-1',
-    activeTerminalId: null, terminalsByWorkspace: {},
+    activeTerminalId: null, terminalsByTab: {},
   })
 })
 

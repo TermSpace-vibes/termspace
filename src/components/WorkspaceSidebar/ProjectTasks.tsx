@@ -7,7 +7,7 @@ import { TerminalSquare, Play, ChevronDown, ChevronRight } from 'lucide-react'
 export function ProjectTasks({ isCollapsed }: { isCollapsed: boolean }) {
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
   const activeTerminalId = useAppStore((s) => s.activeTerminalId)
-  const terminalsByWorkspace = useAppStore((s) => s.terminalsByWorkspace)
+  const terminalsByWorkspace = useAppStore((s) => s.terminalsByTab)
   const tasksCollapsed = useAppStore((s) => s.tasksCollapsed)
   const setTasksCollapsed = useAppStore((s) => s.setTasksCollapsed)
   

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore } from '../../store/useAppStore'
 import { AddWorkspaceButton } from './AddWorkspaceButton'
 import { WorkspaceItem } from './WorkspaceItem'
@@ -6,7 +6,9 @@ import { ProjectTasks } from './ProjectTasks'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { ChevronRight, ChevronDown, Search } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
+import { open } from '@tauri-apps/plugin-dialog'
 import { Workspace } from '../../types'
+import { getVersion } from '@tauri-apps/api/app'
 
 interface Props {
   isCollapsed: boolean
@@ -22,7 +24,7 @@ interface Props {
 export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace, onSelectWorkspace, onDeleteWorkspace, onEditWorkspace, onOpenSettings, onDuplicateWorkspace }: Props) {
   const workspaces = useAppStore((s) => s.workspaces)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
-  const terminalsByWorkspace = useAppStore((s) => s.terminalsByWorkspace)
+  const terminalsByWorkspace = useAppStore((s) => s.terminalsByTab)
   const showContextMenu = useAppStore((s) => s.showContextMenu)
   const username = useAppStore((s) => s.username) || 'User'
   const activatingWorkspaces = useAppStore((s) => s.activatingWorkspaces)
@@ -30,6 +32,11 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
 
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [searchQuery, setSearchQuery] = useState('')
+  const [appVersion, setAppVersion] = useState<string>('...')
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(console.error)
+  }, [])
 
   const initials = username.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
 
@@ -92,7 +99,7 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
           flexShrink: 0,
         }}
       >
-        <span data-tauri-drag-region>v0.5.0</span>
+        <span data-tauri-drag-region>v{appVersion}</span>
       </div>
 
       {!isCollapsed && (
@@ -236,6 +243,23 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
                               invoke('update_workspace', updated).catch(console.error);
                             }
                           },
+                          {
+                            label: 'Set Default Path',
+                            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>,
+                            onClick: async () => {
+                              const selected = await open({ directory: true, multiple: false })
+                              if (selected) {
+                                useAppStore.getState().setWorkspaceDefaultPath(ws.id, selected as string)
+                              }
+                            }
+                          },
+                          ...(ws.defaultPath ? [{
+                            label: 'Clear Default Path',
+                            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>,
+                            onClick: () => {
+                              useAppStore.getState().setWorkspaceDefaultPath(ws.id, null)
+                            }
+                          }] : []),
                           {
                             label: ws.isArchived ? 'Unarchive' : 'Archive',
                             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>,

@@ -314,7 +314,7 @@ export const FileTree: React.FC<FileTreeProps> = ({ workspaceId, rootPath, onFil
   const containerRef = useRef<HTMLDivElement>(null)
 
   const gitStatus = useAppStore(s => s.gitStatusByWorkspace[workspaceId])
-  const activeFile = useAppStore(s => s.activeFileByWorkspace[workspaceId])
+  const activeFile = useAppStore(s => s.activeFileByTab[workspaceId])
   const iconTheme = useAppStore(s => s.settings.iconTheme || 'colorful')
 
   const { menu, openMenu, closeMenu } = useFileTreeContextMenu()
