@@ -54,7 +54,7 @@ No Tauri, no alacritty_terminal, no audio, no LSP.
 
 1. App tries to connect to `~/.termspace/daemon.sock`
 2. If connects and `ping` → `pong` succeeds: daemon already running, skip spawn
-3. If connection refused: resolve daemon binary path via Tauri's resource dir, spawn with `setsid()` (Unix — makes daemon a session leader, not a child of app's process group), redirect stdin/stdout/stderr to `/dev/null`
+3. If connection refused: resolve daemon binary path via Tauri's resource dir, spawn with `setsid()` (Unix — makes daemon a session leader, not a child of app's process group), redirect stdin/stdout/stderr to `~/.termspace/daemon.log` (not `/dev/null` — keeps crash diagnostics; rotate at 1 MB)
 4. Retry connection up to 10× with 100ms backoff
 5. If still failing after retries: surface error to user, fall back to in-process PTY (today's behavior) so the app remains functional
 
@@ -69,17 +69,22 @@ main()
                 spawn     → create PTY, add to registry, reply "spawned"
                 input     → write bytes to PTY writer
                 resize    → resize PTY + send SIGWINCH
-                detach    → remove subscriber, PTY lives on
-                kill      → kill PTY child + remove from registry
+                detach    → remove subscriber by conn_id from Vec, PTY lives on
+                kill      → SIGTERM child; if still alive after 2s send SIGKILL; remove from registry
                 list      → serialize all registry entries, reply "sessions"
                 ping      → reply "pong"
           └── PTY reader thread per session:
-                loop: read PTY bytes → base64 encode → send "output" JSON to all subscribers
+                loop: read PTY bytes
+                  → clone subscriber sender list out of registry lock, release lock
+                  → base64 encode bytes
+                  → send "output" JSON to each cloned sender
                 on EOF: send "exited", remove from registry
 ```
 
 **Registry:** `Arc<Mutex<HashMap<String, DaemonPtyHandle>>>`  
-**DaemonPtyHandle fields:** `child`, `master`, `writer`, `subscribers: Vec<mpsc::Sender<String>>`
+**DaemonPtyHandle fields:** `child`, `master`, `writer`, `subscribers: HashMap<ConnId, mpsc::Sender<String>>`
+
+Each incoming connection is assigned a unique `ConnId` (incrementing u64). `detach` removes the entry for that `ConnId`; dead senders are also pruned on failed send. This ensures subscriber cleanup is exact and O(1).
 
 Multiple app connections (e.g. two windows) each get their own socket connection and can subscribe to the same session.
 
@@ -97,8 +102,8 @@ Newline-delimited JSON. One persistent TCP-like connection per app instance. All
 | `input` | `id, data` (base64) | Write raw bytes to PTY |
 | `resize` | `id, cols, rows` | Resize PTY, deliver SIGWINCH |
 | `detach` | `id` | Remove caller's subscription; PTY keeps running |
-| `kill` | `id` | SIGTERM child, remove from registry |
-| `list` | — | Return all live session IDs + cwds |
+| `kill` | `id` | SIGTERM child; SIGKILL after 2s if alive; remove from registry |
+| `list` | — | Return all live session IDs + initial cwds (see CWD note below) |
 | `ping` | — | Liveness check |
 
 ### Daemon → App
@@ -108,9 +113,13 @@ Newline-delimited JSON. One persistent TCP-like connection per app instance. All
 | `output` | `id, data` (base64) | Raw PTY bytes for terminal `id` |
 | `spawned` | `id` | PTY created/reattached successfully |
 | `exited` | `id, code` | Shell process exited |
-| `sessions` | `sessions[]` (`id, cwd, alive`) | Response to `list` |
+| `sessions` | `sessions[]` (`id, initial_cwd, alive`) | Response to `list` — `initial_cwd` is spawn-time cwd only (see CWD note below) |
 | `error` | `id, msg` | Command failed |
 | `pong` | — | Response to `ping` |
+
+### CWD note
+
+The daemon forwards raw PTY bytes without parsing OSC sequences. It stores only the **spawn-time cwd** (from the `spawn` message). The actual current working directory — updated by OSC 7 sequences as the user `cd`s — is tracked by `scan_osc_sequences` in the main app, exactly as today. On reconnect the DB `cwd` column (last saved by the main app) is used as the display cwd, which may be one session behind. This is acceptable given "live output only" reconnect mode.
 
 ### Spawn idempotency
 
@@ -175,7 +184,12 @@ Add daemon binary to resources:
 ]
 ```
 
-A `src-tauri/build.rs` script copies the compiled `termspace-daemon` binary into `src-tauri/resources/` automatically. Cargo builds both binaries; `build.rs` runs after compilation and before `tauri bundle` so the resource is always fresh.
+**Build step:** `build.rs` runs *before* crate compilation and cannot reference the daemon binary that doesn't exist yet. Instead, use an `xtask` or `Makefile` target:
+1. `cargo build --bin termspace-daemon [--release]`
+2. Copy resulting binary to `src-tauri/resources/termspace-daemon`
+3. `cargo tauri build` (bundles the already-copied resource)
+
+The `beforeBuildCommand` in `tauri.conf.json` will be updated to run this sequence so `tauri build` remains a single command.
 
 ### `src-tauri/src/native_terminal_manager.rs`
 
@@ -196,7 +210,7 @@ No changes. All components continue listening to `native-terminal-update-{id}` e
 | User action | Message sent | Process outcome |
 |---|---|---|
 | Close pane (X button) | `detach` | Shell lives in daemon |
-| Right-click → Kill Session | `kill` | Shell terminated |
+| Right-click → Kill Session | `kill` | SIGTERM → SIGKILL after 2s; shell terminated |
 | App quits | socket disconnects (no message) | All shells live in daemon |
 | App reopens | `spawn` per DB terminal | Reattaches if alive, creates fresh if not |
 
@@ -208,9 +222,8 @@ No changes. All components continue listening to `native-terminal-update-{id}` e
 App starts
   └─ DaemonClient::connect()
        ├─ success → send "list" → get live session IDs
-       │     └─ for each terminal in DB:
-       │           if id in live sessions → send "spawn" (reattach)
-       │           else → send "spawn" (fresh PTY)
+       │     └─ for each terminal in DB: send "spawn"
+       │           (daemon handles reattach vs create via idempotency — no if/else needed)
        └─ failure → retry × 10 → spawn daemon binary → retry
              └─ still failing → fallback: in-process NativeTerminalManager
 ```
