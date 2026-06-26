@@ -26,7 +26,7 @@ use std::collections::HashSet;
 use regex::Regex;
 use std::sync::LazyLock;
 
-static LOCALHOST_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:http://)?(?:localhost|127\.0\.0\.1):(\d+)").unwrap());
+pub static LOCALHOST_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:http://)?(?:localhost|127\.0\.0\.1):(\d+)").unwrap());
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::test::TermSize;
@@ -486,7 +486,7 @@ impl NativeTerminalManager {
 /// We accumulate into a bounded rolling buffer (capped at 2 KiB) because an OSC
 /// sequence can straddle two `read` calls; the cap prevents unbounded growth on
 /// pathological streams that never terminate a sequence.
-fn scan_osc_sequences(
+pub fn scan_osc_sequences(
     chunk: &[u8],
     buf: &mut Vec<u8>,
     cwd: &Arc<Mutex<String>>,
@@ -547,7 +547,7 @@ fn scan_osc_sequences(
 
 /// Minimal RFC 3986 percent-decoder for OSC 7 path payloads. Decodes `%XX`
 /// escapes byte-wise; malformed escapes are passed through verbatim.
-fn percent_decode(s: &str) -> String {
+pub fn percent_decode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {

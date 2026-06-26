@@ -15,6 +15,14 @@ default-run = "termspace"
 name = "termspace_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[[bin]]
+name = "termspace"
+path = "src/main.rs"
+
+[[bin]]
+name = "termspace-daemon"
+path = "src/bin/termspace_daemon.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -67,6 +75,7 @@ objc = "0.2.7"
 # turn it on for the whole graph. Unix-only because rustix 0.38 is unix here.
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "0.38", features = ["std", "fs", "termios"] }
+libc = "0.2"
 
 [profile.release]
 opt-level = 3
