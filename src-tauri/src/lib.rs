@@ -3,6 +3,7 @@ mod agent_hook;
 mod audio;
 mod browser_pane_manager;
 mod commands;
+mod daemon_client;
 mod db;
 pub mod lsp_manager;
 mod native_terminal_manager;
