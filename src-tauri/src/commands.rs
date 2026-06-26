@@ -1,4 +1,5 @@
 use crate::browser_pane_manager::BrowserPaneManager;
+use crate::daemon_client::DaemonClient;
 use crate::db::{self, Terminal, Workspace};
 use crate::native_terminal_manager::NativeTerminalManager;
 use notify_debouncer_mini::{
@@ -8,8 +9,8 @@ use notify_debouncer_mini::{
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use whisper_rs::{FullParams, WhisperContext};
@@ -25,8 +26,21 @@ pub struct WatcherState(
     >,
 );
 
+pub struct DaemonClientState(pub Arc<Mutex<Option<crate::daemon_client::DaemonClient>>>);
+
 // macOS concurrent fork/posix_spawn workaround
 static SPAWN_LOCK: Mutex<()> = Mutex::new(());
+
+// Cached process snapshot shared across all terminals — avoids N full process
+// scans per 2s tick when multiple terminals poll remote status simultaneously.
+struct ProcessSnapshot {
+    entries: Vec<(u32, Option<u32>, String, Vec<String>)>, // (pid, parent_pid, name, cmd)
+    captured_at: Instant,
+}
+static PROCESS_CACHE: OnceLock<Mutex<Option<ProcessSnapshot>>> = OnceLock::new();
+fn process_cache() -> &'static Mutex<Option<ProcessSnapshot>> {
+    PROCESS_CACHE.get_or_init(|| Mutex::new(None))
+}
 
 #[derive(serde::Serialize)]
 pub struct SystemStats {
@@ -114,41 +128,45 @@ fn get_mac_gpu_utilization() -> f32 {
 // froze typing for its full duration every 2s poll.
 #[tauri::command]
 pub async fn get_system_stats(state: State<'_, SysInfoState>) -> Result<SystemStats, String> {
-    let mut state_lock = state.0.lock();
-    let state_data = &mut *state_lock;
-    let sys = &mut state_data.0;
-    let networks = &mut state_data.1;
-
-    sys.refresh_cpu_usage();
-    sys.refresh_memory();
-    networks.refresh(true);
-
-    let cpus = sys.cpus();
-    let cpu = if cpus.is_empty() {
-        0.0
-    } else {
-        cpus.iter().map(|c| c.cpu_usage()).sum::<f32>() / cpus.len() as f32
-    };
-
-    let ram_used = sys.used_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
-    let ram_total = sys.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
-
-    let mut network_up = 0.0;
-    let mut network_down = 0.0;
-    for (_interface_name, data) in networks.iter() {
-        network_up += data.transmitted() as f64 / 1024.0; // KB/s
-        network_down += data.received() as f64 / 1024.0; // KB/s
-    }
-
-    let start = std::time::Instant::now();
-    let latency_ms = if let Ok(_) = std::net::TcpStream::connect_timeout(
+    // Measure latency BEFORE locking so we don't hold SysInfoState during I/O
+    let start = Instant::now();
+    let latency_ms = if std::net::TcpStream::connect_timeout(
         &"1.1.1.1:53".parse().unwrap(),
-        std::time::Duration::from_millis(500),
-    ) {
+        Duration::from_millis(500),
+    ).is_ok() {
         start.elapsed().as_millis() as u32
     } else {
-        999 // fallback/offline
+        999
     };
+
+    let (cpu, ram_used, ram_total, network_up, network_down) = {
+        let mut state_lock = state.0.lock();
+        let state_data = &mut *state_lock;
+        let sys = &mut state_data.0;
+        let networks = &mut state_data.1;
+
+        sys.refresh_cpu_usage();
+        sys.refresh_memory();
+        networks.refresh(true);
+
+        let cpus = sys.cpus();
+        let cpu = if cpus.is_empty() {
+            0.0
+        } else {
+            cpus.iter().map(|c| c.cpu_usage()).sum::<f32>() / cpus.len() as f32
+        };
+
+        let ram_used = sys.used_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
+        let ram_total = sys.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
+
+        let mut network_up = 0.0f64;
+        let mut network_down = 0.0f64;
+        for (_interface_name, data) in networks.iter() {
+            network_up += data.transmitted() as f64 / 1024.0;
+            network_down += data.received() as f64 / 1024.0;
+        }
+        (cpu, ram_used, ram_total, network_up, network_down)
+    }; // SysInfoState lock released here, before the slow GPU ioreg calls
 
     Ok(SystemStats {
         cpu,
@@ -217,18 +235,22 @@ pub fn delete_tab(id: String, db: tauri::State<'_, DbState>) -> Result<(), Strin
 pub fn delete_workspace(
     db: State<DbState>,
     ntm: State<NativeTerminalManager>,
+    dc: State<DaemonClientState>,
     browser: State<BrowserPaneManager>,
     id: String,
 ) -> Result<(), String> {
     {
         let conn = db.0.lock();
-        // Kill terminal processes
         if let Ok(terminals) = db::get_terminals(&conn, &id) {
+            let dc_guard = dc.0.lock();
             for t in terminals {
-                ntm.kill(&t.id);
+                if let Some(ref client) = *dc_guard {
+                    let _ = client.kill(&t.id);
+                } else {
+                    ntm.kill(&t.id);
+                }
             }
         }
-        // Destroy browser pane webviews
         if let Ok(panes) = db::get_browser_panes(&conn, &id) {
             for p in panes {
                 browser.destroy(&p.id);
@@ -260,12 +282,30 @@ pub fn get_terminals(db: State<DbState>, tab_id: String) -> Result<Vec<Terminal>
 #[tauri::command]
 pub async fn get_terminal_active_cwd(
     ntm: State<'_, NativeTerminalManager>,
+    dc: State<'_, DaemonClientState>,
     state: State<'_, SysInfoState>,
     id: String,
 ) -> Result<String, String> {
-    let shell_pid = match ntm.get_pid(&id) {
+    let shell_pid = {
+        let dc_guard = dc.0.lock();
+        if let Some(ref client) = *dc_guard {
+            client.get_pid(&id)
+        } else {
+            ntm.get_pid(&id)
+        }
+    };
+    let shell_pid = match shell_pid {
         Some(pid) => pid,
-        None => return Err("Terminal not found".into()),
+        None => {
+            // Fallback: return stored cwd from daemon or ntm
+            let dc_guard = dc.0.lock();
+            if let Some(ref client) = *dc_guard {
+                if let Some(cwd) = client.get_cwd(&id) {
+                    return Ok(cwd);
+                }
+            }
+            return Err("Terminal not found".into());
+        }
     };
 
     // First try sysinfo
@@ -318,6 +358,7 @@ pub fn spawn_terminal(
     app: AppHandle,
     db: State<DbState>,
     ntm: State<NativeTerminalManager>,
+    dc: State<DaemonClientState>,
     tab_id: String,
     shell: String,
     cwd: String,
@@ -327,49 +368,45 @@ pub fn spawn_terminal(
         ">>> RUST: spawn_terminal called for tab {} (shell: {}, cwd: {})",
         tab_id, shell, cwd
     );
-    // resolve empty cwd to user home directory
     let resolved_cwd = if cwd.is_empty() {
         std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
     } else {
         cwd.clone()
     };
-
-    // resolve empty/invalid shell to the user's login shell, then a sane default
     let resolved_shell = if shell.is_empty() {
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
     } else {
         shell.clone()
     };
 
-    // Spawn the native terminal first — if it fails, no DB record is created
-    // (no orphan). The native manager spawns its own reader thread, so there is
-    // no separate `start_terminal` step; output streams immediately.
     let temp_id = uuid::Uuid::new_v4().to_string();
-    {
+
+    let via_daemon = {
+        let dc_guard = dc.0.lock();
+        if let Some(ref client) = *dc_guard {
+            client.spawn(temp_id.clone(), resolved_shell.clone(), resolved_cwd.clone(), 80, 24).is_ok()
+        } else {
+            false
+        }
+    };
+
+    if !via_daemon {
         let _lock = SPAWN_LOCK.lock();
-        ntm.spawn(
-            temp_id.clone(),
-            app.clone(),
-            &resolved_shell,
-            &resolved_cwd,
-            80,
-            24,
-        )?;
+        ntm.spawn(temp_id.clone(), app.clone(), &resolved_shell, &resolved_cwd, 80, 24)?;
     }
 
     let terminal = {
         let conn = db.0.lock();
-        db::create_terminal_with_id(
-            &conn,
-            &temp_id,
-            &tab_id,
-            &resolved_shell,
-            &resolved_cwd,
-        )
-        .map_err(|e| {
-            ntm.kill(&temp_id); // rollback terminal if DB insert fails
-            e.to_string()
-        })?
+        db::create_terminal_with_id(&conn, &temp_id, &tab_id, &resolved_shell, &resolved_cwd)
+            .map_err(|e| {
+                let dc_guard = dc.0.lock();
+                if let Some(ref client) = *dc_guard {
+                    let _ = client.kill(&temp_id);
+                } else {
+                    ntm.kill(&temp_id);
+                }
+                e.to_string()
+            })?
     };
 
     Ok(terminal)
@@ -379,39 +416,42 @@ pub fn spawn_terminal(
 pub fn respawn_terminal(
     app: AppHandle,
     ntm: State<NativeTerminalManager>,
+    dc: State<DaemonClientState>,
     id: String,
     shell: String,
     cwd: String,
 ) -> Result<(), String> {
     #[cfg(debug_assertions)]
     println!(">>> RUST: respawn_terminal called for term {}", id);
-    // If the backend is still running (e.g., from a Vite HMR or frontend reload),
-    // kill the old terminal process so we can cleanly respawn and attach new listeners.
-    ntm.kill(&id);
 
     let resolved_cwd = if cwd.is_empty() {
         std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
     } else {
         cwd.clone()
     };
-
     let resolved_shell = if shell.is_empty() {
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
     } else {
         shell.clone()
     };
 
-    {
+    let via_daemon = {
+        let dc_guard = dc.0.lock();
+        if let Some(ref client) = *dc_guard {
+            // Daemon spawn is idempotent: resubscribes to existing session,
+            // or creates a new one if it exited. No kill needed — daemon keeps process alive.
+            client.spawn(id.clone(), resolved_shell.clone(), resolved_cwd.clone(), 80, 24).is_ok()
+        } else {
+            false
+        }
+    };
+
+    if !via_daemon {
+        ntm.kill(&id);
         let _lock = SPAWN_LOCK.lock();
-        ntm.spawn(
-            id.clone(),
-            app.clone(),
-            &resolved_shell,
-            &resolved_cwd,
-            80,
-            24,
-        )?;
+        ntm.spawn(id.clone(), app.clone(), &resolved_shell, &resolved_cwd, 80, 24)?;
     }
+
     #[cfg(debug_assertions)]
     println!(">>> RUST: respawn_terminal finished for term {}", id);
     Ok(())
@@ -438,10 +478,15 @@ pub fn update_terminal_cwd(db: State<DbState>, id: String, cwd: String) -> Resul
 #[tauri::command]
 pub fn is_terminal_busy(
     ntm: State<NativeTerminalManager>,
+    dc: State<DaemonClientState>,
     state: State<SysInfoState>,
     id: String,
 ) -> Result<bool, String> {
-    let shell_pid = match ntm.get_pid(&id) {
+    let shell_pid = {
+        let dc_guard = dc.0.lock();
+        if let Some(ref client) = *dc_guard { client.get_pid(&id) } else { ntm.get_pid(&id) }
+    };
+    let shell_pid = match shell_pid {
         Some(pid) => pid,
         None => return Ok(false),
     };
@@ -469,50 +514,78 @@ pub fn is_terminal_busy(
 #[tauri::command]
 pub fn get_terminal_remote_status(
     ntm: State<NativeTerminalManager>,
-    state: State<SysInfoState>,
+    dc: State<DaemonClientState>,
+    _state: State<SysInfoState>,
     id: String,
 ) -> Result<Option<String>, String> {
-    let shell_pid = match ntm.get_pid(&id) {
+    let shell_pid = {
+        let dc_guard = dc.0.lock();
+        if let Some(ref client) = *dc_guard { client.get_pid(&id) } else { ntm.get_pid(&id) }
+    };
+    let shell_pid = match shell_pid {
         Some(pid) => pid,
         None => return Ok(None),
     };
 
-    let mut state_lock = state.0.lock();
-    let sys = &mut state_lock.0;
+    const CACHE_TTL: Duration = Duration::from_millis(2000);
 
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    // Refresh process list at most once per 2s across all terminals
+    let entries = {
+        let mut cache = process_cache().lock();
+        let needs_refresh = cache.as_ref()
+            .map(|s| s.captured_at.elapsed() >= CACHE_TTL)
+            .unwrap_or(true);
 
-    for (_pid, process) in sys.processes() {
+        if needs_refresh {
+            let mut sys = sysinfo::System::new();
+            sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+            let entries: Vec<(u32, Option<u32>, String, Vec<String>)> = sys
+                .processes()
+                .iter()
+                .map(|(pid, p)| {
+                    (
+                        pid.as_u32(),
+                        p.parent().map(|pp| pp.as_u32()),
+                        p.name().to_string_lossy().to_lowercase(),
+                        p.cmd().iter().map(|s| s.to_string_lossy().into_owned()).collect(),
+                    )
+                })
+                .collect();
+            let snapshot = ProcessSnapshot { entries, captured_at: Instant::now() };
+            let entries = snapshot.entries.clone();
+            *cache = Some(snapshot);
+            entries
+        } else {
+            cache.as_ref().unwrap().entries.clone()
+        }
+    }; // cache lock released — SysInfoState never touched
+
+    for (pid, parent_pid, ref name, ref cmd) in &entries {
+        // Walk up the parent chain to see if this process descends from the shell
         let mut is_descendant = false;
-        let mut curr = Some(process);
+        let mut curr_parent = *parent_pid;
         for _ in 0..10 {
-            if let Some(p) = curr {
-                if let Some(parent_pid) = p.parent() {
-                    if parent_pid.as_u32() == shell_pid {
-                        is_descendant = true;
-                        break;
-                    }
-                    curr = sys.process(parent_pid);
-                } else {
-                    break;
+            match curr_parent {
+                Some(ppid) if ppid == shell_pid => { is_descendant = true; break; }
+                Some(ppid) => {
+                    curr_parent = entries.iter().find(|(p, ..)| *p == ppid).and_then(|(_, pp, ..)| *pp);
                 }
-            } else {
-                break;
+                None => break,
             }
         }
+        let _ = pid; // used via is_descendant path
 
         if is_descendant {
-            let name = process.name().to_string_lossy().to_lowercase();
             if name.contains("ssh") {
                 return Ok(Some("SSH".to_string()));
             } else if name.contains("kubectl") {
-                let cmd = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
-                if cmd.contains("exec") || cmd.contains("attach") || cmd.contains("port-forward") {
+                let full_cmd = cmd.join(" ");
+                if full_cmd.contains("exec") || full_cmd.contains("attach") || full_cmd.contains("port-forward") {
                     return Ok(Some("K8S".to_string()));
                 }
             } else if name.contains("docker") {
-                let cmd = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
-                if cmd.contains("exec") || cmd.contains("run") || cmd.contains("attach") {
+                let full_cmd = cmd.join(" ");
+                if full_cmd.contains("exec") || full_cmd.contains("run") || full_cmd.contains("attach") {
                     return Ok(Some("DOCKER".to_string()));
                 }
             }
@@ -526,16 +599,42 @@ pub fn get_terminal_remote_status(
 pub fn close_terminal(
     db: State<DbState>,
     ntm: State<NativeTerminalManager>,
+    dc: State<DaemonClientState>,
     id: String,
 ) -> Result<(), String> {
     {
         let conn = db.0.lock();
-        // Scrollback now lives in the native terminal's in-memory grid; no
-        // persistence step is needed here.
         db::delete_terminal(&conn, &id).map_err(|e| e.to_string())?;
-    } // lock released here before kill
-    ntm.kill(&id);
+    }
+    // Detach (process keeps running in daemon) or kill (NTM fallback)
+    let dc_guard = dc.0.lock();
+    if let Some(ref client) = *dc_guard {
+        client.detach(&id);
+    } else {
+        ntm.kill(&id);
+    }
     Ok(())
+}
+
+/// Hard-kill a terminal session: terminates the process and removes the DB record.
+#[tauri::command]
+pub fn kill_terminal_session(
+    db: State<DbState>,
+    ntm: State<NativeTerminalManager>,
+    dc: State<DaemonClientState>,
+    id: String,
+) -> Result<(), String> {
+    {
+        let conn = db.0.lock();
+        db::delete_terminal(&conn, &id).map_err(|e| e.to_string())?;
+    }
+    let dc_guard = dc.0.lock();
+    if let Some(ref client) = *dc_guard {
+        client.kill(&id)
+    } else {
+        ntm.kill(&id);
+        Ok(())
+    }
 }
 
 /// No-op retained for frontend compatibility. Scrollback is now owned by the
@@ -793,46 +892,76 @@ pub fn duplicate_file(source: String, new_path: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn write_terminal(
     ntm: State<'_, NativeTerminalManager>,
+    dc: State<'_, DaemonClientState>,
     terminal_id: String,
     data: String,
 ) -> Result<(), String> {
-    ntm.write(&terminal_id, &data)
+    let dc_guard = dc.0.lock();
+    if let Some(ref client) = *dc_guard {
+        client.write(&terminal_id, &data)
+    } else {
+        ntm.write(&terminal_id, &data)
+    }
 }
 
 #[tauri::command]
 pub async fn resize_terminal(
     ntm: State<'_, NativeTerminalManager>,
+    dc: State<'_, DaemonClientState>,
     terminal_id: String,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    ntm.resize(&terminal_id, cols, rows)
+    let dc_guard = dc.0.lock();
+    if let Some(ref client) = *dc_guard {
+        client.resize(&terminal_id, cols, rows)
+    } else {
+        ntm.resize(&terminal_id, cols, rows)
+    }
 }
 
 #[tauri::command]
 pub async fn search_terminal(
     ntm: State<'_, NativeTerminalManager>,
+    dc: State<'_, DaemonClientState>,
     terminal_id: String,
     query: String,
 ) -> Result<Vec<crate::native_terminal_manager::SearchMatch>, String> {
-    ntm.search(&terminal_id, &query)
+    let dc_guard = dc.0.lock();
+    if let Some(ref client) = *dc_guard {
+        client.search(&terminal_id, &query)
+    } else {
+        ntm.search(&terminal_id, &query)
+    }
 }
 
 #[tauri::command]
 pub async fn scroll_terminal(
     ntm: State<'_, NativeTerminalManager>,
+    dc: State<'_, DaemonClientState>,
     terminal_id: String,
     delta: i32,
 ) -> Result<(), String> {
-    ntm.scroll(&terminal_id, delta)
+    let dc_guard = dc.0.lock();
+    if let Some(ref client) = *dc_guard {
+        client.scroll(&terminal_id, delta)
+    } else {
+        ntm.scroll(&terminal_id, delta)
+    }
 }
 
 #[tauri::command]
 pub fn get_terminal_text(
     ntm: State<NativeTerminalManager>,
+    dc: State<DaemonClientState>,
     terminal_id: String,
 ) -> Result<String, String> {
-    ntm.get_all_text(&terminal_id)
+    let dc_guard = dc.0.lock();
+    if let Some(ref client) = *dc_guard {
+        client.get_all_text(&terminal_id)
+    } else {
+        ntm.get_all_text(&terminal_id)
+    }
 }
 
 /// No-op retained for frontend compatibility. Scrollback is owned by the native
@@ -847,16 +976,13 @@ pub fn get_git_branch(cwd: String) -> Result<String, String> {
     if cwd.is_empty() {
         return Err("Empty cwd".to_string());
     }
-    let output = {
-        let _lock = SPAWN_LOCK.lock();
-        std::process::Command::new("git")
-            .arg("rev-parse")
-            .arg("--abbrev-ref")
-            .arg("HEAD")
-            .current_dir(&cwd)
-            .output()
-            .map_err(|e| e.to_string())?
-    };
+    let output = std::process::Command::new("git")
+        .arg("rev-parse")
+        .arg("--abbrev-ref")
+        .arg("HEAD")
+        .current_dir(&cwd)
+        .output()
+        .map_err(|e| e.to_string())?;
 
     if output.status.success() {
         let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -929,13 +1055,10 @@ pub fn search_files_by_name(path: String, query: String) -> Result<Vec<String>, 
     let query_lower = query.to_lowercase();
 
     // Try git ls-files first
-    let output_res = {
-        let _lock = SPAWN_LOCK.lock();
-        std::process::Command::new("git")
-            .args(["ls-files"])
-            .current_dir(&path)
-            .output()
-    };
+    let output_res = std::process::Command::new("git")
+        .args(["ls-files"])
+        .current_dir(&path)
+        .output();
 
     if let Ok(output) = output_res {
         if output.status.success() {
@@ -1228,14 +1351,11 @@ pub fn get_detected_projects(cwd: String) -> Result<Vec<DetectedProject>, String
 
 #[tauri::command]
 pub fn get_git_file_content(path: String, file_path: String) -> Result<String, String> {
-    let output = {
-        let _lock = SPAWN_LOCK.lock();
-        std::process::Command::new("git")
-            .args(["show", &format!("HEAD:./{}", file_path)])
-            .current_dir(path)
-            .output()
-            .map_err(|e| e.to_string())?
-    };
+    let output = std::process::Command::new("git")
+        .args(["show", &format!("HEAD:./{}", file_path)])
+        .current_dir(path)
+        .output()
+        .map_err(|e| e.to_string())?;
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
@@ -1263,19 +1383,16 @@ pub fn get_git_blame(path: String, line: u32) -> Result<Option<GitBlame>, String
         None => return Ok(None),
     };
 
-    let output = {
-        let _lock = SPAWN_LOCK.lock();
-        std::process::Command::new("git")
-            .args([
-                "blame",
-                "-L",
-                &format!("{},{}", line, line),
-                "--porcelain",
-                &file_name,
-            ])
-            .current_dir(dir)
-            .output()
-    };
+    let output = std::process::Command::new("git")
+        .args([
+            "blame",
+            "-L",
+            &format!("{},{}", line, line),
+            "--porcelain",
+            &file_name,
+        ])
+        .current_dir(dir)
+        .output();
 
     let output = match output {
         Ok(out) => out,

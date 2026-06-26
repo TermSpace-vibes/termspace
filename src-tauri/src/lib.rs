@@ -9,7 +9,8 @@ pub mod lsp_manager;
 mod native_terminal_manager;
 
 use browser_pane_manager::BrowserPaneManager;
-use commands::DbState;
+use commands::{DaemonClientState, DbState};
+use daemon_client::{ensure_daemon_running, DaemonClient};
 use native_terminal_manager::NativeTerminalManager;
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -65,6 +66,49 @@ pub fn run() {
                 sysinfo::Networks::new_with_refreshed_list(),
             ))));
             app.manage(NativeTerminalManager::new());
+
+            // Start daemon and connect; fall back to in-process PTY if unavailable.
+            let daemon_client_opt: Option<DaemonClient> =
+                if ensure_daemon_running(app.handle()) {
+                    match DaemonClient::connect(app.handle().clone()) {
+                        Ok(mut dc) => {
+                            // Startup reconcile: re-subscribe to every terminal in the DB.
+                            // The daemon handles idempotency — live sessions resubscribe,
+                            // dead ones spawn fresh.
+                            let db_state = app.state::<DbState>();
+                            let conn = db_state.0.lock();
+                            if let Ok(workspaces) = db::get_workspaces(&conn) {
+                                for ws in workspaces {
+                                    if let Ok(tabs) = db::get_tabs(&conn, &ws.id) {
+                                        for tab in tabs {
+                                            if let Ok(terminals) = db::get_terminals(&conn, &tab.id) {
+                                                for t in terminals {
+                                                    let _ = dc.spawn(
+                                                        t.id,
+                                                        t.shell,
+                                                        t.cwd,
+                                                        80,
+                                                        24,
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Some(dc)
+                        }
+                        Err(e) => {
+                            eprintln!("[startup] DaemonClient connect failed: {e}");
+                            None
+                        }
+                    }
+                } else {
+                    eprintln!("[startup] daemon unavailable — using in-process PTY");
+                    None
+                };
+            app.manage(DaemonClientState(Arc::new(Mutex::new(daemon_client_opt))));
+
             app.manage(BrowserPaneManager::new());
             app.manage(audio::AudioPlayer::new());
             app.manage(commands::WatcherState(std::sync::Mutex::new(
@@ -132,6 +176,7 @@ pub fn run() {
             commands::is_terminal_busy,
             commands::get_terminal_remote_status,
             commands::close_terminal,
+            commands::kill_terminal_session,
             commands::write_terminal,
             commands::get_detected_projects,
             commands::resize_terminal,
