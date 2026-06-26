@@ -44,7 +44,8 @@
       "signingIdentity": null
     },
     "resources": [
-      "resources/ggml-base.en.bin"
+      "resources/ggml-base.en.bin",
+      "resources/termspace-daemon"
     ]
   },
   "plugins": {
