@@ -227,7 +227,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     sendTheme: _sendTheme,
     sendFont,
     sendCursorAnim: _sendCursorAnim,
-  } = useTerminalWorker(canvasRef, fontSize, fontFamily, cellWRef.current, cellHRef.current, onWorkerMetadata)
+  } = useTerminalWorker(canvasRef, terminalId, fontSize, fontFamily, cellWRef.current, cellHRef.current, onWorkerMetadata)
 
   // ── Cell dimension measurement ─────────────────────────────────────────────
   // Re-measure whenever the font configuration changes so cols/rows calculations
@@ -993,6 +993,16 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
             danger: true,
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>,
             onClick: () => onClose(terminalId)
+          },
+          {
+            label: 'Kill Session',
+            danger: true,
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>,
+            onClick: () => {
+              invoke('kill_terminal_session', { id: terminalId })
+                .catch((e: unknown) => console.error('kill_terminal_session error:', e))
+                .finally(() => onClose(terminalId))
+            }
           }
         )
 
