@@ -20,7 +20,7 @@
   - Defines transcript row/raw chunk types and reducer helpers.
 - Create: `src/components/WorkspaceView/claudeTranscript.test.ts`
   - Unit tests for transcript append/error/exit/block behavior.
-- Create: `src/components/WorkspaceView/ClaudeTranscript.tsx`
+- Create: `src/components/WorkspaceView/ClaudeTranscriptView.tsx`
   - Timeline renderer for transcript rows.
 - Create: `src/components/WorkspaceView/ClaudeRawStream.tsx`
   - Collapsible raw stream renderer.
@@ -303,7 +303,7 @@ git commit -m "feat(claude): add transcript parser"
 ## Task 2: Transcript And Raw Stream Renderers
 
 **Files:**
-- Create: `src/components/WorkspaceView/ClaudeTranscript.tsx`
+- Create: `src/components/WorkspaceView/ClaudeTranscriptView.tsx`
 - Create: `src/components/WorkspaceView/ClaudeRawStream.tsx`
 - Modify: `src/components/WorkspaceView/ClaudePane.test.tsx`
 
@@ -363,15 +363,15 @@ npm test -- src/components/WorkspaceView/ClaudePane.test.tsx
 
 Expected: fails because the raw stream toggle/renderer is not present.
 
-- [ ] **Step 3: Implement `ClaudeTranscript`**
+- [ ] **Step 3: Implement `ClaudeTranscriptView`**
 
-Create `src/components/WorkspaceView/ClaudeTranscript.tsx`:
+Create `src/components/WorkspaceView/ClaudeTranscriptView.tsx`:
 
 ```tsx
 import type { CSSProperties } from 'react'
 import { ClaudeTranscriptRow } from './claudeTranscript'
 
-interface ClaudeTranscriptProps {
+interface ClaudeTranscriptViewProps {
   rows: ClaudeTranscriptRow[]
 }
 
@@ -401,7 +401,7 @@ const rowStyle = (kind: ClaudeTranscriptRow['kind']): CSSProperties => ({
   overflowWrap: 'anywhere',
 })
 
-export function ClaudeTranscript({ rows }: ClaudeTranscriptProps) {
+export function ClaudeTranscriptView({ rows }: ClaudeTranscriptViewProps) {
   if (rows.length === 0) {
     return <div style={{ color: '#7f8894', fontSize: 13 }}>Claude Code is starting...</div>
   }
@@ -457,7 +457,7 @@ In `src/components/WorkspaceView/ClaudePane.tsx`, replace local `ClaudeMessage` 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Code2, FolderOpen, RotateCcw, Send, Sparkles, Square, X } from 'lucide-react'
 import { ClaudeRawStream } from './ClaudeRawStream'
-import { ClaudeTranscript } from './ClaudeTranscript'
+import { ClaudeTranscriptView } from './ClaudeTranscriptView'
 import {
   appendClaudeError,
   appendClaudeExit,
@@ -495,7 +495,7 @@ Render the timeline and raw stream:
 
 ```tsx
 <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-  <ClaudeTranscript rows={transcript.rows} />
+  <ClaudeTranscriptView rows={transcript.rows} />
 </div>
 {showRawStream && <ClaudeRawStream chunks={transcript.rawChunks} />}
 ```
@@ -515,7 +515,7 @@ Expected: component tests pass.
 Run:
 
 ```bash
-git add src/components/WorkspaceView/ClaudeTranscript.tsx src/components/WorkspaceView/ClaudeRawStream.tsx src/components/WorkspaceView/ClaudePane.tsx src/components/WorkspaceView/ClaudePane.test.tsx
+git add src/components/WorkspaceView/ClaudeTranscriptView.tsx src/components/WorkspaceView/ClaudeRawStream.tsx src/components/WorkspaceView/ClaudePane.tsx src/components/WorkspaceView/ClaudePane.test.tsx docs/superpowers/plans/2026-06-30-claude-code-pane-v2.md
 git commit -m "feat(claude): render stream timeline"
 ```
 
