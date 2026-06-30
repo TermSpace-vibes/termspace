@@ -1,13 +1,12 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import monacoEditorPluginPkg from 'vite-plugin-monaco-editor'
-const monacoEditorPlugin = monacoEditorPluginPkg.default
+import vsix from '@codingame/monaco-vscode-rollup-vsix-plugin'
 
 export default defineConfig({
   plugins: [
     react(),
-    monacoEditorPlugin({ languageWorkers: ['editorWorkerService', 'typescript', 'json'] }),
+    vsix(),
     {
       name: 'error-logger',
       configureServer(server) {
@@ -43,6 +42,12 @@ export default defineConfig({
   clearScreen: false,
   server: { port: 1420, strictPort: true },
   envPrefix: ['VITE_', 'TAURI_'],
+  resolve: {
+    alias: {
+      'monaco-editor': '@codingame/monaco-vscode-editor-api',
+      'vscode': '@codingame/monaco-vscode-api',
+    },
+  },
   build: {
     target: ['es2021', 'safari14'],
     minify: !process.env.TAURI_DEBUG,
@@ -51,7 +56,7 @@ export default defineConfig({
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],
           'vendor-tauri': ['@tauri-apps/api', '@tauri-apps/plugin-updater', '@tauri-apps/plugin-clipboard-manager'],
-          'vendor-monaco': ['@monaco-editor/react'],
+          'vendor-monaco': ['@monaco-editor/react', '@codingame/monaco-vscode-editor-api'],
         },
       },
     },
@@ -65,6 +70,6 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['@monaco-editor/react'],
+    exclude: ['@monaco-editor/react', '@codingame/monaco-vscode-api'],
   },
 })
