@@ -208,6 +208,60 @@ describe('ClaudePaneComponent', () => {
       })
     })
   })
+
+  it('marks the pane ready when the backend emits ready', async () => {
+    render(
+      <ClaudePaneComponent
+        tabId="tab-1"
+        paneId="claude-1"
+        isActive
+        onFocus={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(listeners.has('claude-ready-claude-1')).toBe(true)
+    })
+
+    act(() => {
+      listeners.get('claude-ready-claude-1')?.({ payload: 'Claude session started' })
+    })
+
+    expect(await screen.findAllByText('Claude session started')).not.toHaveLength(0)
+    expect(screen.getByText('ready')).toBeInTheDocument()
+  })
+
+  it('shows retry after spawn failure and retries the same session', async () => {
+    vi.mocked(invoke).mockImplementation((command) => {
+      if (command === 'spawn_claude_session') {
+        return Promise.reject('Claude CLI not found')
+      }
+      return Promise.resolve(undefined)
+    })
+
+    render(
+      <ClaudePaneComponent
+        tabId="tab-1"
+        paneId="claude-1"
+        isActive
+        onFocus={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    expect(await screen.findByText('Claude CLI not found')).toBeInTheDocument()
+
+    vi.mocked(invoke).mockResolvedValue(undefined)
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Claude session' }))
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('spawn_claude_session', {
+        sessionId: 'claude-1',
+        cwd: '/tmp',
+      })
+    })
+  })
 })
 
 describe('sanitizeClaudeOutput', () => {

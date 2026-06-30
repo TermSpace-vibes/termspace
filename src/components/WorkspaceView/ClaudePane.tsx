@@ -68,9 +68,16 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
     let unlistenOutput: (() => void) | null = null
     let unlistenError: (() => void) | null = null
     let unlistenExit: (() => void) | null = null
+    let unlistenReady: (() => void) | null = null
 
     const attachListeners = async () => {
       try {
+        unlistenReady = await listen<string>(`claude-ready-${paneId}`, (event) => {
+          if (disposed) return
+          const text = String(event.payload ?? 'Claude session started')
+          setTranscript((prev) => appendClaudeStatus(prev, text))
+          updateClaudePane(tabId, paneId, { status: 'ready', error: null })
+        })
         unlistenOutput = await listen<string>(`claude-output-${paneId}`, (event) => {
           if (disposed) return
           setTranscript((prev) => {
@@ -119,6 +126,7 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
       unlistenOutput?.()
       unlistenError?.()
       unlistenExit?.()
+      unlistenReady?.()
       invoke('close_claude_session', { sessionId: paneId }).catch(() => {})
     }
   }, [paneId, pane?.cwd, startSession, tabId, updateClaudePane])
@@ -270,6 +278,26 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
         <ClaudeTranscriptView rows={transcript.rows} />
       </div>
       {showRawStream && <ClaudeRawStream chunks={transcript.rawChunks} />}
+      {(status === 'error' || status === 'exited') && (
+        <div style={{ padding: '8px 10px', borderTop: '1px solid #222831', background: '#0b0f14' }}>
+          <button
+            type="button"
+            aria-label="Retry Claude session"
+            onClick={startSession}
+            style={{
+              border: '1px solid #3a4654',
+              borderRadius: 6,
+              background: '#151b24',
+              color: '#e8edf3',
+              cursor: 'pointer',
+              fontSize: 12,
+              padding: '6px 10px',
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       <div style={{ padding: 10, borderTop: '1px solid #222831', background: '#0b0f14', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
         <textarea
