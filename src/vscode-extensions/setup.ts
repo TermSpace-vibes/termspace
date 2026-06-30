@@ -23,6 +23,8 @@ import getTextmateServiceOverride from '@codingame/monaco-vscode-textmate-servic
 import getThemeServiceOverride from '@codingame/monaco-vscode-theme-service-override'
 import getLanguageDetectionServiceOverride from '@codingame/monaco-vscode-language-detection-worker-service-override'
 
+import { registerDefaultExtensions } from './default-extensions'
+
 let initPromise: Promise<void> | null = null
 
 interface MonacoEnvironment {
@@ -72,6 +74,11 @@ export async function initializeExtensions(): Promise<void> {
     // `import * as monaco from 'monaco-editor'` resolves to the API package,
     // which is the same instance that initialize() modified.
     loader.config({ monaco })
+
+    // Register default extensions AFTER services are initialized.
+    // Dynamic imports ensure the extension manifests register against
+    // the live extension service override.
+    await registerDefaultExtensions()
   })()
 
   return initPromise
