@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Terminal as XTerm } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
 import { Code2, FolderOpen, RotateCcw, Send, Sparkles, Square, X } from 'lucide-react'
 import { invoke, listen } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
 import { ClaudeRawStream } from './ClaudeRawStream'
-import { ClaudeTranscriptView } from './ClaudeTranscriptView'
 import {
   appendClaudeError,
   appendClaudeExit,
@@ -13,6 +14,7 @@ import {
   createClaudeTranscript,
 } from './claudeTranscript'
 import { stripClaudeAnsi } from './claudeOutputParser'
+import '@xterm/xterm/css/xterm.css'
 
 interface ClaudePaneProps {
   tabId: string
@@ -34,7 +36,10 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
   const [isSending, setIsSending] = useState(false)
   const [showWorkingDirectory, setShowWorkingDirectory] = useState(false)
   const [showRawStream, setShowRawStream] = useState(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const [eventMessage, setEventMessage] = useState('Claude Code is starting...')
+  const terminalContainerRef = useRef<HTMLDivElement>(null)
+  const xtermRef = useRef<XTerm | null>(null)
+  const fitAddonRef = useRef<FitAddon | null>(null)
 
   const title = pane?.title || 'Claude Code'
   const status = pane?.status || 'ready'
@@ -42,26 +47,86 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
 
   const startSession = useCallback(async () => {
     updateClaudePane(tabId, paneId, { status: 'starting', error: null })
+    setEventMessage('Starting Claude session...')
     setTranscript((prev) => appendClaudeStatus(prev, 'Starting Claude session...'))
     try {
       await invoke('spawn_claude_session', { sessionId: paneId, cwd: pane?.cwd || '' })
       updateClaudePane(tabId, paneId, { status: 'ready', error: null })
-      setTranscript((prev) => appendClaudeStatus(prev, 'Claude session started'))
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err)
       updateClaudePane(tabId, paneId, { status: 'error', error })
+      setEventMessage(error)
       setTranscript((prev) => appendClaudeError(prev, error))
     }
   }, [pane?.cwd, paneId, tabId, updateClaudePane])
 
   useEffect(() => {
-    if (!scrollRef.current) return
-    if (typeof scrollRef.current.scrollTo === 'function') {
-      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight })
-    } else {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    if (!terminalContainerRef.current) return
+
+    const xterm = new XTerm({
+      allowTransparency: true,
+      cursorBlink: true,
+      fontFamily: 'var(--terminal-font-family)',
+      fontSize: 13,
+      lineHeight: 1.22,
+      macOptionIsMeta: true,
+      scrollback: 50000,
+      theme: {
+        background: '#07090c',
+        foreground: '#dfe7ef',
+        cursor: '#f28b50',
+        black: '#0b0f14',
+        red: '#f87171',
+        green: '#34d399',
+        yellow: '#fbbf24',
+        blue: '#60a5fa',
+        magenta: '#c084fc',
+        cyan: '#22d3ee',
+        white: '#e5e7eb',
+        brightBlack: '#64748b',
+        brightRed: '#fb7185',
+        brightGreen: '#4ade80',
+        brightYellow: '#facc15',
+        brightBlue: '#93c5fd',
+        brightMagenta: '#d8b4fe',
+        brightCyan: '#67e8f9',
+        brightWhite: '#f8fafc',
+      },
+    })
+    const fitAddon = new FitAddon()
+    xterm.loadAddon(fitAddon)
+    xterm.open(terminalContainerRef.current)
+    fitAddon.fit()
+    xtermRef.current = xterm
+    fitAddonRef.current = fitAddon
+
+    const dataDisposable = xterm.onData((data) => {
+      invoke('write_claude_session', { sessionId: paneId, data }).catch((err) => {
+        const error = err instanceof Error ? err.message : String(err)
+        setEventMessage(error)
+        setTranscript((prev) => appendClaudeError(prev, error))
+        updateClaudePane(tabId, paneId, { status: 'error', error })
+      })
+    })
+
+    const resizeObserver = new ResizeObserver(() => {
+      fitAddon.fit()
+    })
+    resizeObserver.observe(terminalContainerRef.current)
+    if (isActive) xterm.focus()
+
+    return () => {
+      dataDisposable.dispose()
+      resizeObserver.disconnect()
+      xterm.dispose()
+      xtermRef.current = null
+      fitAddonRef.current = null
     }
-  }, [transcript.rows])
+  }, [isActive, paneId, tabId, updateClaudePane])
+
+  useEffect(() => {
+    if (isActive) xtermRef.current?.focus()
+  }, [isActive])
 
   useEffect(() => {
     let disposed = false
@@ -75,17 +140,22 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
         unlistenReady = await listen<string>(`claude-ready-${paneId}`, (event) => {
           if (disposed) return
           const text = String(event.payload ?? 'Claude session started')
+          setEventMessage(text)
           setTranscript((prev) => appendClaudeStatus(prev, text))
           updateClaudePane(tabId, paneId, { status: 'ready', error: null })
         })
         unlistenOutput = await listen<string>(`claude-output-${paneId}`, (event) => {
           if (disposed) return
+          const raw = String(event.payload ?? '')
+          xtermRef.current?.write(raw)
           setTranscript((prev) => {
-            const next = appendClaudeOutput(prev, String(event.payload ?? ''))
+            const next = appendClaudeOutput(prev, raw)
             const last = next.rows[next.rows.length - 1]
             if (last?.kind === 'blocked') {
+              setEventMessage(last.text)
               updateClaudePane(tabId, paneId, { status: 'blocked', error: null })
             } else if (last?.kind === 'error') {
+              setEventMessage(last.text)
               updateClaudePane(tabId, paneId, { status: 'error', error: last.text })
             } else if (last?.kind === 'assistant') {
               updateClaudePane(tabId, paneId, { status: 'running', error: null })
@@ -96,6 +166,7 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
         unlistenError = await listen<string>(`claude-error-${paneId}`, (event) => {
           if (disposed) return
           const text = String(event.payload ?? 'Claude session error')
+          setEventMessage(text)
           setTranscript((prev) => appendClaudeError(prev, text))
           setIsSending(false)
           updateClaudePane(tabId, paneId, { status: 'error', error: text })
@@ -103,6 +174,7 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
         unlistenExit = await listen<string>(`claude-exit-${paneId}`, (event) => {
           if (disposed) return
           const text = String(event.payload ?? '')
+          if (text && text !== 'Claude prompt completed') setEventMessage(text)
           if (text && text !== 'Claude prompt completed') setTranscript((prev) => appendClaudeExit(prev, text))
           setIsSending(false)
           updateClaudePane(tabId, paneId, { status: 'exited', error: null })
@@ -113,6 +185,7 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
       } catch (err) {
         const text = err instanceof Error ? err.message : String(err)
         if (!disposed) {
+          setEventMessage(text || 'Unable to attach Claude listeners')
           setTranscript((prev) => appendClaudeError(prev, text || 'Unable to attach Claude listeners'))
           updateClaudePane(tabId, paneId, { status: 'error', error: text })
         }
@@ -163,6 +236,8 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
     setTranscript(createClaudeTranscript())
     setDraft('')
     setIsSending(false)
+    setEventMessage('Restarting Claude session...')
+    xtermRef.current?.clear()
     await invoke('close_claude_session', { sessionId: paneId }).catch(() => {})
     await startSession()
   }
@@ -170,6 +245,7 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
   const stop = async () => {
     await invoke('stop_claude_session', { sessionId: paneId }).catch((err) => {
       const error = err instanceof Error ? err.message : String(err)
+      setEventMessage(error)
       setTranscript((prev) => appendClaudeError(prev, error))
     })
   }
@@ -274,8 +350,37 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
         </div>
       )}
 
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <ClaudeTranscriptView rows={transcript.rows} />
+      {eventMessage && (
+        <div
+          aria-live="polite"
+          style={{
+            minHeight: 30,
+            padding: '7px 12px',
+            borderBottom: '1px solid #1f2933',
+            background: '#0a0e13',
+            color: status === 'error' ? '#fecaca' : status === 'blocked' ? '#fde68a' : '#97a3b4',
+            fontSize: 12,
+            lineHeight: 1.3,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}
+          title={eventMessage}
+        >
+          {eventMessage}
+        </div>
+      )}
+      <div style={{ flex: 1, minHeight: 0, background: '#07090c', padding: '8px 10px' }}>
+        <div
+          ref={terminalContainerRef}
+          style={{
+            width: '100%',
+            height: '100%',
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
+        />
       </div>
       {showRawStream && <ClaudeRawStream chunks={transcript.rawChunks} />}
       {(status === 'error' || status === 'exited') && (

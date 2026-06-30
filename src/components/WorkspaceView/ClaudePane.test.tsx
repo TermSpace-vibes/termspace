@@ -5,6 +5,15 @@ import { ClaudePaneComponent, sanitizeClaudeOutput } from './ClaudePane'
 import { invoke, listen } from '../../utils/tauri'
 
 const listeners = vi.hoisted(() => new Map<string, (event: { payload: string }) => void>())
+const xtermMock = vi.hoisted(() => ({
+  writes: [] as string[],
+  onDataHandlers: [] as Array<(data: string) => void>,
+  open: vi.fn(),
+  focus: vi.fn(),
+  clear: vi.fn(),
+  dispose: vi.fn(),
+  fit: vi.fn(),
+}))
 const store = vi.hoisted(() => {
   const pane = { id: 'claude-1', tabId: 'tab-1', title: 'Claude 1', cwd: '/tmp', position: 0, createdAt: 1 } as {
     id: string
@@ -46,10 +55,33 @@ vi.mock('../../store/useAppStore', () => ({
   ),
 }))
 
+vi.mock('@xterm/xterm', () => ({
+  Terminal: vi.fn(function TerminalMock(this: any) {
+    this.loadAddon = vi.fn()
+    this.open = xtermMock.open
+    this.write = vi.fn((data: string) => xtermMock.writes.push(data))
+    this.onData = vi.fn((handler: (data: string) => void) => {
+      xtermMock.onDataHandlers.push(handler)
+      return { dispose: vi.fn() }
+    })
+    this.focus = xtermMock.focus
+    this.clear = xtermMock.clear
+    this.dispose = xtermMock.dispose
+  }),
+}))
+
+vi.mock('@xterm/addon-fit', () => ({
+  FitAddon: vi.fn(function FitAddonMock(this: any) {
+    this.fit = xtermMock.fit
+  }),
+}))
+
 describe('ClaudePaneComponent', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     listeners.clear()
+    xtermMock.writes = []
+    xtermMock.onDataHandlers = []
     store.pane.status = undefined
     store.pane.error = undefined
     vi.mocked(invoke).mockResolvedValue(undefined)
@@ -138,7 +170,7 @@ describe('ClaudePaneComponent', () => {
     expect(screen.getByText('/tmp')).toBeInTheDocument()
   })
 
-  it('renders streamed output and keeps raw stream available', async () => {
+  it('renders streamed output through the terminal emulator and keeps raw stream available', async () => {
     render(
       <ClaudePaneComponent
         tabId="tab-1"
@@ -157,11 +189,36 @@ describe('ClaudePaneComponent', () => {
       listeners.get('claude-output-claude-1')?.({ payload: 'Hello from Claude\n' })
     })
 
-    expect(await screen.findByText('Hello from Claude')).toBeInTheDocument()
+    expect(xtermMock.writes).toContain('Hello from Claude\n')
 
     fireEvent.click(screen.getByTitle('Show raw Claude stream'))
 
-    expect(screen.getAllByText('Hello from Claude')).toHaveLength(2)
+    expect(await screen.findByText('Hello from Claude')).toBeInTheDocument()
+  })
+
+  it('writes direct terminal input to the live Claude session', async () => {
+    render(
+      <ClaudePaneComponent
+        tabId="tab-1"
+        paneId="claude-1"
+        isActive
+        onFocus={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(xtermMock.onDataHandlers).toHaveLength(1)
+    })
+
+    act(() => {
+      xtermMock.onDataHandlers[0]('1')
+    })
+
+    expect(invoke).toHaveBeenCalledWith('write_claude_session', {
+      sessionId: 'claude-1',
+      data: '1',
+    })
   })
 
   it('marks exit events as exited and keeps transcript visible', async () => {
@@ -228,7 +285,7 @@ describe('ClaudePaneComponent', () => {
       listeners.get('claude-ready-claude-1')?.({ payload: 'Claude session started' })
     })
 
-    expect(await screen.findAllByText('Claude session started')).not.toHaveLength(0)
+    expect(await screen.findAllByText('Claude session started')).toHaveLength(1)
     expect(screen.getByText('ready')).toBeInTheDocument()
   })
 

@@ -33,7 +33,7 @@
 | `src/components/WorkspaceSidebar/WorkspaceItem.tsx` | `src/store/useAppStore.ts`, `src/types/index.ts` |
 | `src/components/WorkspaceSidebar/WorkspaceSidebar.tsx` | `src/components/WorkspaceSidebar/AddWorkspaceButton.tsx`, `src/components/WorkspaceSidebar/ProjectTasks.tsx`, `src/components/WorkspaceSidebar/WorkspaceItem.tsx`, `src/store/useAppStore.ts`, `src/types/index.ts` |
 | `src/components/WorkspaceView/BrowserPane.tsx` | `src/store/useAppStore.ts`, `src/utils/tauri.ts` |
-| `src/components/WorkspaceView/ClaudePane.tsx` | `src/components/WorkspaceView/ClaudeRawStream.tsx`, `src/components/WorkspaceView/ClaudeTranscriptView.tsx`, `src/components/WorkspaceView/claudeOutputParser.ts`, `src/components/WorkspaceView/claudeTranscript.ts`, `src/store/useAppStore.ts`, `src/utils/tauri.ts` |
+| `src/components/WorkspaceView/ClaudePane.tsx` | `src/components/WorkspaceView/ClaudeRawStream.tsx`, `src/components/WorkspaceView/claudeOutputParser.ts`, `src/components/WorkspaceView/claudeTranscript.ts`, `src/store/useAppStore.ts`, `src/utils/tauri.ts` |
 | `src/components/WorkspaceView/ClaudeRawStream.tsx` | — |
 | `src/components/WorkspaceView/ClaudeTranscriptView.tsx` | `src/components/WorkspaceView/claudeTranscript.ts` |
 | `src/components/WorkspaceView/DockerPaneComponent.tsx` | `src/store/useAppStore.ts`, `src/types/index.ts` |
@@ -118,7 +118,6 @@
 | `src/components/WorkspaceView/BrowserPane.tsx` | 1 | `src/components/WorkspaceView/TerminalGrid.tsx` |
 | `src/components/WorkspaceView/ClaudePane.tsx` | 1 | `src/components/WorkspaceView/TerminalGrid.tsx` |
 | `src/components/WorkspaceView/ClaudeRawStream.tsx` | 1 | `src/components/WorkspaceView/ClaudePane.tsx` |
-| `src/components/WorkspaceView/ClaudeTranscriptView.tsx` | 1 | `src/components/WorkspaceView/ClaudePane.tsx` |
 | `src/components/WorkspaceView/DockerPaneComponent.tsx` | 1 | `src/components/WorkspaceView/TerminalGrid.tsx` |
 | `src/components/WorkspaceView/KubernetesPaneComponent.tsx` | 1 | `src/components/WorkspaceView/TerminalGrid.tsx` |
 | `src/components/WorkspaceView/TerminalGrid.tsx` | 1 | `src/components/WorkspaceView/WorkspaceView.tsx` |
@@ -138,6 +137,7 @@
 | `src/utils/shortcuts.ts` | 1 | `src/hooks/useGlobalKeybindings.ts` |
 | `src/components/EditorWelcomeScreen.tsx` | 0 | — |
 | `src/components/ErrorBoundary.tsx` | 0 | — |
+| `src/components/WorkspaceView/ClaudeTranscriptView.tsx` | 0 | — |
 | `src/components/WorkspaceView/renderers/terminal.worker.ts` | 0 | — |
 | `src/main.tsx` | 0 | — |
 | `src/test-setup.ts` | 0 | — |
