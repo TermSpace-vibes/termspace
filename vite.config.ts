@@ -1,10 +1,12 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import monacoEditorPlugin from 'vite-plugin-monaco-editor'
 
 export default defineConfig({
   plugins: [
     react(),
+    monacoEditorPlugin({ languageWorkers: ['editorWorkerService', 'typescript', 'json'] }),
     {
       name: 'error-logger',
       configureServer(server) {
