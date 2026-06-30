@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { EditorPaneComponent } from './EditorPane'
 import { useAppStore } from '../store/useAppStore'
 import { EditorPane } from '../types'
@@ -32,6 +32,16 @@ vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: vi.fn((path) => `asset://${path}`),
   listen: vi.fn().mockResolvedValue(() => {}),
   isTauri: () => false,
+}))
+
+// Mock monaco-editor — the vite alias overrides the stub in test mode
+vi.mock('monaco-editor', () => ({
+  editor: { defineTheme: vi.fn(), setTheme: vi.fn() },
+  languages: {},
+  Uri: {},
+  KeyMod: { CtrlCmd: 2048 },
+  KeyCode: { KeyS: 49, KeyA: 31 },
+  Range: class {},
 }))
 
 // Mock dependencies
@@ -76,9 +86,22 @@ vi.mock('./ConfirmModal/ConfirmModal', () => ({
   ConfirmModal: () => <div data-testid="confirm-modal" />,
 }))
 
+vi.mock('../vscode-extensions/setup', () => ({
+  initializeExtensions: vi.fn().mockResolvedValue(undefined),
+}))
+
 describe('EditorPaneComponent', () => {
   const workspaceId = 'ws-1'
   const editorPaneId = 'ep-1'
+
+  const renderEditorPane = async (props: Record<string, any> = {}) => {
+    const result = render(
+      <EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} {...props} />
+    )
+    // Flush the async extensions init so state updates before assertions
+    await act(async () => {})
+    return result
+  }
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -101,15 +124,15 @@ describe('EditorPaneComponent', () => {
     })
   })
 
-  it('renders a tab for each open file', () => {
-    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+  it('renders a tab for each open file', async () => {
+    await renderEditorPane()
     // There might be two instances of the active file (breadcrumbs and tab bar)
     expect(screen.getAllByText('file1.ts').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('file2.ts')).toBeInTheDocument()
   })
 
-  it('highlights the active file tab', () => {
-    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+  it('highlights the active file tab', async () => {
+    await renderEditorPane()
     // Find the tab for file1.ts (the one with the file-code icon next to it in the tab bar)
     const tabs = screen.getAllByText('file1.ts')
     // One is breadcrumb, one is tab. The tab should have specific styles.
@@ -120,22 +143,22 @@ describe('EditorPaneComponent', () => {
     expect(activeTab).toBeInTheDocument()
   })
 
-  it('calls updateEditorPaneFile when a tab is clicked', () => {
+  it('calls updateEditorPaneFile when a tab is clicked', async () => {
     const updateEditorPaneFile = vi.fn()
     useAppStore.setState({ updateEditorPaneFile })
 
-    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+    await renderEditorPane()
     // Click the tab for file2.ts
     fireEvent.click(screen.getByText('file2.ts'))
 
     expect(updateEditorPaneFile).toHaveBeenCalledWith(workspaceId, editorPaneId, 'file2.ts')
   })
 
-  it('calls closeEditorFile when the close button on a tab is clicked', () => {
+  it('calls closeEditorFile when the close button on a tab is clicked', async () => {
     const closeEditorFile = vi.fn()
     useAppStore.setState({ closeEditorFile })
 
-    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+    await renderEditorPane()
     
     // Find close button for the tabs
     const closeTabButtons = screen.getAllByTitle('Close Tab')
@@ -144,17 +167,17 @@ describe('EditorPaneComponent', () => {
     expect(closeEditorFile).toHaveBeenCalled()
   })
 
-  it('renders split editor buttons', () => {
-    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+  it('renders split editor buttons', async () => {
+    await renderEditorPane()
     expect(screen.getByTitle('Split Right')).toBeInTheDocument()
     expect(screen.getByTitle('Split Down')).toBeInTheDocument()
   })
 
-  it('calls splitEditor with correct directions when split buttons are clicked', () => {
+  it('calls splitEditor with correct directions when split buttons are clicked', async () => {
     const splitEditor = vi.fn()
     useAppStore.setState({ splitEditor })
 
-    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+    await renderEditorPane()
     
     fireEvent.click(screen.getByTitle('Split Right'))
     expect(splitEditor).toHaveBeenCalledWith(workspaceId, editorPaneId, 'horizontal')
@@ -163,16 +186,16 @@ describe('EditorPaneComponent', () => {
     expect(splitEditor).toHaveBeenCalledWith(workspaceId, editorPaneId, 'vertical')
   })
 
-  it('renders Save, Save All, and Auto Save buttons in tab bar', () => {
-    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+  it('renders Save, Save All, and Auto Save buttons in tab bar', async () => {
+    await renderEditorPane()
     // Two Save buttons: one in header, one in tab bar
     expect(screen.getAllByTitle('Save (Cmd+S)').length).toBe(2)
     expect(screen.getByTitle('Save All')).toBeInTheDocument()
     expect(screen.getByTitle('Auto Save: Off')).toBeInTheDocument()
   })
 
-  it('Save All button dispatches save-all-editors event', () => {
-    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+  it('Save All button dispatches save-all-editors event', async () => {
+    await renderEditorPane()
     const listener = vi.fn()
     window.addEventListener('save-all-editors', listener)
     fireEvent.click(screen.getByTitle('Save All'))
@@ -180,27 +203,27 @@ describe('EditorPaneComponent', () => {
     window.removeEventListener('save-all-editors', listener)
   })
 
-  it('Auto Save toggle calls updateSettings with flipped autosave', () => {
+  it('Auto Save toggle calls updateSettings with flipped autosave', async () => {
     const updateSettings = vi.fn()
     useAppStore.setState({ updateSettings, settings: { ...useAppStore.getState().settings, autosave: false } })
 
-    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+    await renderEditorPane()
     fireEvent.click(screen.getByTitle('Auto Save: Off'))
     expect(updateSettings).toHaveBeenCalledWith({ autosave: true })
   })
 
-  it('Auto Save toggle label reflects current state', () => {
+  it('Auto Save toggle label reflects current state', async () => {
     useAppStore.setState({ settings: { ...useAppStore.getState().settings, autosave: true } })
-    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+    await renderEditorPane()
     expect(screen.getByTitle('Auto Save: On')).toBeInTheDocument()
   })
 
-  it('calls updateEditorPaneLayout when panel is resized', () => {
+  it('calls updateEditorPaneLayout when panel is resized', async () => {
     vi.useFakeTimers()
     const updateEditorPaneLayout = vi.fn()
     useAppStore.setState({ updateEditorPaneLayout })
 
-    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} />)
+    await renderEditorPane()
 
     // Trigger resize on the first panel (FileTree panel)
     const panels = screen.getAllByTestId('resizable-panel')
@@ -211,8 +234,8 @@ describe('EditorPaneComponent', () => {
     expect(updateEditorPaneLayout).toHaveBeenCalledWith(workspaceId, editorPaneId, { fileTreeWidth: 25 })
   })
 
-  it('registers a Monaco Cmd+A command that selects the full model range', () => {
-    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} isActive />)
+  it('registers a Monaco Cmd+A command that selects the full model range', async () => {
+    await renderEditorPane({ isActive: true })
 
     const selectAllCommand = monacoMocks.editor.addCommand.mock.calls.find(
       ([keybinding]) => keybinding === (monacoMocks.monaco.KeyMod.CtrlCmd | monacoMocks.monaco.KeyCode.KeyA)
@@ -224,8 +247,8 @@ describe('EditorPaneComponent', () => {
     expect(monacoMocks.editor.focus).toHaveBeenCalled()
   })
 
-  it('handles window Cmd+A for the active editor without copying to clipboard', () => {
-    render(<EditorPaneComponent workspaceId={workspaceId} editorPaneId={editorPaneId} isActive />)
+  it('handles window Cmd+A for the active editor without copying to clipboard', async () => {
+    await renderEditorPane({ isActive: true })
 
     fireEvent.keyDown(window, { key: 'a', metaKey: true })
 
