@@ -45,6 +45,7 @@ vi.mock('@monaco-editor/react', () => ({
     onMount?.(diffEditor, monacoMocks.monaco)
     return <div data-testid="monaco-diff-editor" />
   },
+  loader: { config: vi.fn() },
   useMonaco: () => null,
 }))
 

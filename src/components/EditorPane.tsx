@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import '../vscode-extensions/setup'
+import * as monacoEditor from 'monaco-editor'
 import { Group, Panel, Separator } from 'react-resizable-panels'
-import Editor, { useMonaco, DiffEditor } from '@monaco-editor/react'
+import Editor, { DiffEditor } from '@monaco-editor/react'
 import { X, Save, Image as ImageIcon, FileCode, ChevronRight, Columns, Rows, Eye, EyeOff, Folder, GitBranch, Search } from 'lucide-react'
 import { FileTree } from './FileTree'
 import { GitPanel } from './GitPanel'
@@ -170,7 +172,6 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
   const [showPreview, setShowPreview] = useState(true)
   const [showConfirmDiscard, setShowConfirmDiscard] = useState<{ path: string } | null>(null)
   
-  const monaco = useMonaco()
   const editorRef = useRef<any>(null)
   const blameDecorationRef = useRef<any>(null)
   const blameTimeoutRef = useRef<any>(null)
@@ -258,83 +259,56 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, { capture: true });
   }, [isActive, selectAllInEditor]);
 
+  // Theme initialization — uses the service-overridden Monaco instance directly
   useEffect(() => {
-    if (monaco) {
-      const ts = monaco.languages.typescript as any
+    const theme = EDITOR_THEMES[settings.theme] || EDITOR_THEMES['warm-dark']
 
-      ts.typescriptDefaults.setCompilerOptions({
-        target: ts.ScriptTarget.ES2020,
-        allowNonTsExtensions: true,
-        moduleResolution: ts.ModuleResolutionKind.NodeJs,
-        module: ts.ModuleKind.CommonJS,
-        noEmit: true,
-        esModuleInterop: true,
-        jsx: ts.JsxEmit.React,
-        reactNamespace: 'React',
-        allowJs: true
-      })
-
-      ts.typescriptDefaults.setDiagnosticsOptions({
-        noSemanticValidation: false,
-        noSyntaxValidation: false,
-        diagnosticCodesToIgnore: [2307, 2792]
-      })
-
-      ts.javascriptDefaults.setDiagnosticsOptions({
-        noSemanticValidation: false,
-        noSyntaxValidation: false,
-        diagnosticCodesToIgnore: [2307, 2792, 80001]
-      })
-
-      const theme = EDITOR_THEMES[settings.theme] || EDITOR_THEMES['warm-dark']
-
-      monaco.editor.defineTheme('termspace-dynamic', {
-        base: theme.base,
-        inherit: true,
-        rules: [
-          { token: 'comment', foreground: theme.comment.slice(1), fontStyle: 'italic' },
-          { token: 'keyword', foreground: theme.keyword.slice(1) },
-          { token: 'string', foreground: theme.string.slice(1) },
-          { token: 'number', foreground: theme.function.slice(1) },
-          { token: 'type', foreground: theme.type.slice(1) },
-          { token: 'type.identifier', foreground: theme.type.slice(1) },
-          { token: 'function', foreground: theme.function.slice(1) },
-          { token: 'identifier.function', foreground: theme.function.slice(1) },
-          { token: 'delimiter', foreground: theme.muted.slice(1) },
-          { token: 'operator', foreground: theme.keyword.slice(1) },
-        ],
-        colors: {
-          'editor.background': theme.bg,
-          'editor.foreground': theme.text,
-          'editorLineNumber.foreground': theme.dim,
-          'editorLineNumber.activeForeground': theme.muted,
-          'editorCursor.foreground': theme.accent,
-          'editor.selectionBackground': `${theme.accent}55`,
-          'editor.inactiveSelectionBackground': `${theme.accent}2d`,
-          'editor.lineHighlightBackground': `${theme.surface}80`,
-          'editor.lineHighlightBorder': `${theme.accent}66`,
-          'editorIndentGuide.background1': `${theme.border}`,
-          'editorIndentGuide.activeBackground1': `${theme.muted}`,
-          'editorGutter.background': theme.bg,
-          'editorWidget.background': theme.surface,
-          'editorWidget.border': theme.border,
-          'editorSuggestWidget.background': theme.surface,
-          'editorSuggestWidget.border': theme.border,
-          'editorSuggestWidget.foreground': theme.text,
-          'editorSuggestWidget.highlightForeground': theme.accent,
-          'editorSuggestWidget.selectedBackground': `${theme.accent}26`,
-          'editorHoverWidget.background': theme.surface,
-          'editorHoverWidget.border': theme.border,
-          'editorStickyScroll.background': theme.bg,
-          'minimap.background': theme.bg,
-          'scrollbarSlider.background': `${theme.muted}33`,
-          'scrollbarSlider.hoverBackground': `${theme.muted}55`,
-          'scrollbarSlider.activeBackground': `${theme.muted}77`,
-        }
-      })
-      monaco.editor.setTheme('termspace-dynamic')
-    }
-  }, [monaco, settings.theme])
+    monacoEditor.editor.defineTheme('termspace-dynamic', {
+      base: theme.base,
+      inherit: true,
+      rules: [
+        { token: 'comment', foreground: theme.comment.slice(1), fontStyle: 'italic' },
+        { token: 'keyword', foreground: theme.keyword.slice(1) },
+        { token: 'string', foreground: theme.string.slice(1) },
+        { token: 'number', foreground: theme.function.slice(1) },
+        { token: 'type', foreground: theme.type.slice(1) },
+        { token: 'type.identifier', foreground: theme.type.slice(1) },
+        { token: 'function', foreground: theme.function.slice(1) },
+        { token: 'identifier.function', foreground: theme.function.slice(1) },
+        { token: 'delimiter', foreground: theme.muted.slice(1) },
+        { token: 'operator', foreground: theme.keyword.slice(1) },
+      ],
+      colors: {
+        'editor.background': theme.bg,
+        'editor.foreground': theme.text,
+        'editorLineNumber.foreground': theme.dim,
+        'editorLineNumber.activeForeground': theme.muted,
+        'editorCursor.foreground': theme.accent,
+        'editor.selectionBackground': `${theme.accent}55`,
+        'editor.inactiveSelectionBackground': `${theme.accent}2d`,
+        'editor.lineHighlightBackground': `${theme.surface}80`,
+        'editor.lineHighlightBorder': `${theme.accent}66`,
+        'editorIndentGuide.background1': `${theme.border}`,
+        'editorIndentGuide.activeBackground1': `${theme.muted}`,
+        'editorGutter.background': theme.bg,
+        'editorWidget.background': theme.surface,
+        'editorWidget.border': theme.border,
+        'editorSuggestWidget.background': theme.surface,
+        'editorSuggestWidget.border': theme.border,
+        'editorSuggestWidget.foreground': theme.text,
+        'editorSuggestWidget.highlightForeground': theme.accent,
+        'editorSuggestWidget.selectedBackground': `${theme.accent}26`,
+        'editorHoverWidget.background': theme.surface,
+        'editorHoverWidget.border': theme.border,
+        'editorStickyScroll.background': theme.bg,
+        'minimap.background': theme.bg,
+        'scrollbarSlider.background': `${theme.muted}33`,
+        'scrollbarSlider.hoverBackground': `${theme.muted}55`,
+        'scrollbarSlider.activeBackground': `${theme.muted}77`,
+      },
+    })
+    monacoEditor.editor.setTheme('termspace-dynamic')
+  }, [settings.theme])
 
   useEffect(() => {
     const controller = new AbortController()
