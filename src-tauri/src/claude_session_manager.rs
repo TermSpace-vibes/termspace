@@ -47,6 +47,9 @@ impl ClaudeSessionManager {
         let child_path = claude_child_path(&path_var, home.as_deref());
 
         let mut cmd = portable_pty::CommandBuilder::new(claude_binary);
+        for arg in claude_interactive_args() {
+            cmd.arg(arg);
+        }
         cmd.cwd(resolved_cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("TERM_PROGRAM", "Termspace");
@@ -238,6 +241,10 @@ fn claude_print_args(_session_id: &str, prompt: &str) -> Vec<String> {
     ]
 }
 
+fn claude_interactive_args() -> Vec<String> {
+    vec!["--ax-screen-reader".to_string()]
+}
+
 fn resolved_working_directory(cwd: &str, home: Option<&Path>) -> PathBuf {
     if !cwd.is_empty() {
         let requested = PathBuf::from(cwd);
@@ -310,9 +317,17 @@ fn claude_child_path(path_var: &str, home: Option<&Path>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{claude_print_args, resolve_claude_binary_from, resolved_working_directory};
+    use super::{
+        claude_interactive_args, claude_print_args, resolve_claude_binary_from,
+        resolved_working_directory,
+    };
     use std::fs;
     use std::path::PathBuf;
+
+    #[test]
+    fn builds_interactive_claude_args_for_embedded_plain_text_mode() {
+        assert_eq!(claude_interactive_args(), vec!["--ax-screen-reader".to_string()]);
+    }
 
     #[test]
     fn builds_noninteractive_claude_print_args_without_reusing_pane_id() {
