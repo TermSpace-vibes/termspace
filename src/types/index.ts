@@ -74,6 +74,19 @@ export interface DockerPane {
   autoReload?: boolean
 }
 
+export type ClaudePaneStatus = 'starting' | 'ready' | 'running' | 'blocked' | 'error' | 'exited'
+
+export interface ClaudePane {
+  id: string
+  tabId: string
+  title: string
+  cwd: string
+  position: number
+  createdAt: number
+  status?: ClaudePaneStatus
+  error?: string | null
+}
+
 export interface Keybindings {
   newTerminal: string
   closeTerminal: string
@@ -123,6 +136,7 @@ export type LayoutNode =
   | { type: 'editor';  id: string; editorPaneId: string }
   | { type: 'kubernetes'; id: string; kubernetesPaneId: string }
   | { type: 'docker'; id: string; dockerPaneId: string }
+  | { type: 'claude'; id: string; claudePaneId: string }
   | { type: 'split';   id: string; direction: LayoutDirection; sizes: number[]; children: LayoutNode[] }
 
 export interface GitStatus {

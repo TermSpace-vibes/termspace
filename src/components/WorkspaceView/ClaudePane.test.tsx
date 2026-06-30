@@ -5,6 +5,29 @@ import { ClaudePaneComponent, sanitizeClaudeOutput } from './ClaudePane'
 import { invoke, listen } from '../../utils/tauri'
 
 const listeners = vi.hoisted(() => new Map<string, (event: { payload: string }) => void>())
+const store = vi.hoisted(() => {
+  const pane = { id: 'claude-1', tabId: 'tab-1', title: 'Claude 1', cwd: '/tmp', position: 0, createdAt: 1 } as {
+    id: string
+    tabId: string
+    title: string
+    cwd: string
+    position: number
+    createdAt: number
+    status?: string
+    error?: string | null
+  }
+  const state = {
+    claudePanesByTab: {
+      'tab-1': [pane],
+    },
+    updateClaudePane: vi.fn((tabId: string, paneId: string, updates: Partial<typeof pane>) => {
+      const target = state.claudePanesByTab[tabId]?.find((p) => p.id === paneId)
+      if (target) Object.assign(target, updates)
+    }),
+    addToast: vi.fn(),
+  }
+  return { pane, state }
+})
 
 vi.mock('../../utils/tauri', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
@@ -16,18 +39,9 @@ vi.mock('../../utils/tauri', () => ({
 
 vi.mock('../../store/useAppStore', () => ({
   useAppStore: Object.assign(
-    vi.fn((selector) => selector({
-      claudePanesByTab: {
-        'tab-1': [{ id: 'claude-1', tabId: 'tab-1', title: 'Claude 1', cwd: '/tmp', position: 0, createdAt: 1 }],
-      },
-      updateClaudePane: vi.fn(),
-      addToast: vi.fn(),
-    })),
+    vi.fn((selector) => selector(store.state)),
     {
-      getState: () => ({
-        updateClaudePane: vi.fn(),
-        addToast: vi.fn(),
-      }),
+      getState: () => store.state,
     },
   ),
 }))
@@ -36,9 +50,12 @@ describe('ClaudePaneComponent', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     listeners.clear()
+    store.pane.status = undefined
+    store.pane.error = undefined
+    vi.mocked(invoke).mockResolvedValue(undefined)
   })
 
-  it('does not start Claude before the user sends a prompt', () => {
+  it('starts an interactive Claude session after listeners attach', async () => {
     render(
       <ClaudePaneComponent
         tabId="tab-1"
@@ -49,11 +66,16 @@ describe('ClaudePaneComponent', () => {
       />,
     )
 
-    expect(invoke).not.toHaveBeenCalledWith('spawn_claude_session', expect.anything())
-    expect(screen.getByText('Claude Code is starting...')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(listen).toHaveBeenCalledWith('claude-output-claude-1', expect.any(Function))
+      expect(invoke).toHaveBeenCalledWith('spawn_claude_session', {
+        sessionId: 'claude-1',
+        cwd: '/tmp',
+      })
+    })
   })
 
-  it('sends prompt on Enter', async () => {
+  it('writes prompt to the live Claude session on Enter', async () => {
     render(
       <ClaudePaneComponent
         tabId="tab-1"
@@ -69,12 +91,12 @@ describe('ClaudePaneComponent', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith('run_claude_prompt', {
+      expect(invoke).toHaveBeenCalledWith('write_claude_session', {
         sessionId: 'claude-1',
-        cwd: '/tmp',
-        prompt: 'hello',
+        data: 'hello\n',
       })
     })
+    expect(invoke).not.toHaveBeenCalledWith('run_claude_prompt', expect.anything())
     expect(input).toHaveValue('')
   })
 
@@ -93,7 +115,7 @@ describe('ClaudePaneComponent', () => {
     fireEvent.change(input, { target: { value: 'hello' } })
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
 
-    expect(invoke).not.toHaveBeenCalledWith('run_claude_prompt', expect.anything())
+    expect(invoke).not.toHaveBeenCalledWith('write_claude_session', expect.anything())
     expect(input).toHaveValue('hello')
   })
 
@@ -140,6 +162,51 @@ describe('ClaudePaneComponent', () => {
     fireEvent.click(screen.getByTitle('Show raw Claude stream'))
 
     expect(screen.getAllByText('Hello from Claude')).toHaveLength(2)
+  })
+
+  it('marks exit events as exited and keeps transcript visible', async () => {
+    render(
+      <ClaudePaneComponent
+        tabId="tab-1"
+        paneId="claude-1"
+        isActive
+        onFocus={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(listeners.has('claude-exit-claude-1')).toBe(true)
+    })
+
+    act(() => {
+      listeners.get('claude-exit-claude-1')?.({ payload: 'Claude session exited' })
+    })
+
+    expect(await screen.findByText('Claude session exited')).toBeInTheDocument()
+    expect(screen.getByText('exited')).toBeInTheDocument()
+  })
+
+  it('restarts by closing and spawning the same session id', async () => {
+    render(
+      <ClaudePaneComponent
+        tabId="tab-1"
+        paneId="claude-1"
+        isActive
+        onFocus={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    fireEvent.click(screen.getByTitle('Restart Claude'))
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('close_claude_session', { sessionId: 'claude-1' })
+      expect(invoke).toHaveBeenCalledWith('spawn_claude_session', {
+        sessionId: 'claude-1',
+        cwd: '/tmp',
+      })
+    })
   })
 })
 
