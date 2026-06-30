@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import '../vscode-extensions/setup'
+import { initializeExtensions } from '../vscode-extensions/setup'
 import * as monacoEditor from 'monaco-editor'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import Editor, { DiffEditor } from '@monaco-editor/react'
@@ -171,6 +171,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
   const [isLoading, setIsLoading] = useState(false)
   const [showPreview, setShowPreview] = useState(true)
   const [showConfirmDiscard, setShowConfirmDiscard] = useState<{ path: string } | null>(null)
+  const [extensionsReady, setExtensionsReady] = useState(false)
   
   const editorRef = useRef<any>(null)
   const blameDecorationRef = useRef<any>(null)
@@ -518,7 +519,27 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
     return () => clearTimeout(timer)
   }, [isDirty, settings.autosave, editorPane?.activeFilePath, handleSave])
 
+  // Async initialization of VS Code extension host
+  useEffect(() => {
+    let cancelled = false
+    initializeExtensions()
+      .then(() => { if (!cancelled) setExtensionsReady(true) })
+      .catch((err) => {
+        console.error('[editor] extension host init failed, continuing without extensions:', err)
+        if (!cancelled) setExtensionsReady(true)
+      })
+    return () => { cancelled = true }
+  }, [])
+
   if (!editorPane) return null
+
+  if (!extensionsReady) {
+    return (
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--editor-muted)', fontSize: 13, background: 'var(--editor-bg)' }}>
+        <div style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid var(--editor-dim)', borderTopColor: 'var(--editor-accent)', marginRight: 12, animation: 'spin 1s linear infinite' }} /> Initializing editor...
+      </div>
+    )
+  }
 
   const fileName = editorPane.activeFilePath ? editorPane.activeFilePath.split('/').pop() : 'No file open'
   const filePathParts = editorPane.activeFilePath ? editorPane.activeFilePath.replace(editorPane.rootPath || '', '').split('/').filter(Boolean) : []
