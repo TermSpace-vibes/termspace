@@ -41,6 +41,8 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
   const terminalContainerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+  const permissionPromptActiveRef = useRef(false)
+  const recentOutputRef = useRef('')
 
   const title = pane?.title || 'Claude Code'
   const status = pane?.status || 'ready'
@@ -62,6 +64,8 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
     updateClaudePane(tabId, paneId, { status: 'starting', error: null })
     setEventMessage('Starting Claude session...')
     setPermissionPrompt(null)
+    permissionPromptActiveRef.current = false
+    recentOutputRef.current = ''
     setTranscript((prev) => appendClaudeStatus(prev, 'Starting Claude session...'))
     try {
       await invoke('spawn_claude_session', { sessionId: paneId, cwd: pane?.cwd || '' })
@@ -156,12 +160,17 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
         unlistenOutput = await listen<string>(`claude-output-${paneId}`, (event) => {
           if (disposed) return
           const raw = String(event.payload ?? '')
-          xtermRef.current?.write(raw)
-          const prompt = detectClaudePermissionPrompt(raw)
+          const combinedOutput = `${recentOutputRef.current}${raw}`.slice(-6000)
+          recentOutputRef.current = combinedOutput
+          const prompt = detectClaudePermissionPrompt(raw) ?? detectClaudePermissionPrompt(combinedOutput)
           if (prompt) {
+            permissionPromptActiveRef.current = true
             setPermissionPrompt(prompt)
             setEventMessage(prompt.message)
+            xtermRef.current?.clear()
             updateClaudePane(tabId, paneId, { status: 'blocked', error: null })
+          } else if (!permissionPromptActiveRef.current) {
+            xtermRef.current?.write(raw)
           }
           setTranscript((prev) => {
             const next = appendClaudeOutput(prev, raw)
@@ -248,6 +257,8 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
 
   const sendPermissionChoice = async (input: string) => {
     setPermissionPrompt(null)
+    permissionPromptActiveRef.current = false
+    recentOutputRef.current = ''
     setEventMessage('Permission response sent')
     updateClaudePane(tabId, paneId, { status: 'running', error: null })
     await writeClaudeInput(input).catch(() => {})
@@ -259,6 +270,8 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
     setIsSending(false)
     setEventMessage('Restarting Claude session...')
     setPermissionPrompt(null)
+    permissionPromptActiveRef.current = false
+    recentOutputRef.current = ''
     xtermRef.current?.clear()
     await invoke('close_claude_session', { sessionId: paneId }).catch(() => {})
     await startSession()

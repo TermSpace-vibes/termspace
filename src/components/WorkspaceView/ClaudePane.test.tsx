@@ -243,6 +243,7 @@ describe('ClaudePaneComponent', () => {
     })
 
     expect(await screen.findByRole('dialog', { name: 'Trust workspace?' })).toBeInTheDocument()
+    expect(xtermMock.writes).not.toContain('Do you trust this folder?\n1. Yes, I trust this folder\n2. No, exit\n')
 
     fireEvent.click(screen.getByRole('button', { name: 'Yes, trust workspace' }))
 
