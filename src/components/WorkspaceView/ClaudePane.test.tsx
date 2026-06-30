@@ -221,6 +221,38 @@ describe('ClaudePaneComponent', () => {
     })
   })
 
+  it('shows a workspace trust dialog and sends the selected permission choice', async () => {
+    render(
+      <ClaudePaneComponent
+        tabId="tab-1"
+        paneId="claude-1"
+        isActive
+        onFocus={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(listeners.has('claude-output-claude-1')).toBe(true)
+    })
+
+    act(() => {
+      listeners.get('claude-output-claude-1')?.({
+        payload: 'Do you trust this folder?\n1. Yes, I trust this folder\n2. No, exit\n',
+      })
+    })
+
+    expect(await screen.findByRole('dialog', { name: 'Trust workspace?' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, trust workspace' }))
+
+    expect(invoke).toHaveBeenCalledWith('write_claude_session', {
+      sessionId: 'claude-1',
+      data: '1\n',
+    })
+    expect(screen.queryByRole('dialog', { name: 'Trust workspace?' })).not.toBeInTheDocument()
+  })
+
   it('marks exit events as exited and keeps transcript visible', async () => {
     render(
       <ClaudePaneComponent

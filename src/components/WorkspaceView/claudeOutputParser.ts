@@ -1,5 +1,18 @@
 export type ClaudeParsedChunkKind = 'assistant' | 'raw' | 'blocked' | 'error'
 
+export interface ClaudePermissionChoice {
+  label: string
+  input: string
+  tone: 'primary' | 'secondary'
+}
+
+export interface ClaudePermissionPrompt {
+  kind: 'workspace-trust'
+  title: string
+  message: string
+  choices: ClaudePermissionChoice[]
+}
+
 export interface ClaudeParsedChunk {
   raw: string
   readableText: string
@@ -21,6 +34,28 @@ export function stripClaudeAnsi(text: string): string {
     .trim()
 }
 
+export function detectClaudePermissionPrompt(text: string): ClaudePermissionPrompt | null {
+  const normalized = stripClaudeAnsi(text).toLowerCase().replace(/[^a-z0-9]/g, '')
+  if (
+    normalized.includes('doyoutrustthisfolder') ||
+    normalized.includes('doyoutrustthisworkspace') ||
+    normalized.includes('yesitrustthisfolder') ||
+    normalized.includes('yesitrustthisworkspace')
+  ) {
+    return {
+      kind: 'workspace-trust',
+      title: 'Trust workspace?',
+      message: 'Claude Code wants permission to use this workspace.',
+      choices: [
+        { label: 'Yes, trust workspace', input: '1\n', tone: 'primary' },
+        { label: 'No, exit Claude', input: '2\n', tone: 'secondary' },
+      ],
+    }
+  }
+
+  return null
+}
+
 export function parseClaudeChunk(raw: string): ClaudeParsedChunk {
   const readableText = stripClaudeAnsi(raw)
   if (!readableText) {
@@ -39,6 +74,7 @@ export function parseClaudeChunk(raw: string): ClaudeParsedChunk {
 
   if (
     /\((y\/n|y\/N|yes\/no)\)/.test(readableText) ||
+    detectClaudePermissionPrompt(readableText) ||
     readableText.includes('Do you want to proceed?') ||
     readableText.includes('Allow this command?')
   ) {

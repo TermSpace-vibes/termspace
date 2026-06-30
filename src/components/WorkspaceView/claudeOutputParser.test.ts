@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseClaudeChunk } from './claudeOutputParser'
+import { detectClaudePermissionPrompt, parseClaudeChunk } from './claudeOutputParser'
 
 describe('parseClaudeChunk', () => {
   it('keeps readable assistant text while preserving raw chunk', () => {
@@ -25,6 +25,27 @@ describe('parseClaudeChunk', () => {
       raw: chunk,
       readableText: chunk,
       kind: 'blocked',
+    })
+  })
+
+  it('classifies Claude workspace trust prompts as blocked', () => {
+    const chunk = 'Do you trust this folder?\n1. Yes, I trust this folder\n2. No, exit'
+
+    expect(parseClaudeChunk(chunk)).toMatchObject({
+      readableText: chunk,
+      kind: 'blocked',
+    })
+  })
+
+  it('detects workspace trust prompts even when terminal spacing is crushed', () => {
+    expect(detectClaudePermissionPrompt('Doyoutrustthisfolder?1.Yes,Itrustthisfolder2.No,exit')).toEqual({
+      kind: 'workspace-trust',
+      title: 'Trust workspace?',
+      message: 'Claude Code wants permission to use this workspace.',
+      choices: [
+        { label: 'Yes, trust workspace', input: '1\n', tone: 'primary' },
+        { label: 'No, exit Claude', input: '2\n', tone: 'secondary' },
+      ],
     })
   })
 

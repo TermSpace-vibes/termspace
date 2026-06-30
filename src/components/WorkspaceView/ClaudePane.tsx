@@ -13,7 +13,7 @@ import {
   appendClaudeUserPrompt,
   createClaudeTranscript,
 } from './claudeTranscript'
-import { stripClaudeAnsi } from './claudeOutputParser'
+import { ClaudePermissionPrompt, detectClaudePermissionPrompt, stripClaudeAnsi } from './claudeOutputParser'
 import '@xterm/xterm/css/xterm.css'
 
 interface ClaudePaneProps {
@@ -37,6 +37,7 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
   const [showWorkingDirectory, setShowWorkingDirectory] = useState(false)
   const [showRawStream, setShowRawStream] = useState(false)
   const [eventMessage, setEventMessage] = useState('Claude Code is starting...')
+  const [permissionPrompt, setPermissionPrompt] = useState<ClaudePermissionPrompt | null>(null)
   const terminalContainerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -45,9 +46,22 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
   const status = pane?.status || 'ready'
   const workingDirectory = pane?.cwd || 'Home directory'
 
+  const writeClaudeInput = useCallback(async (data: string) => {
+    try {
+      await invoke('write_claude_session', { sessionId: paneId, data })
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err)
+      setEventMessage(error)
+      setTranscript((prev) => appendClaudeError(prev, error))
+      updateClaudePane(tabId, paneId, { status: 'error', error })
+      throw err
+    }
+  }, [paneId, tabId, updateClaudePane])
+
   const startSession = useCallback(async () => {
     updateClaudePane(tabId, paneId, { status: 'starting', error: null })
     setEventMessage('Starting Claude session...')
+    setPermissionPrompt(null)
     setTranscript((prev) => appendClaudeStatus(prev, 'Starting Claude session...'))
     try {
       await invoke('spawn_claude_session', { sessionId: paneId, cwd: pane?.cwd || '' })
@@ -101,12 +115,7 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
     fitAddonRef.current = fitAddon
 
     const dataDisposable = xterm.onData((data) => {
-      invoke('write_claude_session', { sessionId: paneId, data }).catch((err) => {
-        const error = err instanceof Error ? err.message : String(err)
-        setEventMessage(error)
-        setTranscript((prev) => appendClaudeError(prev, error))
-        updateClaudePane(tabId, paneId, { status: 'error', error })
-      })
+      writeClaudeInput(data).catch(() => {})
     })
 
     const resizeObserver = new ResizeObserver(() => {
@@ -122,7 +131,7 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
       xtermRef.current = null
       fitAddonRef.current = null
     }
-  }, [isActive, paneId, tabId, updateClaudePane])
+  }, [isActive, paneId, tabId, updateClaudePane, writeClaudeInput])
 
   useEffect(() => {
     if (isActive) xtermRef.current?.focus()
@@ -148,11 +157,17 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
           if (disposed) return
           const raw = String(event.payload ?? '')
           xtermRef.current?.write(raw)
+          const prompt = detectClaudePermissionPrompt(raw)
+          if (prompt) {
+            setPermissionPrompt(prompt)
+            setEventMessage(prompt.message)
+            updateClaudePane(tabId, paneId, { status: 'blocked', error: null })
+          }
           setTranscript((prev) => {
             const next = appendClaudeOutput(prev, raw)
             const last = next.rows[next.rows.length - 1]
             if (last?.kind === 'blocked') {
-              setEventMessage(last.text)
+              setEventMessage(prompt?.message ?? last.text)
               updateClaudePane(tabId, paneId, { status: 'blocked', error: null })
             } else if (last?.kind === 'error') {
               setEventMessage(last.text)
@@ -221,15 +236,21 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
     setDraft('')
     updateClaudePane(tabId, paneId, { status: 'running', error: null })
     try {
-      await invoke('write_claude_session', { sessionId: paneId, data: `${text}\n` })
+      await writeClaudeInput(`${text}\n`)
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err)
       setDraft(text)
-      setTranscript((prev) => appendClaudeError(prev, error))
-      updateClaudePane(tabId, paneId, { status: 'error', error })
+      if (!error) setTranscript((prev) => appendClaudeError(prev, 'Unable to send prompt'))
     } finally {
       setIsSending(false)
     }
+  }
+
+  const sendPermissionChoice = async (input: string) => {
+    setPermissionPrompt(null)
+    setEventMessage('Permission response sent')
+    updateClaudePane(tabId, paneId, { status: 'running', error: null })
+    await writeClaudeInput(input).catch(() => {})
   }
 
   const restart = async () => {
@@ -237,6 +258,7 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
     setDraft('')
     setIsSending(false)
     setEventMessage('Restarting Claude session...')
+    setPermissionPrompt(null)
     xtermRef.current?.clear()
     await invoke('close_claude_session', { sessionId: paneId }).catch(() => {})
     await startSession()
@@ -371,7 +393,7 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
           {eventMessage}
         </div>
       )}
-      <div style={{ flex: 1, minHeight: 0, background: '#07090c', padding: '8px 10px' }}>
+      <div style={{ position: 'relative', flex: 1, minHeight: 0, background: '#07090c', padding: '8px 10px' }}>
         <div
           ref={terminalContainerRef}
           style={{
@@ -381,6 +403,69 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
             overflow: 'hidden',
           }}
         />
+        {permissionPrompt && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`claude-permission-title-${paneId}`}
+            style={{
+              position: 'absolute',
+              right: 18,
+              bottom: 74,
+              width: 'min(390px, calc(100% - 36px))',
+              border: '1px solid rgba(242, 139, 80, 0.45)',
+              borderRadius: 8,
+              background: '#111821',
+              boxShadow: '0 18px 60px rgba(0, 0, 0, 0.42)',
+              padding: 14,
+              zIndex: 5,
+            }}
+          >
+            <div
+              id={`claude-permission-title-${paneId}`}
+              style={{ color: '#f8fafc', fontSize: 14, fontWeight: 750, marginBottom: 6 }}
+            >
+              {permissionPrompt.title}
+            </div>
+            <div style={{ color: '#aeb8c5', fontSize: 12, lineHeight: 1.45, marginBottom: 12 }}>
+              {permissionPrompt.message}
+              <div
+                title={workingDirectory}
+                style={{
+                  marginTop: 7,
+                  color: '#f1a36a',
+                  fontFamily: 'var(--terminal-font-family)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {workingDirectory}
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              {permissionPrompt.choices.map((choice) => (
+                <button
+                  key={choice.input}
+                  type="button"
+                  onClick={() => sendPermissionChoice(choice.input)}
+                  style={{
+                    border: choice.tone === 'primary' ? '1px solid #e59b55' : '1px solid #3a4654',
+                    borderRadius: 6,
+                    background: choice.tone === 'primary' ? '#d97742' : '#151b24',
+                    color: choice.tone === 'primary' ? '#111827' : '#dbe4ee',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    padding: '7px 10px',
+                  }}
+                >
+                  {choice.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       {showRawStream && <ClaudeRawStream chunks={transcript.rawChunks} />}
       {(status === 'error' || status === 'exited') && (
