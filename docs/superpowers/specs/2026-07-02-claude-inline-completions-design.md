@@ -77,10 +77,12 @@ else:
     language = document.languageId
 
     result = await invoke('complete_code', { prefix, suffix, language })
-    cleaned = stripMarkdownFences(result).trim()
+    // result already has markdown fences stripped and is trimmed —
+    // that cleanup lives once, on the Rust side (see Rust Backend below),
+    // not duplicated here.
 
-    if cleaned is empty: return undefined
-    return [ one InlineCompletionItem with cleaned as insertText ]
+    if result is empty: return undefined
+    return [ one InlineCompletionItem with result as insertText ]
 ```
 
 Triggering happens via VS Code's existing built-in "Trigger Inline Suggestion"
