@@ -365,4 +365,49 @@ describe('NativeTerminalPane selection drag', () => {
       expect(invoke).toHaveBeenCalledWith('refresh_terminal_snapshot', { terminalId: 't-1' })
     })
   })
+
+  it('flushes wheel scroll on the next animation frame instead of waiting for idle polling', async () => {
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+      cb(performance.now())
+      return 1
+    })
+
+    try {
+      const { container } = render(
+        <NativeTerminalPane
+          terminalId="t-1"
+          workspaceId="ws-1"
+          isActive={true}
+          isMaximized={false}
+          onFocus={vi.fn()}
+          onToggleMaximize={vi.fn()}
+          onClose={vi.fn()}
+          onSplit={vi.fn()}
+        />
+      )
+
+      await waitFor(() => {
+        expect(tauriMock.listeners['native-terminal-update-t-1']).toBeDefined()
+      })
+
+      vi.mocked(invoke).mockClear()
+      rafSpy.mockClear()
+
+      fireEvent.wheel(containerRef(container), { deltaY: 80, deltaMode: 0 })
+
+      await waitFor(() => {
+        expect(rafSpy).toHaveBeenCalled()
+        expect(invoke).toHaveBeenCalledWith('scroll_terminal', expect.objectContaining({ terminalId: 't-1' }))
+      })
+    } finally {
+      rafSpy.mockRestore()
+    }
+  })
 })
+
+function containerRef(container: HTMLElement): HTMLElement {
+  const canvas = container.querySelector('canvas')
+  const parent = canvas?.parentElement
+  if (!parent) throw new Error('Native terminal canvas container not found')
+  return parent
+}

@@ -92,7 +92,8 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   const pendingScrollDeltaRef = useRef(0)
   const edgeScrollDeltaRef = useRef(0)
   const backendOffsetRef = useRef(0)
-  const lastWheelTimeRef = useRef(0)
+  const scrollFrameRef = useRef<number | null>(null)
+  const lastEdgeScrollMsRef = useRef(0)
   
   // ── Selection state ────────────────────────────────────────────────────────
   const selectionRef = useRef<AbsSelection | null>(null)
@@ -698,6 +699,32 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
 
   }, [terminalId, queueWrite, sendSelection, scheduleRender, handlePaste])
 
+  const flushPendingScroll = useCallback((now?: number) => {
+    scrollFrameRef.current = null
+    const t = now ?? performance.now()
+
+    if (isDraggingRef.current && edgeScrollDeltaRef.current !== 0) {
+      if (t - lastEdgeScrollMsRef.current >= 50) {
+        pendingScrollDeltaRef.current += edgeScrollDeltaRef.current
+        lastEdgeScrollMsRef.current = t
+      }
+    }
+
+    if (pendingScrollDeltaRef.current !== 0) {
+      invoke('scroll_terminal', { terminalId, delta: pendingScrollDeltaRef.current }).catch(console.error)
+      pendingScrollDeltaRef.current = 0
+    }
+
+    if (isDraggingRef.current && edgeScrollDeltaRef.current !== 0) {
+      scrollFrameRef.current = requestAnimationFrame(flushPendingScroll)
+    }
+  }, [terminalId])
+
+  const scheduleScrollFlush = useCallback(() => {
+    if (scrollFrameRef.current !== null) return
+    scrollFrameRef.current = requestAnimationFrame(flushPendingScroll)
+  }, [flushPendingScroll])
+
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     // Only handle vertical scrolling
     if (Math.abs(e.deltaY) < 1) return
@@ -710,55 +737,25 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     else physicalDelta = e.deltaY
 
     backendOffsetRef.current += physicalDelta
-    lastWheelTimeRef.current = performance.now()
 
     const lineThreshold = cellHRef.current > 0 ? cellHRef.current : 20
     if (Math.abs(backendOffsetRef.current) >= lineThreshold) {
       const lines = Math.trunc(backendOffsetRef.current / lineThreshold)
       backendOffsetRef.current -= lines * lineThreshold
       pendingScrollDeltaRef.current -= lines // backend needs negative for prompt, positive for history
+      scheduleScrollFlush()
+    }
+  }, [scheduleScrollFlush])
+
+  // ── Pending scroll flush cleanup ───────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current)
+        scrollFrameRef.current = null
+      }
     }
   }, [])
-
-  // ── Smooth scroll decay loop ───────────────────────────────────────────────
-  useEffect(() => {
-    const EDGE_SCROLL_INTERVAL_MS = 50  // ~20 lines/sec max
-    let handle: ReturnType<typeof setTimeout> | number | null = null
-    let lastEdgeScrollMs = 0
-    let useRaf = false
-
-    const tick = (now?: number) => {
-      handle = null
-      const t = now ?? performance.now()
-      if (isDraggingRef.current && edgeScrollDeltaRef.current !== 0) {
-        if (t - lastEdgeScrollMs >= EDGE_SCROLL_INTERVAL_MS) {
-          pendingScrollDeltaRef.current += edgeScrollDeltaRef.current
-          lastEdgeScrollMs = t
-        }
-      }
-      if (pendingScrollDeltaRef.current !== 0) {
-        invoke('scroll_terminal', { terminalId, delta: pendingScrollDeltaRef.current }).catch(console.error)
-        pendingScrollDeltaRef.current = 0
-      }
-      const active = isDraggingRef.current || pendingScrollDeltaRef.current !== 0
-      if (active) {
-        handle = requestAnimationFrame(tick)
-        useRaf = true
-      } else {
-        handle = setTimeout(() => tick(), EDGE_SCROLL_INTERVAL_MS) as unknown as number
-        useRaf = false
-      }
-    }
-
-    handle = setTimeout(() => tick(), EDGE_SCROLL_INTERVAL_MS) as unknown as number
-
-    return () => {
-      if (handle !== null) {
-        if (useRaf) cancelAnimationFrame(handle as number)
-        else clearTimeout(handle as ReturnType<typeof setTimeout>)
-      }
-    }
-  }, [terminalId])
 
   const getCellCoords = useCallback((e: MouseEvent | React.MouseEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect()
@@ -831,8 +828,10 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       // Auto-scroll only when the pointer leaves the canvas vertically.
       if (mouseY < 0) {
         edgeScrollDeltaRef.current = 1          // scroll up into history
+        scheduleScrollFlush()
       } else if (mouseY > rect.height) {
         edgeScrollDeltaRef.current = -1         // scroll back toward present
+        scheduleScrollFlush()
       } else {
         edgeScrollDeltaRef.current = 0
       }
@@ -867,7 +866,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       window.removeEventListener('mouseup', handleWinMouseUp)
       edgeScrollDeltaRef.current = 0
     }
-  }, [getCellCoords, scheduleRender, sendSelection])
+  }, [getCellCoords, scheduleRender, scheduleScrollFlush, sendSelection])
 
   // ── Title editing ──────────────────────────────────────────────────────────
   const handleTitleSave = () => {
