@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "checkpoints": [
+    {
+      "label": "spiral-session-ses_0e69ab67-1782837974182",
+      "sha": "4d2b7f12a6302e69947868b981e375edc91f0a25",
+      "timestamp": "2026-06-30T16:46:14.206Z"
+    }
+  ]
+}

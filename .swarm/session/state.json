@@ -1,0 +1,268 @@
+{
+  "version": 2,
+  "writtenAt": 1782853269238,
+  "toolAggregates": {
+    "read": {
+      "tool": "read",
+      "count": 247,
+      "successCount": 247,
+      "failureCount": 0,
+      "totalDuration": 4809
+    },
+    "task": {
+      "tool": "task",
+      "count": 15,
+      "successCount": 15,
+      "failureCount": 0,
+      "totalDuration": 1768354
+    },
+    "glob": {
+      "tool": "glob",
+      "count": 21,
+      "successCount": 21,
+      "failureCount": 0,
+      "totalDuration": 1079
+    },
+    "grep": {
+      "tool": "grep",
+      "count": 15,
+      "successCount": 15,
+      "failureCount": 0,
+      "totalDuration": 673
+    },
+    "compress": {
+      "tool": "compress",
+      "count": 7,
+      "successCount": 7,
+      "failureCount": 0,
+      "totalDuration": 3590
+    },
+    "write": {
+      "tool": "write",
+      "count": 14,
+      "successCount": 14,
+      "failureCount": 0,
+      "totalDuration": 281
+    },
+    "skill": {
+      "tool": "skill",
+      "count": 6,
+      "successCount": 6,
+      "failureCount": 0,
+      "totalDuration": 153
+    },
+    "websearch": {
+      "tool": "websearch",
+      "count": 6,
+      "successCount": 6,
+      "failureCount": 0,
+      "totalDuration": 14940
+    },
+    "todowrite": {
+      "tool": "todowrite",
+      "count": 7,
+      "successCount": 7,
+      "failureCount": 0,
+      "totalDuration": 31
+    },
+    "bash": {
+      "tool": "bash",
+      "count": 137,
+      "successCount": 137,
+      "failureCount": 0,
+      "totalDuration": 420778
+    },
+    "edit": {
+      "tool": "edit",
+      "count": 51,
+      "successCount": 51,
+      "failureCount": 0,
+      "totalDuration": 819
+    },
+    "invalid": {
+      "tool": "invalid",
+      "count": 2,
+      "successCount": 2,
+      "failureCount": 0,
+      "totalDuration": 11
+    }
+  },
+  "activeAgent": {
+    "ses_0e6b128acffeuMBXzAeAxcCyrg": "architect",
+    "ses_0e6b0ee37ffe757sDE5ClV8kHa": "explore",
+    "ses_0e6b02ad8ffeagqY4447706wTR": "explore",
+    "ses_0e6b0224bffeahOe2zA41cNpg8": "explore",
+    "ses_0e6b019ddffeA2sscQ71LjsiJf": "explore",
+    "ses_0e6b01066ffemN1goKQw4UTQrh": "explore",
+    "ses_0e6b0096bffe78EKtMcXQJDjxO": "explore",
+    "ses_0e6afff65ffeuec3JGk8rmDstD": "explore",
+    "ses_0e6aff5eeffei0fF5fxiwFHAsI": "explore",
+    "ses_0e6afee64ffeXDUt02T7WcuSi2": "explore",
+    "ses_0e6afe74effeONiBsKzG61Tg9Q": "explore",
+    "ses_0e6ab87e9ffewvC8NNtUZp15Gj": "explore",
+    "ses_0e6a37a6affep6QwSHCOCUsiIv": "coder",
+    "ses_0e6a36035ffeAPNQbMMvy0bk6K": "general",
+    "ses_0e69c5b5bffePZFkRmQEw2bPi2": "general",
+    "ses_0e69ab671ffe7m2YiEogY2uzJB": "general",
+    "ses_0e5c616e7ffeBUdGa6RFQedEQh": "explore",
+    "ses_0e5b587e3ffeP9xPlbZWqMwi3A": "coder"
+  },
+  "delegationChains": {},
+  "agentSessions": {
+    "ses_0e6b128acffeuMBXzAeAxcCyrg": {
+      "agentName": "architect",
+      "lastToolCallTime": 1782853264600,
+      "lastAgentEventTime": 1782851510049,
+      "delegationActive": false,
+      "activeInvocationId": 0,
+      "lastInvocationIdByAgent": {},
+      "windows": {},
+      "lastCompactionHint": 0,
+      "architectWriteCount": 25,
+      "lastCoderDelegationTaskId": null,
+      "currentTaskId": null,
+      "turboMode": false,
+      "gateLog": {},
+      "reviewerCallCount": {},
+      "lastGateFailure": null,
+      "partialGateWarningsIssuedForTask": [
+        "ses_0e6b128acffeuMBXzAeAxcCyrg:unknown"
+      ],
+      "selfFixAttempted": false,
+      "selfCodingWarnedAtCount": 25,
+      "catastrophicPhaseWarnings": [],
+      "lastPhaseCompleteTimestamp": 0,
+      "lastPhaseCompletePhase": 0,
+      "phaseAgentsDispatched": [
+        "architect"
+      ],
+      "lastCompletedPhaseAgentsDispatched": [],
+      "qaSkipCount": 0,
+      "qaSkipTaskIds": [],
+      "pendingAdvisoryMessages": [],
+      "taskWorkflowStates": {},
+      "scopeViolationDetected": false,
+      "model_fallback_index": 0,
+      "modelFallbackExhausted": false,
+      "coderRevisions": 0,
+      "revisionLimitHit": false,
+      "fullAutoMode": false,
+      "fullAutoInteractionCount": 0,
+      "fullAutoDeadlockCount": 0,
+      "fullAutoLastQuestionHash": null,
+      "sessionRehydratedAt": 0
+    },
+    "ses_0e5c616e7ffeBUdGa6RFQedEQh": {
+      "agentName": "explore",
+      "lastToolCallTime": 1782851430697,
+      "lastAgentEventTime": 1782851430697,
+      "delegationActive": true,
+      "activeInvocationId": 1,
+      "lastInvocationIdByAgent": {
+        "explore": 1
+      },
+      "windows": {
+        "explore:1": {
+          "id": 1,
+          "agentName": "explore",
+          "startedAtMs": 1782851430697,
+          "toolCalls": 0,
+          "consecutiveErrors": 0,
+          "hardLimitHit": false,
+          "lastSuccessTimeMs": 1782851487311,
+          "recentToolCalls": [],
+          "warningIssued": false,
+          "warningReason": ""
+        }
+      },
+      "lastCompactionHint": 0,
+      "architectWriteCount": 0,
+      "lastCoderDelegationTaskId": null,
+      "currentTaskId": null,
+      "turboMode": false,
+      "gateLog": {},
+      "reviewerCallCount": {},
+      "lastGateFailure": null,
+      "partialGateWarningsIssuedForTask": [],
+      "selfFixAttempted": false,
+      "selfCodingWarnedAtCount": 0,
+      "catastrophicPhaseWarnings": [],
+      "lastPhaseCompleteTimestamp": 0,
+      "lastPhaseCompletePhase": 0,
+      "phaseAgentsDispatched": [
+        "explore"
+      ],
+      "lastCompletedPhaseAgentsDispatched": [],
+      "qaSkipCount": 0,
+      "qaSkipTaskIds": [],
+      "pendingAdvisoryMessages": [],
+      "taskWorkflowStates": {},
+      "scopeViolationDetected": false,
+      "model_fallback_index": 0,
+      "modelFallbackExhausted": false,
+      "coderRevisions": 0,
+      "revisionLimitHit": false,
+      "fullAutoMode": false,
+      "fullAutoInteractionCount": 0,
+      "fullAutoDeadlockCount": 0,
+      "fullAutoLastQuestionHash": null,
+      "sessionRehydratedAt": 0
+    },
+    "ses_0e5b587e3ffeP9xPlbZWqMwi3A": {
+      "agentName": "coder",
+      "lastToolCallTime": 1782852515877,
+      "lastAgentEventTime": 1782852515877,
+      "delegationActive": true,
+      "activeInvocationId": 1,
+      "lastInvocationIdByAgent": {
+        "coder": 1
+      },
+      "windows": {
+        "coder:1": {
+          "id": 1,
+          "agentName": "coder",
+          "startedAtMs": 1782852515877,
+          "toolCalls": 0,
+          "consecutiveErrors": 0,
+          "hardLimitHit": false,
+          "lastSuccessTimeMs": 1782852515877,
+          "recentToolCalls": [],
+          "warningIssued": false,
+          "warningReason": ""
+        }
+      },
+      "lastCompactionHint": 0,
+      "architectWriteCount": 0,
+      "lastCoderDelegationTaskId": null,
+      "currentTaskId": null,
+      "turboMode": false,
+      "gateLog": {},
+      "reviewerCallCount": {},
+      "lastGateFailure": null,
+      "partialGateWarningsIssuedForTask": [],
+      "selfFixAttempted": false,
+      "selfCodingWarnedAtCount": 0,
+      "catastrophicPhaseWarnings": [],
+      "lastPhaseCompleteTimestamp": 0,
+      "lastPhaseCompletePhase": 0,
+      "phaseAgentsDispatched": [
+        "coder"
+      ],
+      "lastCompletedPhaseAgentsDispatched": [],
+      "qaSkipCount": 0,
+      "qaSkipTaskIds": [],
+      "pendingAdvisoryMessages": [],
+      "taskWorkflowStates": {},
+      "scopeViolationDetected": false,
+      "model_fallback_index": 0,
+      "modelFallbackExhausted": false,
+      "coderRevisions": 0,
+      "revisionLimitHit": false,
+      "fullAutoMode": false,
+      "fullAutoInteractionCount": 0,
+      "fullAutoDeadlockCount": 0,
+      "fullAutoLastQuestionHash": null,
+      "sessionRehydratedAt": 0
+    }
+  }
+}

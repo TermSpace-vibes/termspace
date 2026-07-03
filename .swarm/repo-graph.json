@@ -2,6 +2,16 @@
   "schema_version": "1.0.0",
   "workspaceRoot": "/Users/samirkumal/Documents/Personal/Vibecode/termspace",
   "nodes": {
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/fix_store.js": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/fix_store.js",
+      "moduleName": "fix_store.js",
+      "exports": [],
+      "imports": [
+        "fs"
+      ],
+      "language": "javascript",
+      "mtime": "2026-06-21T08:36:15.481Z"
+    },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/patch_zustand.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/patch_zustand.ts",
       "moduleName": "patch_zustand.ts",
@@ -12,6 +22,26 @@
       "language": "typescript",
       "mtime": "2026-06-06T18:05:42.384Z"
     },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/refactor_with_ts_morph.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/refactor_with_ts_morph.ts",
+      "moduleName": "refactor_with_ts_morph.ts",
+      "exports": [],
+      "imports": [
+        "ts-morph"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T08:38:05.520Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/run_ts_morph.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/run_ts_morph.ts",
+      "moduleName": "run_ts_morph.ts",
+      "exports": [],
+      "imports": [
+        "ts-morph"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T08:38:36.645Z"
+    },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/scratch/fix_terminal.cjs": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/scratch/fix_terminal.cjs",
       "moduleName": "scratch/fix_terminal.cjs",
@@ -21,6 +51,18 @@
       ],
       "language": "javascript",
       "mtime": "2026-06-07T19:20:49.733Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/scripts/gen-dep-map.js": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/scripts/gen-dep-map.js",
+      "moduleName": "scripts/gen-dep-map.js",
+      "exports": [],
+      "imports": [
+        "fs",
+        "path",
+        "url"
+      ],
+      "language": "javascript",
+      "mtime": "2026-06-12T21:40:40.732Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/App.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/App.tsx",
@@ -41,16 +83,20 @@
         "./components/ui/ContextMenu",
         "./components/ui/ToastContainer",
         "./components/CommandPalette/CommandPalette",
+        "./components/MarkdownModal/MarkdownModal",
         "./components/ui/DictationButton",
         "./hooks/useGlobalKeybindings",
         "./types",
         "react-resizable-panels",
         "@tauri-apps/plugin-dialog",
         "framer-motion",
-        "react-dom"
+        "react-dom",
+        "./types",
+        "./types",
+        "./types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-10T12:20:28.346Z"
+      "mtime": "2026-06-30T16:46:25.402Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/CommandPalette/CommandPalette.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/CommandPalette/CommandPalette.tsx",
@@ -65,7 +111,7 @@
         "../../store/useAppStore"
       ],
       "language": "typescript",
-      "mtime": "2026-06-05T11:21:15.446Z"
+      "mtime": "2026-06-21T15:09:07.124Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ConfirmModal/ConfirmModal.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ConfirmModal/ConfirmModal.tsx",
@@ -75,7 +121,7 @@
         "framer-motion"
       ],
       "language": "typescript",
-      "mtime": "2026-06-01T17:17:09.974Z"
+      "mtime": "2026-06-21T08:18:24.102Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/EditorPane.test.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/EditorPane.test.tsx",
@@ -90,7 +136,7 @@
         "../types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-10T22:30:20.347Z"
+      "mtime": "2026-06-30T21:00:30.862Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/EditorPane.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/EditorPane.tsx",
@@ -99,19 +145,81 @@
         "EditorPaneComponent"
       ],
       "imports": [
+        "../vscode-extensions/setup",
+        "monaco-editor",
         "react-resizable-panels",
         "lucide-react",
         "./FileTree",
         "./GitPanel",
+        "./SearchPanel",
         "./ConfirmModal/ConfirmModal",
         "./MarkdownPreview",
         "../utils/fs",
         "../store/useAppStore",
         "@tauri-apps/api/core",
-        "@tauri-apps/plugin-clipboard-manager"
+        "../utils/lspManager"
       ],
       "language": "typescript",
-      "mtime": "2026-06-09T22:16:24.973Z"
+      "mtime": "2026-06-30T20:53:54.591Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/EditorWelcomeScreen.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/EditorWelcomeScreen.tsx",
+      "moduleName": "src/components/EditorWelcomeScreen.tsx",
+      "exports": [
+        "EditorWelcomeScreen"
+      ],
+      "imports": [
+        "react",
+        "lucide-react",
+        "../store/useAppStore",
+        "@tauri-apps/plugin-dialog",
+        "@tauri-apps/plugin-fs"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T15:09:07.124Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ErrorBoundary.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ErrorBoundary.tsx",
+      "moduleName": "src/components/ErrorBoundary.tsx",
+      "exports": [
+        "ErrorBoundary",
+        "ErrorBoundary.state",
+        "ErrorBoundary.hasError",
+        "ErrorBoundary.error",
+        "ErrorBoundary.componentDidCatch",
+        "ErrorBoundary.render",
+        "ErrorBoundary.if",
+        "ErrorBoundary.padding",
+        "ErrorBoundary.background",
+        "ErrorBoundary.color",
+        "ErrorBoundary.height",
+        "ErrorBoundary.display",
+        "ErrorBoundary.flexDirection",
+        "ErrorBoundary.alignItems",
+        "ErrorBoundary.justifyContent",
+        "ErrorBoundary.fontFamily",
+        "ErrorBoundary.marginTop",
+        "ErrorBoundary.padding",
+        "ErrorBoundary.background",
+        "ErrorBoundary.color",
+        "ErrorBoundary.border",
+        "ErrorBoundary.borderRadius",
+        "ErrorBoundary.cursor",
+        "ErrorBoundary.fontWeight",
+        "ErrorBoundary.marginTop",
+        "ErrorBoundary.padding",
+        "ErrorBoundary.background",
+        "ErrorBoundary.color",
+        "ErrorBoundary.border",
+        "ErrorBoundary.borderRadius",
+        "ErrorBoundary.cursor",
+        "ErrorBoundary.fontWeight"
+      ],
+      "imports": [
+        "react"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T15:09:07.124Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTree.test.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTree.test.tsx",
@@ -125,7 +233,7 @@
         "../utils/fs"
       ],
       "language": "typescript",
-      "mtime": "2026-06-09T19:48:11.918Z"
+      "mtime": "2026-06-21T08:18:24.104Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTree.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTree.tsx",
@@ -135,11 +243,53 @@
       ],
       "imports": [
         "lucide-react",
+        "framer-motion",
         "../utils/fs",
-        "../store/useAppStore"
+        "../store/useAppStore",
+        "../hooks/useFileTreeContextMenu",
+        "../hooks/useFileTreeOperations",
+        "./FileTreeContextMenu",
+        "./FileTreeInlineInput",
+        "./ConfirmModal/ConfirmModal",
+        "@tauri-apps/plugin-fs"
       ],
       "language": "typescript",
-      "mtime": "2026-06-07T10:58:45.236Z"
+      "mtime": "2026-06-21T15:09:07.125Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTreeContextMenu.test.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTreeContextMenu.test.tsx",
+      "moduleName": "src/components/FileTreeContextMenu.test.tsx",
+      "exports": [],
+      "imports": [
+        "vitest",
+        "@testing-library/react",
+        "./FileTreeContextMenu"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T08:18:24.105Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTreeContextMenu.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTreeContextMenu.tsx",
+      "moduleName": "src/components/FileTreeContextMenu.tsx",
+      "exports": [],
+      "imports": [
+        "lucide-react"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T08:18:24.105Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTreeInlineInput.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTreeInlineInput.tsx",
+      "moduleName": "src/components/FileTreeInlineInput.tsx",
+      "exports": [
+        "FileTreeInlineInput"
+      ],
+      "imports": [
+        "react",
+        "lucide-react"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T08:18:24.106Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/GitPanel.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/GitPanel.tsx",
@@ -153,7 +303,24 @@
         "@tauri-apps/api/core"
       ],
       "language": "typescript",
-      "mtime": "2026-06-07T06:43:19.837Z"
+      "mtime": "2026-06-21T08:18:24.107Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/MarkdownModal/MarkdownModal.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/MarkdownModal/MarkdownModal.tsx",
+      "moduleName": "src/components/MarkdownModal/MarkdownModal.tsx",
+      "exports": [
+        "MarkdownModal"
+      ],
+      "imports": [
+        "react",
+        "framer-motion",
+        "../../store/useAppStore",
+        "../MarkdownPreview",
+        "../../utils/fs",
+        "lucide-react"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T15:09:07.125Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/MarkdownPreview.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/MarkdownPreview.tsx",
@@ -168,7 +335,21 @@
         "../store/useAppStore"
       ],
       "language": "typescript",
-      "mtime": "2026-06-04T18:57:47.591Z"
+      "mtime": "2026-06-21T15:09:07.125Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/SearchPanel.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/SearchPanel.tsx",
+      "moduleName": "src/components/SearchPanel.tsx",
+      "exports": [
+        "SearchPanel"
+      ],
+      "imports": [
+        "lucide-react",
+        "../store/useAppStore",
+        "@tauri-apps/api/core"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T08:18:24.108Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/SettingsModal/SettingsModal.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/SettingsModal/SettingsModal.tsx",
@@ -186,7 +367,7 @@
         "../../utils/tauri"
       ],
       "language": "typescript",
-      "mtime": "2026-06-11T20:05:35.001Z"
+      "mtime": "2026-06-21T15:09:07.126Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ui/ContextMenu.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ui/ContextMenu.tsx",
@@ -200,7 +381,7 @@
         "framer-motion"
       ],
       "language": "typescript",
-      "mtime": "2026-06-01T18:18:40.245Z"
+      "mtime": "2026-06-21T08:18:24.123Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ui/DictationButton.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ui/DictationButton.tsx",
@@ -216,7 +397,55 @@
         "framer-motion"
       ],
       "language": "typescript",
-      "mtime": "2026-06-10T14:13:39.366Z"
+      "mtime": "2026-06-21T08:18:24.124Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ui/ErrorBoundary.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ui/ErrorBoundary.tsx",
+      "moduleName": "src/components/ui/ErrorBoundary.tsx",
+      "exports": [
+        "ErrorBoundary",
+        "ErrorBoundary.constructor",
+        "ErrorBoundary.super",
+        "ErrorBoundary.componentDidCatch",
+        "ErrorBoundary.render",
+        "ErrorBoundary.if",
+        "ErrorBoundary.padding",
+        "ErrorBoundary.background",
+        "ErrorBoundary.color",
+        "ErrorBoundary.height",
+        "ErrorBoundary.width",
+        "ErrorBoundary.overflow",
+        "ErrorBoundary.display",
+        "ErrorBoundary.flexDirection",
+        "ErrorBoundary.alignItems",
+        "ErrorBoundary.justifyContent",
+        "ErrorBoundary.border",
+        "ErrorBoundary.borderRadius",
+        "ErrorBoundary.boxSizing",
+        "ErrorBoundary.background",
+        "ErrorBoundary.color",
+        "ErrorBoundary.padding",
+        "ErrorBoundary.borderRadius",
+        "ErrorBoundary.fontSize",
+        "ErrorBoundary.overflowX",
+        "ErrorBoundary.width",
+        "ErrorBoundary.margin",
+        "ErrorBoundary.whiteSpace",
+        "ErrorBoundary.wordBreak",
+        "ErrorBoundary.marginTop",
+        "ErrorBoundary.padding",
+        "ErrorBoundary.background",
+        "ErrorBoundary.border",
+        "ErrorBoundary.color",
+        "ErrorBoundary.borderRadius",
+        "ErrorBoundary.cursor",
+        "ErrorBoundary.fontSize"
+      ],
+      "imports": [
+        "react"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T15:09:07.129Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ui/ToastContainer.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ui/ToastContainer.tsx",
@@ -229,7 +458,7 @@
         "framer-motion"
       ],
       "language": "typescript",
-      "mtime": "2026-06-09T15:01:33.265Z"
+      "mtime": "2026-06-21T08:18:24.124Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/UsernameModal/UsernameModal.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/UsernameModal/UsernameModal.tsx",
@@ -243,7 +472,7 @@
         "lucide-react"
       ],
       "language": "typescript",
-      "mtime": "2026-06-05T10:41:58.881Z"
+      "mtime": "2026-06-21T08:18:24.109Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceModal/WorkspaceModal.test.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceModal/WorkspaceModal.test.tsx",
@@ -255,7 +484,7 @@
         "./WorkspaceModal"
       ],
       "language": "typescript",
-      "mtime": "2026-06-04T09:05:38.307Z"
+      "mtime": "2026-06-21T08:18:24.109Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceModal/WorkspaceModal.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceModal/WorkspaceModal.tsx",
@@ -266,11 +495,12 @@
       "imports": [
         "react",
         "framer-motion",
+        "@tauri-apps/plugin-dialog",
         "../../types",
         "lucide-react"
       ],
       "language": "typescript",
-      "mtime": "2026-06-02T21:04:08.483Z"
+      "mtime": "2026-06-21T08:18:24.110Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceSidebar/AddWorkspaceButton.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceSidebar/AddWorkspaceButton.tsx",
@@ -280,7 +510,7 @@
       ],
       "imports": [],
       "language": "typescript",
-      "mtime": "2026-06-09T14:57:38.616Z"
+      "mtime": "2026-06-21T08:18:24.110Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceSidebar/ProjectTasks.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceSidebar/ProjectTasks.tsx",
@@ -296,7 +526,7 @@
         "lucide-react"
       ],
       "language": "typescript",
-      "mtime": "2026-06-09T14:37:57.969Z"
+      "mtime": "2026-06-21T15:09:07.126Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceSidebar/WorkspaceItem.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceSidebar/WorkspaceItem.tsx",
@@ -307,11 +537,12 @@
       "imports": [
         "react",
         "../../types",
+        "../../store/useAppStore",
         "lucide-react",
         "../../types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-10T07:54:25.443Z"
+      "mtime": "2026-06-21T08:18:24.111Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceSidebar/WorkspaceSidebar.test.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceSidebar/WorkspaceSidebar.test.tsx",
@@ -325,7 +556,7 @@
         "../../types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-01T18:21:45.935Z"
+      "mtime": "2026-06-30T16:46:25.403Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceSidebar/WorkspaceSidebar.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceSidebar/WorkspaceSidebar.tsx",
@@ -342,10 +573,12 @@
         "framer-motion",
         "lucide-react",
         "@tauri-apps/api/core",
-        "../../types"
+        "@tauri-apps/plugin-dialog",
+        "../../types",
+        "@tauri-apps/api/app"
       ],
       "language": "typescript",
-      "mtime": "2026-06-09T22:06:07.305Z"
+      "mtime": "2026-06-30T16:46:25.403Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/BrowserPane.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/BrowserPane.tsx",
@@ -357,10 +590,140 @@
         "@tauri-apps/api/event",
         "../../utils/tauri",
         "../../store/useAppStore",
-        "@tauri-apps/plugin-clipboard-manager"
+        "@tauri-apps/plugin-clipboard-manager",
+        "../../types",
+        "../../types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-09T22:16:14.722Z"
+      "mtime": "2026-06-30T16:46:25.403Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeOutputParser.test.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeOutputParser.test.ts",
+      "moduleName": "src/components/WorkspaceView/claudeOutputParser.test.ts",
+      "exports": [],
+      "imports": [
+        "vitest",
+        "./claudeOutputParser"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-30T15:00:13.481Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeOutputParser.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeOutputParser.ts",
+      "moduleName": "src/components/WorkspaceView/claudeOutputParser.ts",
+      "exports": [
+        "ClaudeParsedChunkKind",
+        "ClaudePermissionChoice",
+        "ClaudePermissionPrompt",
+        "ClaudeParsedChunk",
+        "stripClaudeAnsi",
+        "detectClaudePermissionPrompt",
+        "parseClaudeChunk"
+      ],
+      "imports": [],
+      "language": "typescript",
+      "mtime": "2026-06-30T15:00:50.265Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudePane.test.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudePane.test.tsx",
+      "moduleName": "src/components/WorkspaceView/ClaudePane.test.tsx",
+      "exports": [],
+      "imports": [
+        "react",
+        "vitest",
+        "@testing-library/react",
+        "./ClaudePane",
+        "../../utils/tauri"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-30T16:46:25.404Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudePane.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudePane.tsx",
+      "moduleName": "src/components/WorkspaceView/ClaudePane.tsx",
+      "exports": [
+        "sanitizeClaudeOutput",
+        "ClaudePaneComponent"
+      ],
+      "imports": [
+        "@xterm/xterm",
+        "@xterm/addon-fit",
+        "lucide-react",
+        "../../utils/tauri",
+        "../../store/useAppStore",
+        "./ClaudeRawStream",
+        "./claudeTranscript",
+        "./claudeOutputParser",
+        "@xterm/xterm/css/xterm.css"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-30T16:46:25.404Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudeRawStream.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudeRawStream.tsx",
+      "moduleName": "src/components/WorkspaceView/ClaudeRawStream.tsx",
+      "exports": [
+        "ClaudeRawStream"
+      ],
+      "imports": [],
+      "language": "typescript",
+      "mtime": "2026-06-30T14:30:37.163Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeTranscript.test.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeTranscript.test.ts",
+      "moduleName": "src/components/WorkspaceView/claudeTranscript.test.ts",
+      "exports": [],
+      "imports": [
+        "vitest",
+        "./claudeTranscript"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-30T14:28:08.811Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeTranscript.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeTranscript.ts",
+      "moduleName": "src/components/WorkspaceView/claudeTranscript.ts",
+      "exports": [
+        "ClaudeTranscriptRowKind",
+        "ClaudeTranscriptRow",
+        "ClaudeTranscriptState",
+        "createClaudeTranscript",
+        "appendClaudeUserPrompt",
+        "appendClaudeOutput",
+        "appendClaudeError",
+        "appendClaudeStatus",
+        "appendClaudeExit"
+      ],
+      "imports": [
+        "./claudeOutputParser"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-30T16:46:25.406Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudeTranscriptView.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudeTranscriptView.tsx",
+      "moduleName": "src/components/WorkspaceView/ClaudeTranscriptView.tsx",
+      "exports": [
+        "ClaudeTranscriptView"
+      ],
+      "imports": [],
+      "language": "typescript",
+      "mtime": "2026-06-30T14:32:34.408Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/DockerPaneComponent.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/DockerPaneComponent.tsx",
+      "moduleName": "src/components/WorkspaceView/DockerPaneComponent.tsx",
+      "exports": [
+        "DockerPaneComponent"
+      ],
+      "imports": [
+        "react",
+        "@tauri-apps/api/core",
+        "../../store/useAppStore",
+        "lucide-react"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T15:09:07.127Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/KubernetesPaneComponent.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/KubernetesPaneComponent.tsx",
@@ -375,7 +738,22 @@
         "lucide-react"
       ],
       "language": "typescript",
-      "mtime": "2026-06-09T20:56:32.004Z"
+      "mtime": "2026-06-21T15:09:07.127Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/NativeTerminalPane.test.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/NativeTerminalPane.test.tsx",
+      "moduleName": "src/components/WorkspaceView/NativeTerminalPane.test.tsx",
+      "exports": [],
+      "imports": [
+        "react",
+        "vitest",
+        "@testing-library/react",
+        "./NativeTerminalPane",
+        "@tauri-apps/plugin-clipboard-manager",
+        "../../utils/tauri"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T08:18:24.114Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/NativeTerminalPane.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/NativeTerminalPane.tsx",
@@ -385,6 +763,8 @@
         "NativeTerminalPane"
       ],
       "imports": [
+        "framer-motion",
+        "../ConfirmModal/ConfirmModal",
         "../../utils/tauri",
         "../../utils/constants",
         "../../store/useAppStore",
@@ -394,10 +774,11 @@
         "./selectionUtils",
         "../../hooks/useGlobalKeybindings",
         "@tauri-apps/plugin-clipboard-manager",
-        "./useTerminalWorker"
+        "./useTerminalWorker",
+        "./selectionUtils"
       ],
       "language": "typescript",
-      "mtime": "2026-06-11T20:29:20.719Z"
+      "mtime": "2026-06-30T16:46:25.404Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/CanvasRenderer.test.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/CanvasRenderer.test.ts",
@@ -408,7 +789,7 @@
         "./CanvasRenderer"
       ],
       "language": "typescript",
-      "mtime": "2026-06-11T14:42:40.697Z"
+      "mtime": "2026-06-21T08:18:24.116Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/CanvasRenderer.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/CanvasRenderer.ts",
@@ -451,7 +832,18 @@
         "./types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-11T14:42:58.844Z"
+      "mtime": "2026-06-21T08:18:24.117Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/GlyphAtlas.dispose.test.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/GlyphAtlas.dispose.test.ts",
+      "moduleName": "src/components/WorkspaceView/renderers/GlyphAtlas.dispose.test.ts",
+      "exports": [],
+      "imports": [
+        "vitest",
+        "./GlyphAtlas"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T08:18:24.117Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/GlyphAtlas.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/GlyphAtlas.ts",
@@ -472,12 +864,11 @@
         "GlyphAtlas.upload",
         "GlyphAtlas.if",
         "GlyphAtlas.dispose",
-        "GlyphAtlas.if",
         "GlyphAtlas.if"
       ],
       "imports": [],
       "language": "typescript",
-      "mtime": "2026-06-11T19:16:39.080Z"
+      "mtime": "2026-06-21T08:18:24.118Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/terminal.worker.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/terminal.worker.ts",
@@ -488,7 +879,7 @@
         "./WebGLRenderer"
       ],
       "language": "typescript",
-      "mtime": "2026-06-11T20:41:42.045Z"
+      "mtime": "2026-06-21T08:18:24.119Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/types.test.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/types.test.ts",
@@ -498,7 +889,7 @@
         "vitest"
       ],
       "language": "typescript",
-      "mtime": "2026-06-07T19:11:00.292Z"
+      "mtime": "2026-06-21T08:18:24.120Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/types.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/types.ts",
@@ -518,7 +909,7 @@
       ],
       "imports": [],
       "language": "typescript",
-      "mtime": "2026-06-10T22:35:09.216Z"
+      "mtime": "2026-06-21T08:18:24.120Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/typing-performance.test.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/typing-performance.test.ts",
@@ -529,7 +920,7 @@
         "./CanvasRenderer"
       ],
       "language": "typescript",
-      "mtime": "2026-06-11T20:15:34.594Z"
+      "mtime": "2026-06-21T08:18:24.120Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/WebGLRenderer.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/WebGLRenderer.ts",
@@ -556,6 +947,8 @@
         "WebGLRenderer.if",
         "WebGLRenderer.if",
         "WebGLRenderer.if",
+        "WebGLRenderer.if",
+        "WebGLRenderer.if",
         "WebGLRenderer.for",
         "WebGLRenderer.for",
         "WebGLRenderer.if",
@@ -570,7 +963,7 @@
         "./GlyphAtlas"
       ],
       "language": "typescript",
-      "mtime": "2026-06-11T20:05:01.441Z"
+      "mtime": "2026-06-21T08:18:24.119Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/worker-protocol.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/worker-protocol.ts",
@@ -584,14 +977,13 @@
         "ThemeMsg",
         "FontMsg",
         "CursorAnimMsg",
-        "OptimisticCharMsg",
         "WorkerToMain",
         "MetadataMsg",
         "ReadyMsg"
       ],
       "imports": [],
       "language": "typescript",
-      "mtime": "2026-06-11T20:28:31.111Z"
+      "mtime": "2026-06-21T08:18:24.121Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/selectionUtils.test.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/selectionUtils.test.ts",
@@ -602,7 +994,7 @@
         "./selectionUtils"
       ],
       "language": "typescript",
-      "mtime": "2026-06-10T21:47:09.080Z"
+      "mtime": "2026-06-21T08:18:24.121Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/selectionUtils.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/selectionUtils.ts",
@@ -616,7 +1008,7 @@
       ],
       "imports": [],
       "language": "typescript",
-      "mtime": "2026-06-10T21:46:44.243Z"
+      "mtime": "2026-06-21T08:18:24.122Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/TerminalGrid.test.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/TerminalGrid.test.tsx",
@@ -631,7 +1023,7 @@
         "../../types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-09T15:09:31.084Z"
+      "mtime": "2026-06-30T16:46:25.405Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/TerminalGrid.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/TerminalGrid.tsx",
@@ -646,11 +1038,14 @@
         "./BrowserPane",
         "../EditorPane",
         "./KubernetesPaneComponent",
+        "./DockerPaneComponent",
+        "./ClaudePane",
         "react-resizable-panels",
-        "../../store/useAppStore"
+        "../../store/useAppStore",
+        "../ui/ErrorBoundary"
       ],
       "language": "typescript",
-      "mtime": "2026-06-09T22:40:39.120Z"
+      "mtime": "2026-06-30T20:42:02.052Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/TerminalPane.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/TerminalPane.tsx",
@@ -670,10 +1065,28 @@
         "../../store/useAppStore",
         "@xterm/xterm/css/xterm.css",
         "@tauri-apps/plugin-clipboard-manager",
+        "framer-motion",
+        "../ConfirmModal/ConfirmModal",
         "../../hooks/useGlobalKeybindings"
       ],
       "language": "typescript",
-      "mtime": "2026-06-10T08:22:30.123Z"
+      "mtime": "2026-06-30T16:46:25.405Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ToolingPane.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ToolingPane.tsx",
+      "moduleName": "src/components/WorkspaceView/ToolingPane.tsx",
+      "exports": [
+        "ToolingPane"
+      ],
+      "imports": [
+        "../../store/useAppStore",
+        "../../utils/tauri",
+        "../../types",
+        "./NativeTerminalPane",
+        "./TerminalPane"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T15:09:07.128Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/useTerminalWorker.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/useTerminalWorker.ts",
@@ -686,7 +1099,7 @@
         "react"
       ],
       "language": "typescript",
-      "mtime": "2026-06-11T20:29:00.053Z"
+      "mtime": "2026-06-30T16:46:25.407Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceHeader.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceHeader.tsx",
@@ -695,10 +1108,26 @@
         "WorkspaceHeader"
       ],
       "imports": [
+        "../../types",
+        "../../store/useAppStore",
+        "lucide-react"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-30T20:39:02.143Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceTabBar.tsx": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceTabBar.tsx",
+      "moduleName": "src/components/WorkspaceView/WorkspaceTabBar.tsx",
+      "exports": [
+        "WorkspaceTabBar"
+      ],
+      "imports": [
+        "react",
+        "../../store/useAppStore",
         "../../types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-09T13:41:02.879Z"
+      "mtime": "2026-06-21T15:09:07.129Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceView.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceView.tsx",
@@ -712,13 +1141,20 @@
         "../../store/useAppStore",
         "../../types",
         "./TerminalGrid",
+        "./WorkspaceTabBar",
+        "./ToolingPane",
+        "react-resizable-panels",
         "./WorkspaceHeader",
         "@tauri-apps/plugin-dialog",
+        "../../types",
+        "../../types",
+        "../../types",
+        "../../types",
         "../../types",
         "../../types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-09T22:04:44.986Z"
+      "mtime": "2026-06-30T20:42:02.067Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useDictation.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useDictation.ts",
@@ -732,7 +1168,64 @@
         "@tauri-apps/api/core"
       ],
       "language": "typescript",
-      "mtime": "2026-06-11T14:18:21.047Z"
+      "mtime": "2026-06-21T08:18:24.125Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeContextMenu.test.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeContextMenu.test.ts",
+      "moduleName": "src/hooks/useFileTreeContextMenu.test.ts",
+      "exports": [],
+      "imports": [
+        "vitest",
+        "@testing-library/react",
+        "./useFileTreeContextMenu"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T08:18:24.125Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeContextMenu.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeContextMenu.ts",
+      "moduleName": "src/hooks/useFileTreeContextMenu.ts",
+      "exports": [
+        "ContextMenuState",
+        "useFileTreeContextMenu"
+      ],
+      "imports": [
+        "react"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T08:18:24.125Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeOperations.test.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeOperations.test.ts",
+      "moduleName": "src/hooks/useFileTreeOperations.test.ts",
+      "exports": [],
+      "imports": [
+        "vitest",
+        "@testing-library/react",
+        "./useFileTreeOperations",
+        "@tauri-apps/plugin-fs",
+        "../utils/tauri",
+        "../store/useAppStore"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T08:18:24.126Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeOperations.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeOperations.ts",
+      "moduleName": "src/hooks/useFileTreeOperations.ts",
+      "exports": [
+        "NodeRef",
+        "InlineInputState",
+        "useFileTreeOperations"
+      ],
+      "imports": [
+        "react",
+        "@tauri-apps/plugin-fs",
+        "../utils/tauri",
+        "../store/useAppStore"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T08:18:24.126Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useGlobalKeybindings.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useGlobalKeybindings.ts",
@@ -749,20 +1242,20 @@
         "../types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-10T15:03:22.620Z"
+      "mtime": "2026-06-21T15:09:07.130Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/main.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/main.tsx",
       "moduleName": "src/main.tsx",
       "exports": [],
       "imports": [
-        "react",
         "./styles/globals.css",
         "react-dom/client",
-        "./App"
+        "./App",
+        "./components/ui/ErrorBoundary"
       ],
       "language": "typescript",
-      "mtime": "2026-06-07T09:02:13.657Z"
+      "mtime": "2026-06-21T15:09:07.130Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.test.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.test.ts",
@@ -775,7 +1268,7 @@
         "../types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-05T11:39:56.804Z"
+      "mtime": "2026-06-30T16:46:25.407Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
@@ -791,10 +1284,14 @@
         "../utils/layout",
         "../types",
         "../types",
+        "../types",
+        "../types",
+        "../types",
+        "../types",
         "../types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-10T13:43:52.682Z"
+      "mtime": "2026-06-30T20:38:12.313Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/test_version.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/test_version.ts",
@@ -804,7 +1301,7 @@
         "@tauri-apps/api/app"
       ],
       "language": "typescript",
-      "mtime": "2026-06-05T10:35:06.194Z"
+      "mtime": "2026-06-21T08:18:24.129Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/test-setup.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/test-setup.ts",
@@ -815,7 +1312,7 @@
         "vitest"
       ],
       "language": "typescript",
-      "mtime": "2026-06-10T22:29:25.045Z"
+      "mtime": "2026-06-21T08:18:24.128Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/types/index.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/types/index.ts",
@@ -826,17 +1323,21 @@
         "BrowserPane",
         "EditorPane",
         "KubernetesPane",
+        "DockerPane",
+        "ClaudePaneStatus",
+        "ClaudePane",
         "Keybindings",
         "Settings",
         "LayoutDirection",
         "LayoutNode",
         "GitStatus",
         "DetectedTask",
-        "DetectedProject"
+        "DetectedProject",
+        "WorkspaceTab"
       ],
       "imports": [],
       "language": "typescript",
-      "mtime": "2026-06-10T17:15:01.179Z"
+      "mtime": "2026-06-30T16:46:25.408Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/constants.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/constants.ts",
@@ -846,7 +1347,7 @@
       ],
       "imports": [],
       "language": "typescript",
-      "mtime": "2026-06-09T22:06:13.499Z"
+      "mtime": "2026-06-21T08:18:24.130Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/dragState.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/dragState.ts",
@@ -856,7 +1357,7 @@
       ],
       "imports": [],
       "language": "typescript",
-      "mtime": "2026-06-09T22:18:55.700Z"
+      "mtime": "2026-06-21T08:18:24.130Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/fs.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/fs.ts",
@@ -872,7 +1373,7 @@
         "@tauri-apps/plugin-fs"
       ],
       "language": "typescript",
-      "mtime": "2026-06-04T08:37:49.416Z"
+      "mtime": "2026-06-21T08:18:24.130Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/layout.test.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/layout.test.ts",
@@ -884,24 +1385,42 @@
         "../types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-07T16:49:46.373Z"
+      "mtime": "2026-06-30T16:46:25.408Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/layout.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/layout.ts",
       "moduleName": "src/utils/layout.ts",
       "exports": [
         "removeTerminalFromLayout",
-        "swapTerminalsInLayout",
-        "updateSplitSizes",
         "removeBrowserPaneFromLayout",
         "removeEditorPaneFromLayout",
-        "removeKubernetesPaneFromLayout"
+        "removeKubernetesPaneFromLayout",
+        "removeDockerPaneFromLayout",
+        "removeClaudePaneFromLayout",
+        "swapTerminalsInLayout",
+        "updateSplitSizes"
       ],
       "imports": [
         "../types"
       ],
       "language": "typescript",
-      "mtime": "2026-06-09T19:52:12.906Z"
+      "mtime": "2026-06-30T20:44:02.724Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/lspManager.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/lspManager.ts",
+      "moduleName": "src/utils/lspManager.ts",
+      "exports": [
+        "ensureLspConnection"
+      ],
+      "imports": [
+        "vscode-jsonrpc",
+        "monaco-languageclient",
+        "@tauri-apps/api/core",
+        "@tauri-apps/api/event",
+        "vscode"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-21T08:18:24.132Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/shortcuts.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/shortcuts.ts",
@@ -911,7 +1430,7 @@
       ],
       "imports": [],
       "language": "typescript",
-      "mtime": "2026-06-08T08:16:40.249Z"
+      "mtime": "2026-06-21T08:18:24.132Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/tauri.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/tauri.ts",
@@ -924,7 +1443,7 @@
         "@tauri-apps/api/event"
       ],
       "language": "typescript",
-      "mtime": "2026-06-07T17:23:37.992Z"
+      "mtime": "2026-06-21T08:18:24.132Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vite-env.d.ts": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vite-env.d.ts",
@@ -932,7 +1451,86 @@
       "exports": [],
       "imports": [],
       "language": "typescript",
-      "mtime": "2026-05-31T14:41:23.607Z"
+      "mtime": "2026-06-21T08:18:24.133Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vscode-extensions/default-extensions.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vscode-extensions/default-extensions.ts",
+      "moduleName": "src/vscode-extensions/default-extensions.ts",
+      "exports": [
+        "registerDefaultExtensions"
+      ],
+      "imports": [
+        "@codingame/monaco-vscode-typescript-language-features-default-extension",
+        "@codingame/monaco-vscode-typescript-basics-default-extension",
+        "@codingame/monaco-vscode-javascript-default-extension",
+        "@codingame/monaco-vscode-json-default-extension",
+        "@codingame/monaco-vscode-json-language-features-default-extension",
+        "@codingame/monaco-vscode-css-default-extension",
+        "@codingame/monaco-vscode-css-language-features-default-extension",
+        "@codingame/monaco-vscode-html-default-extension",
+        "@codingame/monaco-vscode-html-language-features-default-extension",
+        "@codingame/monaco-vscode-markdown-basics-default-extension",
+        "@codingame/monaco-vscode-markdown-language-features-default-extension",
+        "@codingame/monaco-vscode-theme-defaults-default-extension"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-30T20:57:35.522Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vscode-extensions/extensions.test.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vscode-extensions/extensions.test.ts",
+      "moduleName": "src/vscode-extensions/extensions.test.ts",
+      "exports": [],
+      "imports": [
+        "vitest",
+        "./extensions",
+        "./extensions",
+        "@codingame/monaco-vscode-api/extensions",
+        "./extensions"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-30T20:58:56.812Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vscode-extensions/extensions.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vscode-extensions/extensions.ts",
+      "moduleName": "src/vscode-extensions/extensions.ts",
+      "exports": [
+        "RegisteredExtension",
+        "getExtensionApi",
+        "getInstalledExtensions",
+        "disposeAllExtensions"
+      ],
+      "imports": [
+        "@codingame/monaco-vscode-api/extensions",
+        "vscode",
+        "vscode"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-30T20:57:33.322Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vscode-extensions/setup.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vscode-extensions/setup.ts",
+      "moduleName": "src/vscode-extensions/setup.ts",
+      "exports": [
+        "initializeExtensions"
+      ],
+      "imports": [
+        "@codingame/monaco-vscode-api/extensions",
+        "@codingame/monaco-vscode-api",
+        "@monaco-editor/react",
+        "monaco-editor",
+        "@codingame/monaco-vscode-extensions-service-override",
+        "@codingame/monaco-vscode-languages-service-override",
+        "@codingame/monaco-vscode-model-service-override",
+        "@codingame/monaco-vscode-configuration-service-override",
+        "@codingame/monaco-vscode-files-service-override",
+        "@codingame/monaco-vscode-textmate-service-override",
+        "@codingame/monaco-vscode-theme-service-override",
+        "@codingame/monaco-vscode-language-detection-worker-service-override",
+        "./default-extensions",
+        "monaco-editor"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-30T20:57:50.720Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/test_grouping.js": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/test_grouping.js",
@@ -941,6 +1539,14 @@
       "imports": [],
       "language": "javascript",
       "mtime": "2026-06-09T14:23:19.745Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/test_regex.js": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/test_regex.js",
+      "moduleName": "test_regex.js",
+      "exports": [],
+      "imports": [],
+      "language": "javascript",
+      "mtime": "2026-06-21T12:42:43.075Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/test_render.tsx": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/test_render.tsx",
@@ -953,6 +1559,16 @@
       ],
       "language": "typescript",
       "mtime": "2026-06-06T17:51:57.723Z"
+    },
+    "/Users/samirkumal/Documents/Personal/Vibecode/termspace/test-uri.ts": {
+      "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/test-uri.ts",
+      "moduleName": "test-uri.ts",
+      "exports": [],
+      "imports": [
+        "vscode"
+      ],
+      "language": "typescript",
+      "mtime": "2026-06-13T23:20:19.136Z"
     },
     "/Users/samirkumal/Documents/Personal/Vibecode/termspace/test-zustand.js": {
       "filePath": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/test-zustand.js",
@@ -982,10 +1598,11 @@
       ],
       "imports": [
         "vite",
-        "@vitejs/plugin-react"
+        "@vitejs/plugin-react",
+        "@codingame/monaco-vscode-rollup-vsix-plugin"
       ],
       "language": "typescript",
-      "mtime": "2026-06-10T09:38:16.545Z"
+      "mtime": "2026-06-30T20:52:52.259Z"
     }
   },
   "edges": [
@@ -999,6 +1616,12 @@
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/App.tsx",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ConfirmModal/ConfirmModal.tsx",
       "importSpecifier": "./components/ConfirmModal/ConfirmModal",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/App.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/MarkdownModal/MarkdownModal.tsx",
+      "importSpecifier": "./components/MarkdownModal/MarkdownModal",
       "importType": "named"
     },
     {
@@ -1111,6 +1734,18 @@
     },
     {
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/EditorPane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/lspManager.ts",
+      "importSpecifier": "../utils/lspManager",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/EditorPane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vscode-extensions/setup.ts",
+      "importSpecifier": "../vscode-extensions/setup",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/EditorPane.tsx",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ConfirmModal/ConfirmModal.tsx",
       "importSpecifier": "./ConfirmModal/ConfirmModal",
       "importType": "named"
@@ -1134,6 +1769,18 @@
       "importType": "named"
     },
     {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/EditorPane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/SearchPanel.tsx",
+      "importSpecifier": "./SearchPanel",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/EditorWelcomeScreen.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
+      "importSpecifier": "../store/useAppStore",
+      "importType": "named"
+    },
+    {
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTree.test.tsx",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
       "importSpecifier": "../store/useAppStore",
@@ -1153,6 +1800,18 @@
     },
     {
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTree.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeContextMenu.ts",
+      "importSpecifier": "../hooks/useFileTreeContextMenu",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTree.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeOperations.ts",
+      "importSpecifier": "../hooks/useFileTreeOperations",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTree.tsx",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
       "importSpecifier": "../store/useAppStore",
       "importType": "named"
@@ -1164,13 +1823,61 @@
       "importType": "named"
     },
     {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTree.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ConfirmModal/ConfirmModal.tsx",
+      "importSpecifier": "./ConfirmModal/ConfirmModal",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTree.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTreeContextMenu.tsx",
+      "importSpecifier": "./FileTreeContextMenu",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTree.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTreeInlineInput.tsx",
+      "importSpecifier": "./FileTreeInlineInput",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTreeContextMenu.test.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/FileTreeContextMenu.tsx",
+      "importSpecifier": "./FileTreeContextMenu",
+      "importType": "named"
+    },
+    {
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/GitPanel.tsx",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
       "importSpecifier": "../store/useAppStore",
       "importType": "named"
     },
     {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/MarkdownModal/MarkdownModal.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
+      "importSpecifier": "../../store/useAppStore",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/MarkdownModal/MarkdownModal.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/fs.ts",
+      "importSpecifier": "../../utils/fs",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/MarkdownModal/MarkdownModal.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/MarkdownPreview.tsx",
+      "importSpecifier": "../MarkdownPreview",
+      "importType": "named"
+    },
+    {
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/MarkdownPreview.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
+      "importSpecifier": "../store/useAppStore",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/SearchPanel.tsx",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
       "importSpecifier": "../store/useAppStore",
       "importType": "named"
@@ -1237,6 +1944,12 @@
     },
     {
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceSidebar/WorkspaceItem.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
+      "importSpecifier": "../../store/useAppStore",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceSidebar/WorkspaceItem.tsx",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/types",
       "importSpecifier": "../../types",
       "importType": "named"
@@ -1297,14 +2010,98 @@
     },
     {
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/BrowserPane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/types",
+      "importSpecifier": "../../types",
+      "importType": "sideeffect"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/BrowserPane.tsx",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/tauri.ts",
       "importSpecifier": "../../utils/tauri",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeOutputParser.test.ts",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeOutputParser.ts",
+      "importSpecifier": "./claudeOutputParser",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudePane.test.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/tauri.ts",
+      "importSpecifier": "../../utils/tauri",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudePane.test.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudePane.tsx",
+      "importSpecifier": "./ClaudePane",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudePane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
+      "importSpecifier": "../../store/useAppStore",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudePane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/tauri.ts",
+      "importSpecifier": "../../utils/tauri",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudePane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeOutputParser.ts",
+      "importSpecifier": "./claudeOutputParser",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudePane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudeRawStream.tsx",
+      "importSpecifier": "./ClaudeRawStream",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudePane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeTranscript.ts",
+      "importSpecifier": "./claudeTranscript",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeTranscript.test.ts",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeTranscript.ts",
+      "importSpecifier": "./claudeTranscript",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeTranscript.ts",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/claudeOutputParser.ts",
+      "importSpecifier": "./claudeOutputParser",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/DockerPaneComponent.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
+      "importSpecifier": "../../store/useAppStore",
       "importType": "named"
     },
     {
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/KubernetesPaneComponent.tsx",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
       "importSpecifier": "../../store/useAppStore",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/NativeTerminalPane.test.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/tauri.ts",
+      "importSpecifier": "../../utils/tauri",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/NativeTerminalPane.test.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/NativeTerminalPane.tsx",
+      "importSpecifier": "./NativeTerminalPane",
       "importType": "named"
     },
     {
@@ -1329,6 +2126,12 @@
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/NativeTerminalPane.tsx",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/tauri.ts",
       "importSpecifier": "../../utils/tauri",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/NativeTerminalPane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ConfirmModal/ConfirmModal.tsx",
+      "importSpecifier": "../ConfirmModal/ConfirmModal",
       "importType": "named"
     },
     {
@@ -1371,6 +2174,12 @@
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/CanvasRenderer.ts",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/types.ts",
       "importSpecifier": "./types",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/GlyphAtlas.dispose.test.ts",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/renderers/GlyphAtlas.ts",
+      "importSpecifier": "./GlyphAtlas",
       "importType": "named"
     },
     {
@@ -1447,8 +2256,26 @@
     },
     {
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/TerminalGrid.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ui/ErrorBoundary.tsx",
+      "importSpecifier": "../ui/ErrorBoundary",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/TerminalGrid.tsx",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/BrowserPane.tsx",
       "importSpecifier": "./BrowserPane",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/TerminalGrid.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ClaudePane.tsx",
+      "importSpecifier": "./ClaudePane",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/TerminalGrid.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/DockerPaneComponent.tsx",
+      "importSpecifier": "./DockerPaneComponent",
       "importType": "named"
     },
     {
@@ -1494,7 +2321,61 @@
       "importType": "named"
     },
     {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/TerminalPane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ConfirmModal/ConfirmModal.tsx",
+      "importSpecifier": "../ConfirmModal/ConfirmModal",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ToolingPane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
+      "importSpecifier": "../../store/useAppStore",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ToolingPane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/types",
+      "importSpecifier": "../../types",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ToolingPane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/tauri.ts",
+      "importSpecifier": "../../utils/tauri",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ToolingPane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/NativeTerminalPane.tsx",
+      "importSpecifier": "./NativeTerminalPane",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ToolingPane.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/TerminalPane.tsx",
+      "importSpecifier": "./TerminalPane",
+      "importType": "named"
+    },
+    {
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceHeader.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
+      "importSpecifier": "../../store/useAppStore",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceHeader.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/types",
+      "importSpecifier": "../../types",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceTabBar.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
+      "importSpecifier": "../../store/useAppStore",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceTabBar.tsx",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/types",
       "importSpecifier": "../../types",
       "importType": "named"
@@ -1525,14 +2406,62 @@
     },
     {
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceView.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/ToolingPane.tsx",
+      "importSpecifier": "./ToolingPane",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceView.tsx",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceHeader.tsx",
       "importSpecifier": "./WorkspaceHeader",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceView.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/WorkspaceView/WorkspaceTabBar.tsx",
+      "importSpecifier": "./WorkspaceTabBar",
       "importType": "named"
     },
     {
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useDictation.ts",
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
       "importSpecifier": "../store/useAppStore",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeContextMenu.test.ts",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeContextMenu.ts",
+      "importSpecifier": "./useFileTreeContextMenu",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeOperations.test.ts",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
+      "importSpecifier": "../store/useAppStore",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeOperations.test.ts",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/tauri.ts",
+      "importSpecifier": "../utils/tauri",
+      "importType": "namespace"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeOperations.test.ts",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeOperations.ts",
+      "importSpecifier": "./useFileTreeOperations",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeOperations.ts",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/store/useAppStore.ts",
+      "importSpecifier": "../store/useAppStore",
+      "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/hooks/useFileTreeOperations.ts",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/utils/tauri.ts",
+      "importSpecifier": "../utils/tauri",
       "importType": "named"
     },
     {
@@ -1564,6 +2493,12 @@
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/App.tsx",
       "importSpecifier": "./App",
       "importType": "default"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/main.tsx",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/components/ui/ErrorBoundary.tsx",
+      "importSpecifier": "./components/ui/ErrorBoundary",
+      "importType": "named"
     },
     {
       "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/main.tsx",
@@ -1612,12 +2547,24 @@
       "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/types",
       "importSpecifier": "../types",
       "importType": "named"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vscode-extensions/extensions.test.ts",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vscode-extensions/extensions.ts",
+      "importSpecifier": "./extensions",
+      "importType": "sideeffect"
+    },
+    {
+      "source": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vscode-extensions/setup.ts",
+      "target": "/Users/samirkumal/Documents/Personal/Vibecode/termspace/src/vscode-extensions/default-extensions.ts",
+      "importSpecifier": "./default-extensions",
+      "importType": "named"
     }
   ],
   "metadata": {
-    "generatedAt": "2026-06-11T20:47:54.639Z",
+    "generatedAt": "2026-06-30T21:00:31.303Z",
     "generator": "repo-graph",
-    "nodeCount": 64,
-    "edgeCount": 104
+    "nodeCount": 100,
+    "edgeCount": 159
   }
 }

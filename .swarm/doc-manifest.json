@@ -1,0 +1,286 @@
+{
+  "schema_version": 1,
+  "scanned_at": "2026-06-30T16:13:47.275Z",
+  "files": [
+    {
+      "path": ".github/workflows/release.yml",
+      "title": "release.yml",
+      "summary": "name: 'Release' on: workflow_dispatch: push: tags: - 'v*' jobs: create-release: permissions: contents: write runs-on: ubuntu-latest steps: - uses: actions/checkout@v4 - name: create github release ...",
+      "lines": 199,
+      "mtime": 1781113450563.8264
+    },
+    {
+      "path": "AGENTS.md",
+      "title": "Termspace — AI Project Context",
+      "summary": "A native macOS keyboard-driven unified developer workspace manager built with Tauri v2 (Rust backend) + React 19/TypeScript frontend. Version 0.5.0. --- - **TODO List Format**: For every update or ...",
+      "lines": 254,
+      "mtime": 1782029904090.1975
+    },
+    {
+      "path": "CLAUDE.md",
+      "title": "Termspace — Claude Instructions",
+      "summary": "`docs/dependency-map.md` tracks import relationships across all `src/` files so you know what breaks when something changes. **REQUIRED: Regenerate the map whenever you:** - Add a new `.ts` or `.ts...",
+      "lines": 20,
+      "mtime": 1782029904090.5645
+    },
+    {
+      "path": "docs/dependency-map.md",
+      "title": "Dependency Map",
+      "summary": "> Auto-generated 2026-06-30 by `node scripts/gen-dep-map.js`. Re-run after structural changes. - **Changing a file?** Find it in Table 2 (Dependents) to see what could break. - **Adding a file?** F...",
+      "lines": 158,
+      "mtime": 1782831494117.121
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-31-native-pty.md",
+      "title": "Native PTY Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 521,
+      "mtime": 1780248198604.4988
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-02-browser-pane.md",
+      "title": "Browser Pane Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 1449,
+      "mtime": 1780351964815.8708
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-03-content-search.md",
+      "title": "Content Search (Cmd+K) Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 159,
+      "mtime": 1780561268808.7344
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-03-editor-enhancements.md",
+      "title": "Editor Enhancements Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 279,
+      "mtime": 1780495738055.0752
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-03-editor-powerups.md",
+      "title": "Editor Power-Ups Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 203,
+      "mtime": 1780515461606.13
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-07-ghostty-panes.md",
+      "title": "Ghostty Panes Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 1363,
+      "mtime": 1780840116317.7603
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-07-native-terminal-backend.md",
+      "title": "Native Terminal Backend Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 2305,
+      "mtime": 1780845023957.4077
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-10-terminal-worker-renderer.md",
+      "title": "Terminal Worker Renderer Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 1008,
+      "mtime": 1781127834654.2456
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-11-cross-screen-drag-selection.md",
+      "title": "Cross-Screen Drag Selection Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 833,
+      "mtime": 1781127280027.4944
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-11-terminal-text-crispness.md",
+      "title": "Terminal Text Rendering Crispness Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 491,
+      "mtime": 1781188791144.691
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-13-browser-synergy.md",
+      "title": "Browser Pane Synergy Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 309,
+      "mtime": 1781370184532.8909
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-13-dependency-map.md",
+      "title": "Dependency Map Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 250,
+      "mtime": 1781300030786.4614
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-13-file-tree-context-menu.md",
+      "title": "File Tree Context Menu — Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 1188,
+      "mtime": 1781301377149.7634
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-17-workspace-default-path.md",
+      "title": "Workspace Default Path Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 713,
+      "mtime": 1781705243859.3328
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-20-workspace-tabs.md",
+      "title": "Workspace-level Tabs Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 306,
+      "mtime": 1782054547121.0012
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-26-sidecar-daemon.md",
+      "title": "Sidecar Daemon Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 1999,
+      "mtime": 1782432341093.8994
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-30-claude-code-pane-v2.md",
+      "title": "Claude Code Pane V2 Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 1133,
+      "mtime": 1782829954409.9097
+    },
+    {
+      "path": "docs/superpowers/plans/2026-06-30-claude-code-pane.md",
+      "title": "Claude Code Pane Implementation Plan",
+      "summary": "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [...",
+      "lines": 253,
+      "mtime": 1782766622080.7815
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-31-native-pty-design.md",
+      "title": "Native PTY — Design Spec",
+      "summary": "**Date:** 2026-05-31 **Status:** Approved --- The current PTY backend spawns `/usr/bin/ssh -tt localhost` to work around an assumed macOS 26 restriction on `/dev/ptmx`. Testing proves that assumpti...",
+      "lines": 128,
+      "mtime": 1780247791556.4187
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-02-browser-pane-design.md",
+      "title": "Browser Pane Feature — Design Spec",
+      "summary": "**Date:** 2026-06-02 **Status:** Approved Add a native browser pane to termspace that lives as a peer pane in the existing terminal grid layout. Users can split a browser pane alongside any termina...",
+      "lines": 198,
+      "mtime": 1780351544272.338
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-03-editor-enhancements-design.md",
+      "title": "Design Spec: Editor Enhancements (Tabs, Persistence, Images, Autosave)",
+      "summary": "Enhance the current `EditorPane` from a single-file editor to a multi-file, tabbed environment with improved binary handling and persistence. The implemented editor state is split between persisted...",
+      "lines": 139,
+      "mtime": 1782054547121.2761
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-03-editor-powerups-design.md",
+      "title": "Design Spec: Editor Power-Ups",
+      "summary": "Transform the Termspace Editor into a production-grade development environment by adding side-by-side splitting, cross-file content search, Git status visualization, and high-performance virtualiza...",
+      "lines": 66,
+      "mtime": 1780513854755.1003
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-07-ghostty-panes-design.md",
+      "title": "Ghostty Panes Integration",
+      "summary": "**Date:** 2026-06-07 **Status:** Approved Add Ghostty as a first-class pane type in Termspace alongside the existing xterm.js terminal panes. Multiple Ghostty windows can be open simultaneously, ea...",
+      "lines": 166,
+      "mtime": 1780837837912.7104
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-07-native-terminal-backend-design.md",
+      "title": "Native Terminal Backend Design",
+      "summary": "**Date:** 2026-06-07 **Status:** Approved Replace xterm.js with a fully native, in-process terminal backend. The VT state machine moves to Rust (`alacritty_terminal` crate), which maintains a parse...",
+      "lines": 371,
+      "mtime": 1780844277949.1528
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-11-cross-screen-drag-selection-design.md",
+      "title": "Cross-Screen Drag Selection for NativeTerminalPane",
+      "summary": "**Date:** 2026-06-11 **Status:** Approved **Scope:** `src/components/WorkspaceView/NativeTerminalPane.tsx` only --- `NativeTerminalPane` uses a custom canvas renderer. Selection coordinates are sto...",
+      "lines": 142,
+      "mtime": 1781126699744.0408
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-11-text-rendering-crispness-design.md",
+      "title": "Spec: Terminal Text Rendering Crispness (Integer Snapping)",
+      "summary": "**Date:** 2026-06-11 **Status:** Draft **Topic:** Improving terminal text clarity by ensuring pixel-perfect alignment. The terminal text in Termspace is reported to be \"not crisp\" or blurry. This i...",
+      "lines": 63,
+      "mtime": 1781187844798.2417
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-12-terminal-font-picker-design.md",
+      "title": "Terminal Font Picker — Design Spec",
+      "summary": "**Date:** 2026-06-12 **Status:** Approved Expand the terminal font selector in Settings → Appearance from 3 hard-coded presets to 10 curated presets plus a \"Custom…\" option that reveals a free-text...",
+      "lines": 99,
+      "mtime": 1781207851117.855
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-13-browser-synergy-design.md",
+      "title": "Browser Pane Synergy Design",
+      "summary": "This specification details the implementation of two major synergy features bridging the terminal, editor, and browser panes in Termspace: 1. **Localhost Auto-Discovery**: Automatically detecting w...",
+      "lines": 41,
+      "mtime": 1781370070076.8157
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-13-dependency-map-design.md",
+      "title": "Dependency Map — Design Spec",
+      "summary": "**Date:** 2026-06-13 **Status:** Approved --- Produce a static `docs/dependency-map.md` that gives any AI agent (or developer) an instant answer to: - \"If I change file X, what else might break?\" -...",
+      "lines": 92,
+      "mtime": 1781299958619.0103
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-13-file-tree-context-menu-design.md",
+      "title": "File Tree Context Menu — Design Spec",
+      "summary": "**Date:** 2026-06-13 **Status:** Approved Add right-click context menu to `FileTree.tsx` with file operations: create file/folder, rename, delete, copy path, and open folder in terminal. Uses exist...",
+      "lines": 100,
+      "mtime": 1781300933516.86
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-17-workspace-default-path-design.md",
+      "title": "Workspace Default Path",
+      "summary": "**Date:** 2026-06-17 **Status:** Approved Each workspace can have an optional default path. New terminals spawned in that workspace open at the default path instead of `~`. The path is visible as a...",
+      "lines": 93,
+      "mtime": 1781703608673.4167
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-20-workspace-tabs-design.md",
+      "title": "Workspace-level Tabs Design Spec",
+      "summary": "Introduce browser-style sub-tabs within each workspace. Each tab provides an independent layout canvas (TerminalGrid, Editor, etc.), allowing users to multiplex tasks within a single workspace cont...",
+      "lines": 44,
+      "mtime": 1781973419682.7334
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-26-sidecar-daemon-design.md",
+      "title": "Sidecar Daemon — PTY Persistence Design",
+      "summary": "**Date:** 2026-06-26 **Status:** Approved Today, Termspace spawns PTY processes as children of the Tauri app process. When the app closes, the OS delivers SIGHUP to all child PTYs, killing every ru...",
+      "lines": 251,
+      "mtime": 1782431488418.0884
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-30-claude-code-pane-design.md",
+      "title": "Claude Code Pane Design",
+      "summary": "Add a dedicated Claude Code pane that can be launched from the sidebar and run real local `claude` CLI sessions inside Termspace. The pane should feel closer to the Claude Code VS Code extension th...",
+      "lines": 87,
+      "mtime": 1782766499666.0408
+    },
+    {
+      "path": "docs/superpowers/specs/2026-06-30-claude-code-pane-v2-design.md",
+      "title": "Claude Code Pane V2 Design",
+      "summary": "Upgrade the Claude Code pane from a noninteractive `claude --print` prompt wrapper into a persistent, streaming, hybrid Claude Code workspace pane. The pane should preserve Claude Code's live termi...",
+      "lines": 166,
+      "mtime": 1782826174664.7295
+    },
+    {
+      "path": "README.md",
+      "title": "termspace",
+      "summary": "A modern, keyboard-driven unified developer workspace manager built with Tauri + React + TypeScript. Termspace is more than just a terminal—it is a fully integrated environment that brings together...",
+      "lines": 99,
+      "mtime": 1782054547120.7043
+    }
+  ]
+}
