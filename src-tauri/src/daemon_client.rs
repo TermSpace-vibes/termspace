@@ -232,6 +232,27 @@ impl DaemonClient {
         Ok(())
     }
 
+    pub fn refresh_snapshot(&self, id: &str) -> Result<(), String> {
+        let (term_arc, cwd_arc, title_arc) = {
+            let terms = self.terms.lock();
+            let s = terms.get(id).ok_or_else(|| format!("no terminal '{id}'"))?;
+            (Arc::clone(&s.term), Arc::clone(&s.cwd), Arc::clone(&s.title))
+        };
+
+        let snapshot = {
+            let t = term_arc.lock();
+            let cwd_val = cwd_arc.lock().clone();
+            let title_val = title_arc.lock().clone();
+            serialize_snapshot(
+                &*t,
+                Some(cwd_val),
+                if title_val.is_empty() { None } else { Some(title_val) },
+            )
+        };
+        let _ = self.app.emit(&format!("native-terminal-update-{id}"), snapshot);
+        Ok(())
+    }
+
     pub fn search(&self, id: &str, query: &str) -> Result<Vec<SearchMatch>, String> {
         let term_arc = {
             let terms = self.terms.lock();

@@ -224,7 +224,6 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
       unlistenError?.()
       unlistenExit?.()
       unlistenReady?.()
-      invoke('close_claude_session', { sessionId: paneId }).catch(() => {})
     }
   }, [paneId, pane?.cwd, startSession, tabId, updateClaudePane])
 

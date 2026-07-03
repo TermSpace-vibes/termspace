@@ -12,7 +12,9 @@ vi.mock('./NativeTerminalPane', () => ({
 }))
 
 vi.mock('./BrowserPane', () => ({
-  BrowserPane: ({ paneId }: { paneId: string }) => <div data-testid={`browser-${paneId}`} />,
+  BrowserPane: ({ browserPaneId, isHidden }: { browserPaneId: string; isHidden?: boolean }) => (
+    <div data-testid={`browser-${browserPaneId}`} data-hidden={isHidden ? 'true' : 'false'} />
+  ),
 }))
 
 vi.mock('../EditorPane', () => ({
@@ -28,7 +30,11 @@ vi.mock('./DockerPaneComponent', () => ({
 }))
 
 vi.mock('./ClaudePane', () => ({
-  ClaudePaneComponent: ({ paneId }: { paneId: string }) => <div data-testid={`claude-${paneId}`} />,
+  ClaudePaneComponent: ({ paneId, onClose }: { paneId: string; onClose: (id: string) => void }) => (
+    <button data-testid={`claude-${paneId}`} onClick={() => onClose(paneId)}>
+      {paneId}
+    </button>
+  ),
 }))
 
 // react-resizable-panels v4 uses ResizeObserver internally, which is not
@@ -59,6 +65,7 @@ describe('TerminalGrid', () => {
     onSplit: vi.fn(),
     onCloseBrowserPane: vi.fn(),
     onSplitBrowserPane: vi.fn(),
+    onCloseClaudePane: vi.fn(),
   }
 
   const setupLayout = (n: number) => {
@@ -99,5 +106,121 @@ describe('TerminalGrid', () => {
     setupLayout(4)
     render(<TerminalGrid {...gridProps} activeTerminalId="t-0" />)
     expect(screen.getAllByTestId(/^pane-/)).toHaveLength(4)
+  })
+
+  it('keeps browser pane mounted when its workspace is inactive', () => {
+    useAppStore.setState({
+      activeWorkspaceId: 'ws-2',
+      layoutsByTab: {
+        'tab-1': { type: 'browser', id: 'browser-layout-1', browserPaneId: 'bp-1' },
+      },
+      browserPanesByTab: {
+        'tab-1': [{ id: 'bp-1', tabId: 'tab-1', url: 'https://example.com', position: 0, createdAt: 1 }],
+      },
+    })
+
+    render(
+      <TerminalGrid
+        {...gridProps}
+        workspaceId="ws-1"
+        tabId="tab-1"
+        activeTerminalId={null}
+      />
+    )
+
+    expect(screen.getByTestId('browser-bp-1')).toHaveAttribute('data-hidden', 'true')
+  })
+
+  it('renders the active tab layout when tabId changes in the same workspace', () => {
+    useAppStore.setState({
+      layoutsByTab: {
+        'tab-1': { type: 'pane', id: 'layout-tab-1', terminalId: 'terminal-tab-1' },
+        'tab-2': { type: 'pane', id: 'layout-tab-2', terminalId: 'terminal-tab-2' },
+      },
+    })
+
+    const { rerender } = render(
+      <TerminalGrid
+        {...gridProps}
+        workspaceId="ws-1"
+        tabId="tab-1"
+        activeTerminalId={null}
+      />
+    )
+
+    expect(screen.getByTestId('pane-terminal-tab-1')).toBeInTheDocument()
+
+    rerender(
+      <TerminalGrid
+        {...gridProps}
+        workspaceId="ws-1"
+        tabId="tab-2"
+        activeTerminalId={null}
+      />
+    )
+
+    expect(screen.queryByTestId('pane-terminal-tab-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pane-terminal-tab-2')).toBeInTheDocument()
+  })
+
+  it('does not route Claude pane close through terminal close handling', () => {
+    const closeTerminal = vi.fn()
+    const closeClaudePane = vi.fn()
+    useAppStore.setState({
+      layoutsByTab: {
+        'tab-1': { type: 'claude', id: 'claude-layout-1', claudePaneId: 'claude-1' },
+      },
+      claudePanesByTab: {
+        'tab-1': [{ id: 'claude-1', tabId: 'tab-1', title: 'Claude', cwd: '/tmp', position: 0, createdAt: 1 }],
+      },
+    })
+
+    render(
+      <TerminalGrid
+        {...gridProps}
+        onClose={closeTerminal}
+        onCloseClaudePane={closeClaudePane}
+        tabId="tab-1"
+        activeTerminalId="claude-1"
+      />
+    )
+
+    screen.getByTestId('claude-claude-1').click()
+
+    expect(closeTerminal).not.toHaveBeenCalled()
+    expect(closeClaudePane).toHaveBeenCalledWith('claude-1')
+  })
+
+  it('renders Claude and terminal layouts independently when tabId changes', () => {
+    useAppStore.setState({
+      layoutsByTab: {
+        'tab-1': { type: 'claude', id: 'claude-layout-1', claudePaneId: 'claude-tab-1' },
+        'tab-2': { type: 'pane', id: 'layout-tab-2', terminalId: 'terminal-tab-2' },
+      },
+      claudePanesByTab: {
+        'tab-1': [{ id: 'claude-tab-1', tabId: 'tab-1', title: 'Claude', cwd: '/tmp', position: 0, createdAt: 1 }],
+      },
+    })
+
+    const { rerender } = render(
+      <TerminalGrid
+        {...gridProps}
+        tabId="tab-1"
+        activeTerminalId="claude-tab-1"
+      />
+    )
+
+    expect(screen.getByTestId('claude-claude-tab-1')).toBeInTheDocument()
+
+    rerender(
+      <TerminalGrid
+        {...gridProps}
+        tabId="tab-2"
+        activeTerminalId="terminal-tab-2"
+      />
+    )
+
+    expect(screen.queryByTestId('claude-claude-tab-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pane-terminal-tab-2')).toBeInTheDocument()
   })
 })

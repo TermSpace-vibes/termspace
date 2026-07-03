@@ -23,6 +23,7 @@ interface Props {
   onSplit: (terminalId: string, direction: 'horizontal' | 'vertical') => void
   onCloseBrowserPane: (browserPaneId: string) => void
   onSplitBrowserPane: (browserPaneId: string, direction: 'horizontal' | 'vertical', initialUrl?: string) => void
+  onCloseClaudePane: (claudePaneId: string) => void
 }
 
 const getFlatNodes = (node: LayoutNode | null): LayoutNode[] => {
@@ -49,7 +50,7 @@ const MemoizedSplitGroup = React.memo(({ node, onLayoutChange, children }: any) 
   )
 })
 
-export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabId, activeTerminalId, onFocus, onClose, onSplit, onCloseBrowserPane, onSplitBrowserPane }: Props) {
+export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabId, activeTerminalId, onFocus, onClose, onSplit, onCloseBrowserPane, onSplitBrowserPane, onCloseClaudePane }: Props) {
   const [maximizedTerminalId, setMaximizedTerminalId] = useState<string | null>(null)
   const reorderTerminals = useAppStore((s) => s.reorderTerminals)
   const updateLayoutSizes = useAppStore((s) => s.updateLayoutSizes)
@@ -263,7 +264,10 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
           paneId={claudePaneId}
           isActive={claudePaneId === activeTerminalId}
           onFocus={onFocus}
-          onClose={onClose}
+          onClose={(id) => {
+            if (maximizedTerminalId === id) setMaximizedTerminalId(null)
+            onCloseClaudePane(id)
+          }}
         />
       </div>
     )
@@ -415,6 +419,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
   )
 }, (prev, next) => {
   return prev.workspaceId === next.workspaceId &&
+         prev.tabId === next.tabId &&
          prev.activeTerminalId === next.activeTerminalId &&
          true
 })

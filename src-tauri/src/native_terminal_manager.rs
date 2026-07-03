@@ -482,6 +482,31 @@ impl NativeTerminalManager {
         Ok(())
     }
 
+    /// Re-emit the current terminal snapshot without changing PTY or viewport state.
+    pub fn refresh_snapshot(&self, terminal_id: &str) -> Result<(), String> {
+        let (term, cwd, title, app_handle) = {
+            let handles = self.handles.lock();
+            let h = handles
+                .get(terminal_id)
+                .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
+            (Arc::clone(&h.term), Arc::clone(&h.cwd), Arc::clone(&h.title), h.app_handle.clone())
+        };
+
+        let snapshot = {
+            let t = term.lock();
+            let cwd_val = cwd.lock().clone();
+            let title_val = title.lock().clone();
+            serialize_snapshot(
+                &*t,
+                Some(cwd_val),
+                if title_val.is_empty() { None } else { Some(title_val) },
+            )
+        };
+        let _ = app_handle.emit(&format!("native-terminal-update-{terminal_id}"), snapshot);
+
+        Ok(())
+    }
+
     /// OS process id of the shell, if still running.
     pub fn get_pid(&self, terminal_id: &str) -> Option<u32> {
         self.handles.lock().get(terminal_id).and_then(|h| h.child.process_id())

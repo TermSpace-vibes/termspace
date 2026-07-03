@@ -20,6 +20,7 @@ const EMPTY_BROWSER_PANES: BrowserPaneType[] = []
 const EMPTY_EDITOR_PANES: EditorPaneType[] = []
 const EMPTY_KUBERNETES_PANES: import('../../types').KubernetesPane[] = []
 const EMPTY_DOCKER_PANES: import('../../types').DockerPane[] = []
+const EMPTY_CLAUDE_PANES: import('../../types').ClaudePane[] = []
 
 const SystemStats = memo(() => {
   const settings = useAppStore((s) => s.settings)
@@ -77,6 +78,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
   const editorPanes = useAppStore((s) => activeTabId ? s.editorPanesByTab[activeTabId] ?? EMPTY_EDITOR_PANES : EMPTY_EDITOR_PANES)
   const kubernetesPanes = useAppStore((s) => activeTabId ? s.kubernetesPanesByTab[activeTabId] ?? EMPTY_KUBERNETES_PANES : EMPTY_KUBERNETES_PANES)
   const dockerPanes = useAppStore((s) => activeTabId ? s.dockerPanesByTab[activeTabId] ?? EMPTY_DOCKER_PANES : EMPTY_DOCKER_PANES)
+  const claudePanes = useAppStore((s) => activeTabId ? s.claudePanesByTab[activeTabId] ?? EMPTY_CLAUDE_PANES : EMPTY_CLAUDE_PANES)
 
   useEffect(() => {
     if (activeTabId && !isLoaded && !isLoading) {
@@ -286,6 +288,31 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
     }
   }, [workspace.id, activeTabId])
 
+  const handleCloseClaudePane = useCallback(async (claudePaneId: string) => {
+    if (!activeTabId) return
+    try {
+      await invoke('close_claude_session', { sessionId: claudePaneId })
+    } catch (err) {
+      console.error('close_claude_session failed:', err)
+    }
+
+    const state = useAppStore.getState()
+    state.removeClaudePane(activeTabId, claudePaneId)
+    state.addToast('Claude pane closed', 'info')
+
+    if (state.activeTerminalId === claudePaneId) {
+      const remaining = [
+        ...(state.terminalsByTab[activeTabId] ?? []),
+        ...(state.browserPanesByTab[activeTabId] ?? []),
+        ...(state.editorPanesByTab[activeTabId] ?? []),
+        ...(state.kubernetesPanesByTab[activeTabId] ?? []),
+        ...(state.dockerPanesByTab[activeTabId] ?? []),
+        ...(state.claudePanesByTab[activeTabId] ?? []),
+      ].filter((p) => p.id !== claudePaneId)
+      state.setActiveTerminalId(remaining.length > 0 ? remaining[remaining.length - 1].id : null)
+    }
+  }, [activeTabId])
+
   const handleAddEditorPane = useCallback(async (targetId?: string, direction?: 'horizontal' | 'vertical') => {
     if (!activeTabId) return;
     try {
@@ -400,7 +427,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
         showTabBar={settings.showTabBar !== false}
       />
       <WorkspaceTabBar workspaceId={workspace.id} />
-      {terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || kubernetesPanes.length > 0 || dockerPanes.length > 0 ? (
+      {terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || kubernetesPanes.length > 0 || dockerPanes.length > 0 || claudePanes.length > 0 ? (
         <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
           <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
             <Panel defaultSize={75} minSize={20}>
@@ -414,6 +441,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
                   onSplit={handleAddTerminal}
                   onCloseBrowserPane={handleCloseBrowserPane}
                   onSplitBrowserPane={handleAddBrowserPane}
+                  onCloseClaudePane={handleCloseClaudePane}
                 />
                 <SystemStats />
               </div>

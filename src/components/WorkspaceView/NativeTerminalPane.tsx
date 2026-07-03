@@ -6,7 +6,7 @@ import { DRAG_FORMAT_TERMINAL } from '../../utils/constants'
 import { useAppStore } from '../../store/useAppStore'
 import { CanvasRenderer } from './renderers/CanvasRenderer'
 import { WebGLRenderer } from './renderers/WebGLRenderer'
-import { TerminalSnapshot, CursorState, SearchMatch } from './renderers/types'
+import { TerminalSnapshot, CursorState, SearchMatch, SelectionRange } from './renderers/types'
 import {
   type AbsSelection,
   viewportRowToAbs,
@@ -96,6 +96,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   
   // ── Selection state ────────────────────────────────────────────────────────
   const selectionRef = useRef<AbsSelection | null>(null)
+  const sendSelectionRef = useRef<((sel: SelectionRange | null) => void) | null>(null)
   const isDraggingRef = useRef(false)
 
   // ── Renderer + snapshot state (refs to avoid re-render on every frame) ────
@@ -123,6 +124,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
 
   // Tauri event unlisten callbacks – collected for cleanup.
   const cwdPersistTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const listenersReadyRef = useRef(false)
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [showSearch, setShowSearch] = useState(false)
@@ -198,9 +200,13 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
 
   // ── Worker metadata callback ───────────────────────────────────────────────
   const onWorkerMetadata = useCallback((m: WorkerMetadata) => {
+    const offsetChanged = m.displayOffset !== displayOffsetRef.current
     displayOffsetRef.current = m.displayOffset
     totalHistoryRef.current = m.totalHistory
     isAlternateRef.current = m.isAlternate
+    if (offsetChanged && selectionRef.current) {
+      sendSelectionRef.current?.(absSelToViewport(selectionRef.current, displayOffsetRef.current, rowsRef.current, colsRef.current))
+    }
     if (m.cwd && m.cwd !== cwdRef.current) {
       cwdRef.current = m.cwd
       setCwd(m.cwd)
@@ -228,6 +234,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     sendFont,
     sendCursorAnim: _sendCursorAnim,
   } = useTerminalWorker(canvasRef, fontSize, fontFamily, cellWRef.current, cellHRef.current, onWorkerMetadata)
+  sendSelectionRef.current = sendSelection
 
   // ── Cell dimension measurement ─────────────────────────────────────────────
   // Re-measure whenever the font configuration changes so cols/rows calculations
@@ -375,9 +382,10 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     const ul1 = listen<TerminalSnapshot>(`native-terminal-update-${terminalId}`, (e) => {
       const snap = e.payload
 
-      // Read .current here, not a snapshot from render time — the worker sends 'ready'
-      // asynchronously and a boolean captured at render time is always false initially.
-      if (workerActiveRef.current) {
+      // In the worker-capable path the canvas is transferred before the worker
+      // posts `ready`. Forward snapshots immediately; postMessage ordering keeps
+      // the worker init before the snapshot and prevents a blank first paint.
+      if (typeof OffscreenCanvas !== 'undefined') {
         // Keep canvas CSS exactly at content size so the compositor renders at
         // native DPR with no scaling.  The OffscreenCanvas buffer is
         // cols×pCellW × rows×pCellH physical pixels; for crisp output the
@@ -396,6 +404,13 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
         displayOffsetRef.current = newOffset
         rowsRef.current = snap.rows
         colsRef.current = snap.cols
+        cursorRef.current = {
+          col: snap.cursorCol ?? (snap as any).cursor_col,
+          row: snap.cursorRow ?? (snap as any).cursor_row,
+          visible: snap.cursorVisible ?? (snap as any).cursor_visible,
+        }
+        isAlternateRef.current = snap.isAlternate ?? (snap as any).is_alternate ?? false
+        totalHistoryRef.current = snap.totalHistory ?? (snap as any).total_history ?? 0
         // Re-map selection to new viewport coords whenever displayOffset changes.
         if (offsetChanged && selectionRef.current) {
           sendSelection(absSelToViewport(selectionRef.current, displayOffsetRef.current, rowsRef.current, colsRef.current))
@@ -472,12 +487,15 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
         fns.forEach(fn => fn())
       } else {
         unlisteners = fns
+        listenersReadyRef.current = true
+        invoke('refresh_terminal_snapshot', { terminalId }).catch(console.error)
       }
     })
 
     return () => {
       if (cwdPersistTimer.current) clearTimeout(cwdPersistTimer.current)
       cancelled = true
+      listenersReadyRef.current = false
       unlisteners.forEach(fn => fn())
       unlisteners = []
       rendererRef.current?.dispose()  // no-op if null (worker path)
@@ -488,8 +506,12 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
 
   // ── Auto-focus when pane becomes the active one ────────────────────────────
   useEffect(() => {
-    if (isActive) canvasRef.current?.focus()
-  }, [isActive])
+    if (!isActive) return
+    canvasRef.current?.focus()
+    if (listenersReadyRef.current) {
+      invoke('refresh_terminal_snapshot', { terminalId }).catch(console.error)
+    }
+  }, [isActive, terminalId])
 
   // ── ResizeObserver — notify Rust of new terminal dimensions ───────────────
   useEffect(() => {

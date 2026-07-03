@@ -228,13 +228,20 @@ export const useAppStore = create<AppState>()(
         })),
 
       removeWorkspace: (id) =>
-        set((s) => ({
-          workspaces: s.workspaces.filter((w) => w.id !== id),
-          activeWorkspaceId:
-            s.activeWorkspaceId === id
-              ? (s.workspaces.find((w) => w.id !== id)?.id ?? null)
-              : s.activeWorkspaceId,
-        })),
+        set((s) => {
+          for (const tab of s.tabsByWorkspace[id] ?? []) {
+            for (const pane of s.claudePanesByTab[tab.id] ?? []) {
+              void invoke('close_claude_session', { sessionId: pane.id }).catch(() => {})
+            }
+          }
+          return {
+            workspaces: s.workspaces.filter((w) => w.id !== id),
+            activeWorkspaceId:
+              s.activeWorkspaceId === id
+                ? (s.workspaces.find((w) => w.id !== id)?.id ?? null)
+                : s.activeWorkspaceId,
+          }
+        }),
 
       setWorkspaceDefaultPath: async (workspaceId, defaultPath) => {
         await invoke('set_workspace_default_path', { workspaceId, path: defaultPath })
@@ -266,6 +273,9 @@ export const useAppStore = create<AppState>()(
       removeTab: async (workspaceId, tabId) => {
         await invoke('delete_tab', { id: tabId })
         set((s) => {
+          for (const pane of s.claudePanesByTab[tabId] ?? []) {
+            void invoke('close_claude_session', { sessionId: pane.id }).catch(() => {})
+          }
           const currentTabs = s.tabsByWorkspace[workspaceId] || []
           const nextTabs = currentTabs.filter(t => t.id !== tabId)
           let nextActiveId = s.activeTabIds[workspaceId]

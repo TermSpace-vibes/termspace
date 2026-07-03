@@ -185,6 +185,7 @@ pub fn run() {
             commands::resize_terminal,
             commands::search_terminal,
             commands::scroll_terminal,
+            commands::refresh_terminal_snapshot,
             commands::get_terminal_text,
             commands::load_scrollback,
             commands::save_scrollback,

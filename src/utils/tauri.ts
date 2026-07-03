@@ -38,6 +38,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case 'write_terminal':
     case 'resize_terminal':
     case 'scroll_terminal':
+    case 'refresh_terminal_snapshot':
     case 'kill_terminal':
     case 'start_terminal':
     case 'save_scrollback':

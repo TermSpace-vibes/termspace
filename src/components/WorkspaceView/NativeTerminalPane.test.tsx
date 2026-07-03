@@ -5,6 +5,10 @@ import { NativeTerminalPane } from './NativeTerminalPane'
 import { readText } from '@tauri-apps/plugin-clipboard-manager'
 import { invoke } from '../../utils/tauri'
 
+const tauriMock = vi.hoisted(() => ({
+  listeners: {} as Record<string, (event: any) => void>,
+}))
+
 // Mock Tauri invoke and listen
 vi.mock('../../utils/tauri', () => ({
   invoke: vi.fn().mockImplementation((cmd) => {
@@ -12,7 +16,12 @@ vi.mock('../../utils/tauri', () => ({
     if (cmd === 'get_terminal_text') return Promise.resolve('mock text')
     return Promise.resolve([])
   }),
-  listen: vi.fn().mockResolvedValue(() => {}),
+  listen: vi.fn().mockImplementation((event: string, callback: (event: any) => void) => {
+    tauriMock.listeners[event] = callback
+    return Promise.resolve(() => {
+      delete tauriMock.listeners[event]
+    })
+  }),
 }))
 
 // Mock clipboard manager
@@ -186,9 +195,13 @@ describe('NativeTerminalPane copy/paste', () => {
 
 describe('NativeTerminalPane selection drag', () => {
   let postedMessages: any[]
+  let createdWorker: any
 
   beforeEach(() => {
+    vi.clearAllMocks()
     postedMessages = []
+    createdWorker = null
+    tauriMock.listeners = {}
 
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
@@ -201,6 +214,10 @@ describe('NativeTerminalPane selection drag', () => {
     global.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as any
     const posted = postedMessages
     global.Worker = class {
+      onmessage: ((event: MessageEvent) => void) | null = null
+      constructor() {
+        createdWorker = this
+      }
       postMessage(msg: any) { posted.push(msg) }
       addEventListener() {}
       removeEventListener() {}
@@ -245,5 +262,107 @@ describe('NativeTerminalPane selection drag', () => {
     const last = selections[selections.length - 1].selection
     // 200px / 8px per cell = col 25
     expect(Math.max(last.startCol, last.endCol)).toBe(25)
+  })
+
+  it('moves an existing selection when worker metadata reports scroll offset changes', () => {
+    const { container } = render(
+      <NativeTerminalPane
+        terminalId="t-1"
+        workspaceId="ws-1"
+        isActive={true}
+        isMaximized={false}
+        onFocus={vi.fn()}
+        onToggleMaximize={vi.fn()}
+        onClose={vi.fn()}
+        onSplit={vi.fn()}
+      />
+    )
+
+    createdWorker.onmessage?.({ data: { type: 'ready' } } as MessageEvent)
+
+    const canvas = container.querySelector('canvas')!
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 4, clientY: 200 })
+    fireEvent.mouseMove(window, { clientX: 100, clientY: 200 })
+
+    const beforeScrollSelections = postedMessages.filter(m => m.type === 'selection' && m.selection)
+    const before = beforeScrollSelections[beforeScrollSelections.length - 1].selection
+
+    createdWorker.onmessage?.({
+      data: {
+        type: 'metadata',
+        cwd: null,
+        title: null,
+        displayOffset: 5,
+        totalHistory: 100,
+        isAlternate: false,
+      },
+    } as MessageEvent)
+
+    const afterScrollSelections = postedMessages.filter(m => m.type === 'selection' && m.selection)
+    expect(afterScrollSelections.length).toBeGreaterThan(beforeScrollSelections.length)
+
+    const after = afterScrollSelections[afterScrollSelections.length - 1].selection
+    expect(after.startRow).toBe(before.startRow + 5)
+    expect(after.endRow).toBe(before.endRow + 5)
+  })
+
+  it('forwards initial snapshots to the worker before the worker ready message', async () => {
+    render(
+      <NativeTerminalPane
+        terminalId="t-1"
+        workspaceId="ws-1"
+        isActive={true}
+        isMaximized={false}
+        onFocus={vi.fn()}
+        onToggleMaximize={vi.fn()}
+        onClose={vi.fn()}
+        onSplit={vi.fn()}
+      />
+    )
+
+    await waitFor(() => {
+      expect(tauriMock.listeners['native-terminal-update-t-1']).toBeDefined()
+    })
+
+    tauriMock.listeners['native-terminal-update-t-1']({
+      payload: {
+        cells_b64: '',
+        cols: 80,
+        rows: 24,
+        cursorCol: 8,
+        cursorRow: 0,
+        cursorVisible: true,
+        cwd: '~',
+        title: null,
+        displayOffset: 0,
+        totalHistory: 0,
+        isAlternate: false,
+      },
+    })
+
+    expect(postedMessages.some(m => m.type === 'snapshot')).toBe(true)
+  })
+
+  it('requests a fresh snapshot after terminal update listeners are attached', async () => {
+    render(
+      <NativeTerminalPane
+        terminalId="t-1"
+        workspaceId="ws-1"
+        isActive={true}
+        isMaximized={false}
+        onFocus={vi.fn()}
+        onToggleMaximize={vi.fn()}
+        onClose={vi.fn()}
+        onSplit={vi.fn()}
+      />
+    )
+
+    await waitFor(() => {
+      expect(tauriMock.listeners['native-terminal-update-t-1']).toBeDefined()
+    })
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('refresh_terminal_snapshot', { terminalId: 't-1' })
+    })
   })
 })

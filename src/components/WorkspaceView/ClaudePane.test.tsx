@@ -299,6 +299,32 @@ describe('ClaudePaneComponent', () => {
     })
   })
 
+  it('does not close the Claude backend session when the pane component unmounts', async () => {
+    const { unmount } = render(
+      <ClaudePaneComponent
+        tabId="tab-1"
+        paneId="claude-1"
+        isActive
+        onFocus={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('spawn_claude_session', {
+        sessionId: 'claude-1',
+        cwd: '/tmp',
+      })
+    })
+
+    vi.mocked(invoke).mockClear()
+    unmount()
+
+    expect(invoke).not.toHaveBeenCalledWith('close_claude_session', {
+      sessionId: 'claude-1',
+    })
+  })
+
   it('marks the pane ready when the backend emits ready', async () => {
     render(
       <ClaudePaneComponent

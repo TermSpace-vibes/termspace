@@ -1,5 +1,5 @@
 import React, { useCallback, useRef } from 'react';
-import { Mic, MicOff } from 'lucide-react';
+import { MicOff } from 'lucide-react';
 import { useDictation } from '../../hooks/useDictation';
 import { useAppStore } from '../../store/useAppStore';
 import { invoke } from '@tauri-apps/api/core';
@@ -55,7 +55,10 @@ export const DictationButton: React.FC = () => {
     }
   }, [addToast]);
 
-  const { isListening, toggleListening, interimTranscript } = useDictation({ onResult: handleResult, onError: handleError });
+  const { isListening, isProcessing, toggleListening, interimTranscript } = useDictation({ onResult: handleResult, onError: handleError });
+  const isActive = isListening || isProcessing;
+  const statusText = isProcessing ? 'Processing transcription...' : interimTranscript;
+  const waveformBars = [12, 24, 16, 30, 20, 26, 14];
 
   return (
     <motion.div
@@ -97,33 +100,72 @@ export const DictationButton: React.FC = () => {
           width: '48px',
           height: '48px',
           borderRadius: '50%',
-          backgroundColor: isListening ? 'var(--bg-main)' : 'var(--bg-sidebar)',
-          border: `1px solid ${isListening ? 'var(--accent)' : 'var(--border-inactive)'}`,
-          color: isListening ? 'var(--accent)' : 'var(--text-inactive)',
+          backgroundColor: isActive ? 'var(--bg-main)' : 'var(--bg-sidebar)',
+          border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border-inactive)'}`,
+          color: isActive ? 'var(--accent)' : 'var(--text-inactive)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           cursor: 'inherit',
-          boxShadow: isListening ? '0 0 12px var(--accent)' : '0 4px 6px rgba(0,0,0,0.3)',
+          boxShadow: isActive ? '0 0 14px color-mix(in srgb, var(--accent) 62%, transparent)' : '0 4px 6px rgba(0,0,0,0.3)',
           transition: 'background-color 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s',
           outline: 'none',
         }}
         title="Dictate to Terminal (Web Speech API)"
       >
-        {isListening ? (
+        {isProcessing ? (
           <motion.div
-            animate={{ scale: [1, 1.2, 1], opacity: [1, 0.7, 1] }}
-            transition={{ repeat: Infinity, duration: 1.5 }}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            data-testid="dictation-processing-spinner"
+            animate={{ rotate: 360 }}
+            transition={{ repeat: Infinity, duration: 0.9, ease: 'linear' }}
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: '50%',
+              border: '2px solid var(--text-dim)',
+              borderTopColor: 'var(--accent)',
+            }}
+          />
+        ) : isListening ? (
+          <motion.div
+            data-testid="dictation-waveform"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 3,
+              height: 30,
+            }}
           >
-            <Mic size={24} />
+            {waveformBars.map((height, index) => (
+              <motion.span
+                key={`${height}-${index}`}
+                aria-hidden="true"
+                animate={{
+                  height: [Math.max(7, height * 0.45), height, Math.max(8, height * 0.62)],
+                  opacity: [0.55, 1, 0.72],
+                }}
+                transition={{
+                  repeat: Infinity,
+                  duration: 0.68 + index * 0.045,
+                  delay: index * 0.055,
+                  ease: 'easeInOut',
+                }}
+                style={{
+                  width: 3,
+                  borderRadius: 999,
+                  background: 'currentColor',
+                  boxShadow: '0 0 8px color-mix(in srgb, var(--accent) 65%, transparent)',
+                }}
+              />
+            ))}
           </motion.div>
         ) : (
           <MicOff size={24} />
         )}
       </button>
 
-      {isListening && interimTranscript && (
+      {isActive && statusText && (
         <motion.div
           initial={{ opacity: 0, y: 10, x: '-50%' }}
           animate={{ opacity: 1, y: 0, x: '-50%' }}
@@ -144,7 +186,7 @@ export const DictationButton: React.FC = () => {
             pointerEvents: 'none',
           }}
         >
-          {interimTranscript}
+          {statusText}
         </motion.div>
       )}
     </motion.div>

@@ -17,6 +17,7 @@ interface UseDictationProps {
 
 export function useDictation({ onResult, onError }: UseDictationProps) {
   const [isListening, setIsListening] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
 
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -30,7 +31,8 @@ export function useDictation({ onResult, onError }: UseDictationProps) {
   const stopRecordingAndTranscribe = useCallback(async () => {
     isListeningRef.current = false;
     setIsListening(false);
-    setInterimTranscript('Transcribing...');
+    setIsProcessing(true);
+    setInterimTranscript('Processing transcription...');
 
     const currentRate = audioContextRef.current ? audioContextRef.current.sampleRate : 16000;
 
@@ -55,6 +57,7 @@ export function useDictation({ onResult, onError }: UseDictationProps) {
 
     if (audioDataRef.current.length === 0) {
       setInterimTranscript('');
+      setIsProcessing(false);
       return;
     }
 
@@ -169,6 +172,7 @@ export function useDictation({ onResult, onError }: UseDictationProps) {
     }
     
     setInterimTranscript('');
+    setIsProcessing(false);
     audioDataRef.current = [];
   }, [onResult, onError]);
 
@@ -188,6 +192,7 @@ export function useDictation({ onResult, onError }: UseDictationProps) {
       gainNode.gain.value = 0; // Prevent feedback loops
 
       audioDataRef.current = []; // reset
+      setIsProcessing(false);
 
       processor.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0);
@@ -225,5 +230,5 @@ export function useDictation({ onResult, onError }: UseDictationProps) {
     return () => window.removeEventListener('termspace:toggle-dictation', handleGlobalToggle as EventListener);
   }, [toggleListening]);
 
-  return { isListening, toggleListening, mediaStream: streamRef.current, interimTranscript };
+  return { isListening, isProcessing, toggleListening, mediaStream: streamRef.current, interimTranscript };
 }

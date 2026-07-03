@@ -447,6 +447,31 @@ pub fn get_browser_panes(conn: &Connection, tab_id: &str) -> Result<Vec<BrowserP
     rows
 }
 
+pub fn get_browser_panes_for_workspace(
+    conn: &Connection,
+    workspace_id: &str,
+) -> Result<Vec<BrowserPane>> {
+    let mut stmt = conn.prepare(
+        "SELECT bp.id,bp.tab_id,bp.url,bp.position,bp.created_at
+         FROM browser_panes bp
+         JOIN tabs t ON t.id = bp.tab_id
+         WHERE t.workspace_id=?1
+         ORDER BY t.position,bp.position",
+    )?;
+    let rows = stmt
+        .query_map(params![workspace_id], |r| {
+            Ok(BrowserPane {
+                id: r.get(0)?,
+                tab_id: r.get(1)?,
+                url: r.get(2)?,
+                position: r.get(3)?,
+                created_at: r.get(4)?,
+            })
+        })?
+        .collect();
+    rows
+}
+
 pub fn update_browser_pane_url(conn: &Connection, id: &str, url: &str) -> Result<()> {
     conn.execute(
         "UPDATE browser_panes SET url=?1 WHERE id=?2",
@@ -563,6 +588,30 @@ mod tests {
             .query_row("SELECT count(*) FROM browser_panes", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_get_browser_panes_for_workspace_collects_panes_from_tabs() {
+        let conn = open_test_db_with_browser();
+        conn.execute(
+            "INSERT INTO workspaces (id,name,emoji,color,position,created_at) VALUES (?1,?2,?3,?4,?5,?6)",
+            params!["ws-1", "Work", "🔥", "#e8a045", 0i64, 1_000_000i64],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO tabs (id,workspace_id,name,position,created_at) VALUES (?1,?2,?3,?4,?5)",
+            params!["tab-1", "ws-1", "Default", 0i64, 1_000_000i64],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO tabs (id,workspace_id,name,position,created_at) VALUES (?1,?2,?3,?4,?5)",
+            params!["tab-2", "ws-1", "Docs", 1i64, 1_000_001i64],
+        ).unwrap();
+        create_browser_pane(&conn, "bp-1", "tab-1", "http://localhost:3000").unwrap();
+        create_browser_pane(&conn, "bp-2", "tab-2", "https://example.com").unwrap();
+
+        let panes = get_browser_panes_for_workspace(&conn, "ws-1").unwrap();
+        let ids: Vec<&str> = panes.iter().map(|p| p.id.as_str()).collect();
+
+        assert_eq!(ids, vec!["bp-1", "bp-2"]);
     }
 
     #[test]

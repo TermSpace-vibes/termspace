@@ -1,52 +1,45 @@
-import { describe, it, expect } from 'vitest'
-import {
-  addBrowserPaneToLayout,
-  removeBrowserPaneFromLayout,
-} from './layout'
+import { describe, expect, it } from 'vitest'
+import { addClaudePaneToLayout, addTerminalToLayout } from './layout'
 import { LayoutNode } from '../types'
 
-describe('addBrowserPaneToLayout', () => {
-  it('creates a single browser node wrapped in split when root is null', () => {
-    const result = addBrowserPaneToLayout(null, 'bp-1')
-    expect(result).toEqual({
-      type: 'split', id: 'root', direction: 'horizontal', sizes: [100],
-      children: [{ type: 'browser', id: 'browser-bp-1', browserPaneId: 'bp-1' }]
-    })
-  })
-
-  it('splits an existing pane node with a browser node', () => {
-    const root: LayoutNode = { type: 'pane', id: 'p1', terminalId: 't-1' }
-    const result = addBrowserPaneToLayout(root, 'bp-1', 't-1', 'horizontal')
-    expect(result.type).toBe('split')
-    if (result.type === 'split') {
-      expect(result.children[1]).toEqual({ type: 'browser', id: expect.any(String), browserPaneId: 'bp-1' })
-    }
-  })
-})
-
-describe('removeBrowserPaneFromLayout', () => {
-  it('returns null when removing the only browser pane', () => {
-    const root: LayoutNode = { type: 'browser', id: 'n1', browserPaneId: 'bp-1' }
-    expect(removeBrowserPaneFromLayout(root, 'bp-1')).toBeNull()
-  })
-
-  it('keeps split with 1 child when browser pane is removed (no collapse)', () => {
+describe('layout utilities', () => {
+  it('splits a terminal adjacent to a Claude pane target', () => {
     const root: LayoutNode = {
-      type: 'split', id: 's1', direction: 'horizontal', sizes: [50, 50],
-      children: [
-        { type: 'pane', id: 'p1', terminalId: 't-1' },
-        { type: 'browser', id: 'b1', browserPaneId: 'bp-1' },
-      ]
+      type: 'claude',
+      id: 'claude-c1',
+      claudePaneId: 'c1',
     }
-    const result = removeBrowserPaneFromLayout(root, 'bp-1')
-    expect(result).toEqual({
-      type: 'split', id: 's1', direction: 'horizontal', sizes: [100],
-      children: [{ type: 'pane', id: 'p1', terminalId: 't-1' }]
+
+    const next = addTerminalToLayout(root, 't1', 'c1', 'vertical')
+
+    expect(next).toMatchObject({
+      type: 'split',
+      direction: 'vertical',
+      sizes: [50, 50],
+      children: [
+        { type: 'claude', claudePaneId: 'c1' },
+        { type: 'pane', terminalId: 't1' },
+      ],
     })
   })
 
-  it('returns root unchanged when browserPaneId is not found', () => {
-    const root: LayoutNode = { type: 'browser', id: 'n1', browserPaneId: 'bp-1' }
-    expect(removeBrowserPaneFromLayout(root, 'bp-NONEXISTENT')).toEqual(root)
+  it('keeps existing terminal split behavior', () => {
+    const root: LayoutNode = {
+      type: 'pane',
+      id: 'pane-t1',
+      terminalId: 't1',
+    }
+
+    const next = addClaudePaneToLayout(root, 'c1', 't1', 'horizontal')
+
+    expect(next).toMatchObject({
+      type: 'split',
+      direction: 'horizontal',
+      sizes: [50, 50],
+      children: [
+        { type: 'pane', terminalId: 't1' },
+        { type: 'claude', claudePaneId: 'c1' },
+      ],
+    })
   })
 })

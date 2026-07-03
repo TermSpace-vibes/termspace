@@ -226,8 +226,17 @@ pub fn rename_tab(id: String, name: String, db: tauri::State<'_, DbState>) -> Re
 }
 
 #[tauri::command]
-pub fn delete_tab(id: String, db: tauri::State<'_, DbState>) -> Result<(), String> {
+pub fn delete_tab(
+    id: String,
+    db: tauri::State<'_, DbState>,
+    browser: State<BrowserPaneManager>,
+) -> Result<(), String> {
     let conn = db.0.lock();
+    if let Ok(panes) = db::get_browser_panes(&conn, &id) {
+        for p in panes {
+            browser.destroy(&p.id);
+        }
+    }
     db::delete_tab(&conn, &id).map_err(|e| e.to_string())
 }
 
@@ -241,17 +250,21 @@ pub fn delete_workspace(
 ) -> Result<(), String> {
     {
         let conn = db.0.lock();
-        if let Ok(terminals) = db::get_terminals(&conn, &id) {
+        if let Ok(tabs) = db::get_tabs(&conn, &id) {
             let dc_guard = dc.0.lock();
-            for t in terminals {
-                if let Some(ref client) = *dc_guard {
-                    let _ = client.kill(&t.id);
-                } else {
-                    ntm.kill(&t.id);
+            for tab in tabs {
+                if let Ok(terminals) = db::get_terminals(&conn, &tab.id) {
+                    for t in terminals {
+                        if let Some(ref client) = *dc_guard {
+                            let _ = client.kill(&t.id);
+                        } else {
+                            ntm.kill(&t.id);
+                        }
+                    }
                 }
             }
         }
-        if let Ok(panes) = db::get_browser_panes(&conn, &id) {
+        if let Ok(panes) = db::get_browser_panes_for_workspace(&conn, &id) {
             for p in panes {
                 browser.destroy(&p.id);
             }
@@ -947,6 +960,20 @@ pub async fn scroll_terminal(
         client.scroll(&terminal_id, delta)
     } else {
         ntm.scroll(&terminal_id, delta)
+    }
+}
+
+#[tauri::command]
+pub async fn refresh_terminal_snapshot(
+    ntm: State<'_, NativeTerminalManager>,
+    dc: State<'_, DaemonClientState>,
+    terminal_id: String,
+) -> Result<(), String> {
+    let dc_guard = dc.0.lock();
+    if let Some(ref client) = *dc_guard {
+        client.refresh_snapshot(&terminal_id)
+    } else {
+        ntm.refresh_snapshot(&terminal_id)
     }
 }
 

@@ -42,6 +42,7 @@ function addToExistingSplitOrWrap(root: LayoutNode, newPane: LayoutNode, directi
     if (node.type === 'editor') return node.editorPaneId === targetId
     if (node.type === 'kubernetes') return node.kubernetesPaneId === targetId
     if (node.type === 'docker') return node.dockerPaneId === targetId
+    if (node.type === 'claude') return node.claudePaneId === targetId
     return false
   }
 
