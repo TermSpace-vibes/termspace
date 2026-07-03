@@ -8,6 +8,7 @@ import { invoke } from '../../utils/tauri'
 // Mock Tauri invoke and listen
 vi.mock('../../utils/tauri', () => ({
   invoke: vi.fn().mockImplementation((cmd) => {
+    if (cmd === 'process_pasted_image') return Promise.resolve(null)
     if (cmd === 'get_terminal_text') return Promise.resolve('mock text')
     return Promise.resolve([])
   }),
@@ -26,7 +27,7 @@ vi.mock('../../store/useAppStore', () => ({
     vi.fn((selector) => {
       return selector({
         settings: { fontSize: 14, fontFamily: 'monospace' },
-        terminalsByWorkspace: { 'ws-1': [{ id: 't-1' }] },
+        terminalsByTab: { 'ws-1': [{ id: 't-1' }] },
         setTerminalNotification: vi.fn(),
         renameTerminal: vi.fn(),
         setDraggedTerminalId: vi.fn(),
@@ -36,7 +37,7 @@ vi.mock('../../store/useAppStore', () => ({
       getState: () => ({
         settings: { smoothCaret: false },
         addToast: vi.fn(),
-        terminalsByWorkspace: { 'ws-1': [{ id: 't-1', notificationCount: 0 }] },
+        terminalsByTab: { 'ws-1': [{ id: 't-1', notificationCount: 0 }] },
       })
     }
   )
@@ -100,7 +101,8 @@ describe('NativeTerminalPane copy/paste', () => {
     HTMLCanvasElement.prototype.transferControlToOffscreen = vi.fn().mockReturnValue(new global.OffscreenCanvas(8, 8)) as any
   })
 
-  it('handles paste by reading from native clipboardData and writing to terminal', async () => {
+  it('handles paste by reading the native clipboard and writing to terminal', async () => {
+    vi.mocked(readText).mockResolvedValueOnce('pasted text')
     const { container } = render(
       <NativeTerminalPane
         terminalId="t-1"
@@ -125,10 +127,9 @@ describe('NativeTerminalPane copy/paste', () => {
     fireEvent(canvas, pasteEvent)
 
     await waitFor(() => {
-      // Verify Tauri was instructed to write the text to the terminal chunks
       expect(invoke).toHaveBeenCalledWith('write_terminal', {
         terminalId: 't-1',
-        data: 'pasted text'
+        data: '\x1b[200~pasted text\x1b[201~'
       })
     })
   })
@@ -154,7 +155,7 @@ describe('NativeTerminalPane copy/paste', () => {
       expect(readText).toHaveBeenCalled()
       expect(invoke).toHaveBeenCalledWith('write_terminal', {
         terminalId: 't-1',
-        data: 'test pasted text'
+        data: '\x1b[200~test pasted text\x1b[201~'
       })
     })
   })

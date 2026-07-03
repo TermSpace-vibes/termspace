@@ -4,8 +4,8 @@
   "version": "0.7.1",
   "identifier": "com.termspace",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "node scripts/ensure-vite-dev-server.mjs",
+    "devUrl": "http://localhost:1430",
     "beforeBuildCommand": "bash scripts/build-daemon.sh && npm run build",
     "frontendDist": "../dist"
   },

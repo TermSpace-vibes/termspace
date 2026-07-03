@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
-import { Workspace, Terminal, BrowserPane, EditorPane, LayoutNode, LayoutDirection, Settings, GitStatus, WorkspaceTab } from '../types'
+import { Workspace, Terminal, BrowserPane, EditorPane, ClaudePane, LayoutNode, LayoutDirection, Settings, GitStatus, WorkspaceTab } from '../types'
 import {
   addTerminalToLayout, removeTerminalFromLayout, swapTerminalsInLayout,
   updateSplitSizes,
@@ -9,6 +9,7 @@ import {
   addEditorPaneToLayout, removeEditorPaneFromLayout,
   addKubernetesPaneToLayout, removeKubernetesPaneFromLayout,
   addDockerPaneToLayout, removeDockerPaneFromLayout,
+  addClaudePaneToLayout, removeClaudePaneFromLayout,
 } from '../utils/layout'
 
 interface AppState {
@@ -29,6 +30,7 @@ interface AppState {
   editorPanesByTab: Record<string, EditorPane[]>
   kubernetesPanesByTab: Record<string, import('../types').KubernetesPane[]>
   dockerPanesByTab: Record<string, import('../types').DockerPane[]>
+  claudePanesByTab: Record<string, ClaudePane[]>
   layoutsByTab: Record<string, LayoutNode | null>
   gitStatusByWorkspace: Record<string, GitStatus>
   activeFileByTab: Record<string, string | null>
@@ -75,6 +77,9 @@ interface AppState {
   addDockerPane: (tabId: string, pane: import('../types').DockerPane, targetId?: string, direction?: LayoutDirection) => void
   removeDockerPane: (tabId: string, dockerPaneId: string) => void
   updateDockerPane: (tabId: string, dockerPaneId: string, updates: Partial<import('../types').DockerPane>) => void
+  addClaudePane: (tabId: string, pane: ClaudePane, targetId?: string, direction?: LayoutDirection) => void
+  removeClaudePane: (tabId: string, claudePaneId: string) => void
+  updateClaudePane: (tabId: string, claudePaneId: string, updates: Partial<ClaudePane>) => void
   updateEditorPaneFile: (tabId: string, editorPaneId: string, openFilePath: string | null, lineNumber?: number) => void
   closeEditorFile: (tabId: string, editorPaneId: string, filePath: string) => void
   updateEditorPaneLayout: (tabId: string, editorPaneId: string, layout: Partial<EditorPane>) => void
@@ -135,6 +140,7 @@ export const useAppStore = create<AppState>()(
       editorPanesByTab: {},
       kubernetesPanesByTab: {},
       dockerPanesByTab: {},
+      claudePanesByTab: {},
       layoutsByTab: {},
       gitStatusByWorkspace: {},
       activeFileByTab: {},
@@ -252,6 +258,7 @@ export const useAppStore = create<AppState>()(
             terminalsByTab: { ...s.terminalsByTab, [tab.id]: [] },
             browserPanesByTab: { ...s.browserPanesByTab, [tab.id]: [] },
             editorPanesByTab: { ...s.editorPanesByTab, [tab.id]: [] },
+            claudePanesByTab: { ...s.claudePanesByTab, [tab.id]: [] },
           }
         })
         return tab
@@ -647,6 +654,49 @@ export const useAppStore = create<AppState>()(
           }
         }),
 
+      addClaudePane: (tabId, pane, targetId, direction) =>
+        set((s) => {
+          const layout = s.layoutsByTab[tabId] ?? null
+          return {
+            claudePanesByTab: {
+              ...s.claudePanesByTab,
+              [tabId]: [...(s.claudePanesByTab[tabId] ?? []), pane],
+            },
+            layoutsByTab: {
+              ...s.layoutsByTab,
+              [tabId]: addClaudePaneToLayout(layout, pane.id, targetId, direction),
+            },
+          }
+        }),
+
+      removeClaudePane: (tabId, claudePaneId) =>
+        set((s) => {
+          const layout = s.layoutsByTab[tabId] ?? null
+          return {
+            claudePanesByTab: {
+              ...s.claudePanesByTab,
+              [tabId]: (s.claudePanesByTab[tabId] ?? []).filter(
+                (p) => p.id !== claudePaneId,
+              ),
+            },
+            layoutsByTab: {
+              ...s.layoutsByTab,
+              [tabId]: removeClaudePaneFromLayout(layout, claudePaneId),
+            },
+          }
+        }),
+
+      updateClaudePane: (tabId, claudePaneId, updates) =>
+        set((s) => {
+          return {
+            claudePanesByTab: {
+              ...s.claudePanesByTab,
+              [tabId]: (s.claudePanesByTab[tabId] ?? []).map((p) =>
+                p.id === claudePaneId ? { ...p, ...updates } : p
+              ),
+            },
+          }
+        }),
 
       updateEditorPaneFile: (tabId: string, editorPaneId: string, openFilePath: string | null, lineNumber?: number) =>
         set((s) => ({
@@ -704,7 +754,12 @@ export const useAppStore = create<AppState>()(
 
       updateEditorPaneLayout: (tabId: string, editorPaneId: string, layout) =>
         set((s) => {
-          fetch('http://localhost:1420/__log_error', { method: 'POST', body: 'updateEditorPaneLayout: ' + JSON.stringify(layout) })
+          if (import.meta.env.DEV) {
+            void fetch('/__log_error', {
+              method: 'POST',
+              body: 'updateEditorPaneLayout: ' + JSON.stringify(layout),
+            }).catch(() => {})
+          }
           return {
             editorPanesByTab: {
               ...s.editorPanesByTab,
@@ -844,6 +899,7 @@ export const useAppStore = create<AppState>()(
         editorPanesByTab: state.editorPanesByTab,
         kubernetesPanesByTab: state.kubernetesPanesByTab,
         dockerPanesByTab: state.dockerPanesByTab,
+        claudePanesByTab: state.claudePanesByTab,
         gitStatusByWorkspace: state.gitStatusByWorkspace,
         tasksCollapsed: state.tasksCollapsed,
         dictationButtonPosition: state.dictationButtonPosition,

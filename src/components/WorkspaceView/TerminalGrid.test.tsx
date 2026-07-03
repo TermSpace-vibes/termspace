@@ -11,6 +11,26 @@ vi.mock('./NativeTerminalPane', () => ({
   ),
 }))
 
+vi.mock('./BrowserPane', () => ({
+  BrowserPane: ({ paneId }: { paneId: string }) => <div data-testid={`browser-${paneId}`} />,
+}))
+
+vi.mock('../EditorPane', () => ({
+  EditorPaneComponent: ({ editorPaneId }: { editorPaneId: string }) => <div data-testid={`editor-${editorPaneId}`} />,
+}))
+
+vi.mock('./KubernetesPaneComponent', () => ({
+  KubernetesPaneComponent: ({ paneId }: { paneId: string }) => <div data-testid={`kubernetes-${paneId}`} />,
+}))
+
+vi.mock('./DockerPaneComponent', () => ({
+  DockerPaneComponent: ({ paneId }: { paneId: string }) => <div data-testid={`docker-${paneId}`} />,
+}))
+
+vi.mock('./ClaudePane', () => ({
+  ClaudePaneComponent: ({ paneId }: { paneId: string }) => <div data-testid={`claude-${paneId}`} />,
+}))
+
 // react-resizable-panels v4 uses ResizeObserver internally, which is not
 // available in jsdom. Mock it with simple passthrough wrappers so layout
 // tests focus on pane count rather than fighting the DOM environment.
@@ -31,6 +51,16 @@ const makeLayout = (n: number): LayoutNode | null => {
 }
 
 describe('TerminalGrid', () => {
+  const gridProps = {
+    workspaceId: 'ws-1',
+    tabId: 'ws-1',
+    onFocus: vi.fn(),
+    onClose: vi.fn(),
+    onSplit: vi.fn(),
+    onCloseBrowserPane: vi.fn(),
+    onSplitBrowserPane: vi.fn(),
+  }
+
   const setupLayout = (n: number) => {
     useAppStore.setState({
       layoutsByTab: {
@@ -42,32 +72,32 @@ describe('TerminalGrid', () => {
   it('renders nothing when terminals array is empty', () => {
     setupLayout(0)
     const { container } = render(
-      <TerminalGrid workspaceId="ws-1" activeTerminalId={null} onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} />
+      <TerminalGrid {...gridProps} activeTerminalId={null} />
     )
     expect(container.firstChild).toBeNull()
   })
 
   it('renders 1 terminal', () => {
     setupLayout(1)
-    render(<TerminalGrid workspaceId="ws-1" activeTerminalId="t-0" onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} />)
+    render(<TerminalGrid {...gridProps} activeTerminalId="t-0" />)
     expect(screen.getByTestId('pane-t-0')).toBeInTheDocument()
   })
 
   it('renders 2 terminals', () => {
     setupLayout(2)
-    render(<TerminalGrid workspaceId="ws-1" activeTerminalId="t-0" onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} />)
+    render(<TerminalGrid {...gridProps} activeTerminalId="t-0" />)
     expect(screen.getAllByTestId(/^pane-/)).toHaveLength(2)
   })
 
   it('renders 3 terminals', () => {
     setupLayout(3)
-    render(<TerminalGrid workspaceId="ws-1" activeTerminalId="t-0" onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} />)
+    render(<TerminalGrid {...gridProps} activeTerminalId="t-0" />)
     expect(screen.getAllByTestId(/^pane-/)).toHaveLength(3)
   })
 
   it('renders 4 terminals', () => {
     setupLayout(4)
-    render(<TerminalGrid workspaceId="ws-1" activeTerminalId="t-0" onFocus={vi.fn()} onClose={vi.fn()} onSplit={vi.fn()} onCloseBrowserPane={vi.fn()} onSplitBrowserPane={vi.fn()} />)
+    render(<TerminalGrid {...gridProps} activeTerminalId="t-0" />)
     expect(screen.getAllByTestId(/^pane-/)).toHaveLength(4)
   })
 })

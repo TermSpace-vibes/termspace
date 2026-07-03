@@ -9,6 +9,7 @@ import { BrowserPane } from './BrowserPane'
 import { EditorPaneComponent } from '../EditorPane'
 import { KubernetesPaneComponent } from './KubernetesPaneComponent'
 import { DockerPaneComponent } from './DockerPaneComponent'
+import { ClaudePaneComponent } from './ClaudePane'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import { useAppStore } from '../../store/useAppStore'
 import { ErrorBoundary } from '../ui/ErrorBoundary'
@@ -116,6 +117,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
     if (n.type === 'editor' && n.editorPaneId === maximizedTerminalId) return true
     if (n.type === 'kubernetes' && n.kubernetesPaneId === maximizedTerminalId) return true
     if (n.type === 'docker' && n.dockerPaneId === maximizedTerminalId) return true
+    if (n.type === 'claude' && n.claudePaneId === maximizedTerminalId) return true
     if (n.type === 'split') return n.children.some(containsMaximized)
     return false
   }
@@ -253,8 +255,22 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
     )
   }
 
+  const renderClaudePane = (claudePaneId: string) => {
+    return (
+      <div onMouseDownCapture={() => onFocus(claudePaneId)} style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}>
+        <ClaudePaneComponent
+          tabId={tabId}
+          paneId={claudePaneId}
+          isActive={claudePaneId === activeTerminalId}
+          onFocus={onFocus}
+          onClose={onClose}
+        />
+      </div>
+    )
+  }
+
   const renderLayoutPlaceholder = (node: LayoutNode): React.ReactNode => {
-    if (node.type === 'pane' || node.type === 'browser' || node.type === 'editor' || node.type === 'kubernetes' || node.type === 'docker') {
+    if (node.type === 'pane' || node.type === 'browser' || node.type === 'editor' || node.type === 'kubernetes' || node.type === 'docker' || node.type === 'claude') {
       return (
         <div
           data-node-id={node.id}
@@ -337,6 +353,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
     if (node.type === 'editor') return `editor-${node.editorPaneId}`
     if (node.type === 'kubernetes') return `kubernetes-${node.kubernetesPaneId}`
     if (node.type === 'docker') return `docker-${node.dockerPaneId}`
+    if (node.type === 'claude') return `claude-${node.claudePaneId}`
     return node.id
   }
 
@@ -345,7 +362,8 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
                             (node.type === 'browser' && node.browserPaneId === maximizedTerminalId) ||
                             (node.type === 'editor' && node.editorPaneId === maximizedTerminalId) ||
                             (node.type === 'kubernetes' && node.kubernetesPaneId === maximizedTerminalId) ||
-                            (node.type === 'docker' && node.dockerPaneId === maximizedTerminalId)
+                            (node.type === 'docker' && node.dockerPaneId === maximizedTerminalId) ||
+                            (node.type === 'claude' && node.claudePaneId === maximizedTerminalId)
     
     if (isMaximized && !isNodeMaximized) return null
 
@@ -373,6 +391,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
         {node.type === 'editor' && renderEditorPane(node.editorPaneId)}
         {node.type === 'kubernetes' && renderKubernetesPane(node.kubernetesPaneId)}
         {node.type === 'docker' && renderDockerPane(node.dockerPaneId)}
+        {node.type === 'claude' && renderClaudePane(node.claudePaneId)}
       </div>
     )
   }

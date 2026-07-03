@@ -28,6 +28,10 @@ use tauri_plugin_dialog::DialogExt;
 const HIDDEN_X: f64 = -10_000.0;
 const HIDDEN_Y: f64 = -10_000.0;
 
+fn hidden_pane_bounds(w: f64, h: f64) -> (f64, f64, f64, f64) {
+    (HIDDEN_X, HIDDEN_Y, w.max(1.0), h.max(1.0))
+}
+
 /// A live native webview plus its last-known on-screen bounds. Bounds are
 /// cached so `show()` can restore the rectangle after a `hide()`.
 struct PaneEntry {
@@ -529,17 +533,16 @@ impl BrowserPaneManager {
         }
     }
 
-    /// Hides a pane by moving it offscreen and shrinking it to 1x1. The webview
+    /// Hides a pane by moving it offscreen while preserving its render size. The webview
     /// stays alive (session/scroll/navigation state preserved) so `show()` is
-    /// instant and does not refetch.
+    /// instant, does not refetch, and media playback is not suspended by a 1x1 view.
     pub fn hide(&self, id: &str) {
         let mut panes = self.panes.lock().unwrap();
         if let Some(entry) = panes.get_mut(id) {
             entry.is_hidden = true;
-            let _ = entry
-                .webview
-                .set_position(LogicalPosition::new(HIDDEN_X, HIDDEN_Y));
-            let _ = entry.webview.set_size(LogicalSize::new(1.0_f64, 1.0_f64));
+            let (x, y, w, h) = hidden_pane_bounds(entry.w, entry.h);
+            let _ = entry.webview.set_position(LogicalPosition::new(x, y));
+            let _ = entry.webview.set_size(LogicalSize::new(w, h));
         }
     }
 
@@ -573,5 +576,20 @@ impl BrowserPaneManager {
             let js = format!("window.__termspace_adblock_enabled = {};", enabled);
             let _ = entry.webview.eval(&js);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hidden_pane_bounds_preserve_render_size() {
+        let (x, y, w, h) = hidden_pane_bounds(1280.0, 720.0);
+
+        assert_eq!(x, HIDDEN_X);
+        assert_eq!(y, HIDDEN_Y);
+        assert_eq!(w, 1280.0);
+        assert_eq!(h, 720.0);
     }
 }

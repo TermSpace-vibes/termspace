@@ -427,15 +427,44 @@ impl NativeTerminalManager {
 
     /// Scroll the visible viewport within scrollback by `delta` lines
     /// (positive = toward history, negative = toward the prompt).
+    ///
+    /// On the alt screen there's no scrollback to move, so the wheel tick is
+    /// instead forwarded to the foreground app as a mouse report or arrow-key
+    /// presses (see `alt_screen_wheel_bytes`) — otherwise mouse-driven scroll
+    /// inside full-screen TUIs (Claude Code, less, vim, htop, ...) silently
+    /// does nothing.
     pub fn scroll(&self, terminal_id: &str, delta: i32) -> Result<(), String> {
         // Same Arc-clone-then-release pattern as resize() to avoid blocking write_terminal.
-        let (term, cwd, title, app_handle) = {
+        let (term, cwd, title, app_handle, writer) = {
             let handles = self.handles.lock();
             let h = handles
                 .get(terminal_id)
                 .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
-            (Arc::clone(&h.term), Arc::clone(&h.cwd), Arc::clone(&h.title), h.app_handle.clone())
+            (
+                Arc::clone(&h.term),
+                Arc::clone(&h.cwd),
+                Arc::clone(&h.title),
+                h.app_handle.clone(),
+                Arc::clone(&h.writer),
+            )
         };
+
+        let wheel_bytes = {
+            let t = term.lock();
+            let mode = *t.mode();
+            if mode.contains(TermMode::ALT_SCREEN) {
+                let cursor = t.grid().cursor.point;
+                Some(alt_screen_wheel_bytes(mode, delta, cursor.column.0, cursor.line.0.max(0) as usize))
+            } else {
+                None
+            }
+        };
+
+        if let Some(bytes) = wheel_bytes {
+            // The app's own redraw in response will refresh the snapshot via
+            // the normal reader thread — no need to emit one here.
+            return writer.lock().write_all(bytes.as_bytes()).map_err(|e| e.to_string());
+        }
 
         let snapshot = {
             let mut t = term.lock();
@@ -568,6 +597,35 @@ pub fn percent_decode(s: &str) -> String {
 // detect it after resolution and substitute the caller-provided default so the
 // theme stays consistent instead of leaking a hardcoded gray into the UI.
 const UNRESOLVED: Rgb = Rgb { r: 200, g: 200, b: 200 };
+
+/// Encode a wheel-scroll tick as input bytes for a program running on the
+/// **alternate screen** (the alt screen has no scrollback, so
+/// `Term::scroll_display` is a no-op there — see `TermMode::ALT_SCREEN` docs).
+///
+/// Mirrors what real terminals (xterm, iTerm2, Alacritty) do: if the app
+/// enabled SGR mouse tracking (`\x1b[?1006h` + `\x1b[?1000/1002/1003h`, as
+/// Claude Code's TUI does once it takes over the screen), forward an SGR
+/// mouse-wheel report so the app can scroll its own view. Otherwise fall back
+/// to Up/Down arrow-key presses, which is how wheel scrolling drives
+/// alt-screen pagers (`less`, `vim`, `htop`) that don't read the mouse.
+pub fn alt_screen_wheel_bytes(mode: TermMode, delta: i32, cursor_col: usize, cursor_row: usize) -> String {
+    let steps = delta.unsigned_abs().min(10);
+    let mut out = String::new();
+    if mode.intersects(TermMode::MOUSE_MODE) && mode.contains(TermMode::SGR_MOUSE) {
+        let button = if delta > 0 { 64 } else { 65 };
+        let (col, row) = (cursor_col + 1, cursor_row + 1);
+        for _ in 0..steps {
+            out.push_str(&format!("\x1b[<{button};{col};{row}M"));
+        }
+    } else {
+        let key = if delta > 0 { 'A' } else { 'B' };
+        let prefix = if mode.contains(TermMode::APP_CURSOR) { 'O' } else { '[' };
+        for _ in 0..steps {
+            out.push_str(&format!("\x1b{prefix}{key}"));
+        }
+    }
+    out
+}
 
 /// Convert a live terminal grid into a serializable snapshot.
 ///

@@ -227,7 +227,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     sendTheme: _sendTheme,
     sendFont,
     sendCursorAnim: _sendCursorAnim,
-  } = useTerminalWorker(canvasRef, terminalId, fontSize, fontFamily, cellWRef.current, cellHRef.current, onWorkerMetadata)
+  } = useTerminalWorker(canvasRef, fontSize, fontFamily, cellWRef.current, cellHRef.current, onWorkerMetadata)
 
   // ── Cell dimension measurement ─────────────────────────────────────────────
   // Re-measure whenever the font configuration changes so cols/rows calculations

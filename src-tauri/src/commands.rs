@@ -1,5 +1,5 @@
 use crate::browser_pane_manager::BrowserPaneManager;
-use crate::daemon_client::DaemonClient;
+use crate::claude_session_manager::ClaudeSessionManager;
 use crate::db::{self, Terminal, Workspace};
 use crate::native_terminal_manager::NativeTerminalManager;
 use notify_debouncer_mini::{
@@ -1731,4 +1731,39 @@ pub async fn execute_docker_action(args: Vec<String>) -> Result<String, String> 
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[tauri::command]
+pub fn spawn_claude_session(
+    claude: State<ClaudeSessionManager>,
+    app: AppHandle,
+    session_id: String,
+    cwd: String,
+) -> Result<(), String> {
+    claude.spawn(session_id, app, &cwd)
+}
+
+#[tauri::command]
+pub fn write_claude_session(
+    claude: State<ClaudeSessionManager>,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
+    claude.write(&session_id, &data)
+}
+
+#[tauri::command]
+pub fn stop_claude_session(
+    claude: State<ClaudeSessionManager>,
+    session_id: String,
+) -> Result<(), String> {
+    claude.stop(&session_id)
+}
+
+#[tauri::command]
+pub fn close_claude_session(
+    claude: State<ClaudeSessionManager>,
+    session_id: String,
+) -> Result<(), String> {
+    claude.close(&session_id)
 }

@@ -40,12 +40,16 @@ export default defineConfig({
       : []),
   ],
   clearScreen: false,
-  server: { port: 1420, strictPort: true },
+  server: { port: 1430, strictPort: true },
   envPrefix: ['VITE_', 'TAURI_'],
   resolve: {
     alias: {
       'monaco-editor': '@codingame/monaco-vscode-editor-api',
-      'vscode': '@codingame/monaco-vscode-api',
+      // v25 split the extension-facing 'vscode' namespace out of the core
+      // api package into its own package — monaco-languageclient (and any
+      // other code doing `import * as vscode from 'vscode'`) needs this one,
+      // not @codingame/monaco-vscode-api itself.
+      'vscode': '@codingame/monaco-vscode-extension-api',
     },
   },
   build: {
@@ -70,6 +74,39 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['@monaco-editor/react', '@codingame/monaco-vscode-api'],
+    // Every @codingame/monaco-vscode-* package must bypass esbuild's dep
+    // pre-bundling. They all share singleton vscode-api registries (extension
+    // points, services, ...) via internal source imports; if esbuild bundles
+    // a second copy alongside Vite's own dev-server transform of those same
+    // files, workbench modules like authenticationService.js run their
+    // top-level `registerExtensionPoint()` calls twice and the second one
+    // throws "Duplicate extension point: authentication", crashing the app
+    // before React ever mounts.
+    exclude: [
+      '@monaco-editor/react',
+      '@codingame/monaco-vscode-api',
+      '@codingame/monaco-vscode-extension-api',
+      '@codingame/monaco-vscode-editor-api',
+      '@codingame/monaco-vscode-extensions-service-override',
+      '@codingame/monaco-vscode-languages-service-override',
+      '@codingame/monaco-vscode-model-service-override',
+      '@codingame/monaco-vscode-configuration-service-override',
+      '@codingame/monaco-vscode-files-service-override',
+      '@codingame/monaco-vscode-textmate-service-override',
+      '@codingame/monaco-vscode-theme-service-override',
+      '@codingame/monaco-vscode-language-detection-worker-service-override',
+      '@codingame/monaco-vscode-typescript-language-features-default-extension',
+      '@codingame/monaco-vscode-typescript-basics-default-extension',
+      '@codingame/monaco-vscode-javascript-default-extension',
+      '@codingame/monaco-vscode-json-default-extension',
+      '@codingame/monaco-vscode-json-language-features-default-extension',
+      '@codingame/monaco-vscode-css-default-extension',
+      '@codingame/monaco-vscode-css-language-features-default-extension',
+      '@codingame/monaco-vscode-html-default-extension',
+      '@codingame/monaco-vscode-html-language-features-default-extension',
+      '@codingame/monaco-vscode-markdown-basics-default-extension',
+      '@codingame/monaco-vscode-markdown-language-features-default-extension',
+      '@codingame/monaco-vscode-theme-defaults-default-extension',
+    ],
   },
 })

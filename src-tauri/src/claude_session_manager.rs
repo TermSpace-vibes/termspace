@@ -2,7 +2,6 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
@@ -13,14 +12,12 @@ pub struct ClaudeSessionHandle {
 
 pub struct ClaudeSessionManager {
     handles: Arc<Mutex<HashMap<String, ClaudeSessionHandle>>>,
-    prompt_children: Arc<Mutex<HashMap<String, Arc<Mutex<Child>>>>>,
 }
 
 impl ClaudeSessionManager {
     pub fn new() -> Self {
         Self {
             handles: Arc::new(Mutex::new(HashMap::new())),
-            prompt_children: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -120,101 +117,7 @@ impl ClaudeSessionManager {
             .map_err(|e| e.to_string())
     }
 
-    pub fn run_prompt(
-        &self,
-        session_id: String,
-        app: AppHandle,
-        cwd: &str,
-        prompt: String,
-    ) -> Result<(), String> {
-        let path_var = std::env::var("PATH").unwrap_or_default();
-        let home = std::env::var("HOME").ok().map(PathBuf::from);
-        let resolved_cwd = resolved_working_directory(cwd, home.as_deref());
-        let claude_binary = resolve_claude_binary_from(&path_var, home.as_deref())?;
-        let child_path = claude_child_path(&path_var, home.as_deref());
-        let args = claude_print_args(&session_id, &prompt);
-
-        let mut child = Command::new(claude_binary)
-            .args(args)
-            .current_dir(resolved_cwd)
-            .env("TERM", "dumb")
-            .env("TERM_PROGRAM", "Termspace")
-            .env("PATH", child_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Claude CLI not found or failed to start: {e}"))?;
-
-        let mut stdout = child.stdout.take();
-        let mut stderr = child.stderr.take();
-        let child = Arc::new(Mutex::new(child));
-        self.prompt_children
-            .lock()
-            .insert(session_id.clone(), Arc::clone(&child));
-
-        let prompt_children = Arc::clone(&self.prompt_children);
-        std::thread::spawn(move || {
-            let stdout_reader = stdout.take().map(|mut stdout| {
-                std::thread::spawn(move || {
-                    let mut text = String::new();
-                    let _ = stdout.read_to_string(&mut text);
-                    text
-                })
-            });
-            let stderr_reader = stderr.take().map(|mut stderr| {
-                std::thread::spawn(move || {
-                    let mut text = String::new();
-                    let _ = stderr.read_to_string(&mut text);
-                    text
-                })
-            });
-
-            let status = child.lock().wait();
-            let stdout = stdout_reader
-                .and_then(|reader| reader.join().ok())
-                .unwrap_or_default();
-            let stderr = stderr_reader
-                .and_then(|reader| reader.join().ok())
-                .unwrap_or_default();
-            prompt_children.lock().remove(&session_id);
-
-            match status {
-                Ok(status) => {
-                    if !stdout.trim().is_empty() {
-                        let _ = app.emit(&format!("claude-output-{session_id}"), stdout);
-                    }
-
-                    if !status.success() {
-                        let message = if stderr.trim().is_empty() {
-                            format!("Claude prompt failed with status {status}")
-                        } else {
-                            stderr
-                        };
-                        let _ = app.emit(&format!("claude-error-{session_id}"), message);
-                    } else if !stderr.trim().is_empty() {
-                        let _ = app.emit(&format!("claude-output-{session_id}"), stderr);
-                    }
-                }
-                Err(e) => {
-                    let _ = app.emit(&format!("claude-error-{session_id}"), e.to_string());
-                }
-            }
-
-            let _ = app.emit(
-                &format!("claude-exit-{session_id}"),
-                "Claude prompt completed",
-            );
-        });
-
-        Ok(())
-    }
-
     pub fn stop(&self, session_id: &str) -> Result<(), String> {
-        if let Some(child) = self.prompt_children.lock().get(session_id).cloned() {
-            let _ = child.lock().kill();
-            return Ok(());
-        }
-
         if self.handles.lock().contains_key(session_id) {
             self.write(session_id, "\u{3}")?;
         }
@@ -222,23 +125,11 @@ impl ClaudeSessionManager {
     }
 
     pub fn close(&self, session_id: &str) -> Result<(), String> {
-        if let Some(child) = self.prompt_children.lock().remove(session_id) {
-            let _ = child.lock().kill();
-        }
         if let Some(mut handle) = self.handles.lock().remove(session_id) {
             let _ = handle.child.kill();
         }
         Ok(())
     }
-}
-
-fn claude_print_args(_session_id: &str, prompt: &str) -> Vec<String> {
-    vec![
-        "--print".to_string(),
-        "--output-format".to_string(),
-        "text".to_string(),
-        prompt.to_string(),
-    ]
 }
 
 fn claude_interactive_args() -> Vec<String> {
@@ -317,29 +208,13 @@ fn claude_child_path(path_var: &str, home: Option<&Path>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        claude_interactive_args, claude_print_args, resolve_claude_binary_from,
-        resolved_working_directory,
-    };
+    use super::{claude_interactive_args, resolve_claude_binary_from, resolved_working_directory};
     use std::fs;
     use std::path::PathBuf;
 
     #[test]
     fn builds_interactive_claude_args_for_embedded_plain_text_mode() {
         assert_eq!(claude_interactive_args(), vec!["--ax-screen-reader".to_string()]);
-    }
-
-    #[test]
-    fn builds_noninteractive_claude_print_args_without_reusing_pane_id() {
-        assert_eq!(
-            claude_print_args("claude-1", "hello"),
-            vec![
-                "--print".to_string(),
-                "--output-format".to_string(),
-                "text".to_string(),
-                "hello".to_string(),
-            ]
-        );
     }
 
     #[test]

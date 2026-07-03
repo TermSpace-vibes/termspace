@@ -499,9 +499,16 @@ mod tests {
                 emoji TEXT NOT NULL DEFAULT '💻', color TEXT NOT NULL DEFAULT '#e8a045',
                 position INTEGER NOT NULL, created_at INTEGER NOT NULL
             );
-            CREATE TABLE IF NOT EXISTS browser_panes (
+            CREATE TABLE IF NOT EXISTS tabs (
                 id           TEXT PRIMARY KEY,
                 workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                name         TEXT NOT NULL,
+                position     INTEGER NOT NULL,
+                created_at   INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS browser_panes (
+                id           TEXT PRIMARY KEY,
+                tab_id       TEXT NOT NULL REFERENCES tabs(id) ON DELETE CASCADE,
                 url          TEXT NOT NULL DEFAULT 'https://google.com',
                 position     INTEGER NOT NULL DEFAULT 0,
                 created_at   INTEGER NOT NULL
@@ -518,19 +525,23 @@ mod tests {
             "INSERT INTO workspaces (id,name,emoji,color,position,created_at) VALUES (?1,?2,?3,?4,?5,?6)",
             params!["ws-1", "Work", "🔥", "#e8a045", 0i64, 1_000_000i64],
         ).unwrap();
+        conn.execute(
+            "INSERT INTO tabs (id,workspace_id,name,position,created_at) VALUES (?1,?2,?3,?4,?5)",
+            params!["tab-1", "ws-1", "Default", 0i64, 1_000_000i64],
+        ).unwrap();
 
-        create_browser_pane(&conn, "bp-1", "ws-1", "http://localhost:3000").unwrap();
+        create_browser_pane(&conn, "bp-1", "tab-1", "http://localhost:3000").unwrap();
 
-        let panes = get_browser_panes(&conn, "ws-1").unwrap();
+        let panes = get_browser_panes(&conn, "tab-1").unwrap();
         assert_eq!(panes.len(), 1);
         assert_eq!(panes[0].url, "http://localhost:3000");
 
         update_browser_pane_url(&conn, "bp-1", "http://localhost:3000/dashboard").unwrap();
-        let panes2 = get_browser_panes(&conn, "ws-1").unwrap();
+        let panes2 = get_browser_panes(&conn, "tab-1").unwrap();
         assert_eq!(panes2[0].url, "http://localhost:3000/dashboard");
 
         delete_browser_pane(&conn, "bp-1").unwrap();
-        let panes3 = get_browser_panes(&conn, "ws-1").unwrap();
+        let panes3 = get_browser_panes(&conn, "tab-1").unwrap();
         assert_eq!(panes3.len(), 0);
     }
 
@@ -541,7 +552,11 @@ mod tests {
             "INSERT INTO workspaces (id,name,emoji,color,position,created_at) VALUES (?1,?2,?3,?4,?5,?6)",
             params!["ws-1", "Work", "🔥", "#e8a045", 0i64, 1_000_000i64],
         ).unwrap();
-        create_browser_pane(&conn, "bp-1", "ws-1", "http://localhost:3000").unwrap();
+        conn.execute(
+            "INSERT INTO tabs (id,workspace_id,name,position,created_at) VALUES (?1,?2,?3,?4,?5)",
+            params!["tab-1", "ws-1", "Default", 0i64, 1_000_000i64],
+        ).unwrap();
+        create_browser_pane(&conn, "bp-1", "tab-1", "http://localhost:3000").unwrap();
         conn.execute("DELETE FROM workspaces WHERE id=?1", params!["ws-1"])
             .unwrap();
         let count: i64 = conn

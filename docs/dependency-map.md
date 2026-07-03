@@ -1,6 +1,6 @@
 # Dependency Map
 
-> Auto-generated 2026-06-30 by `node scripts/gen-dep-map.js`. Re-run after structural changes.
+> Auto-generated 2026-07-02 by `node scripts/gen-dep-map.js`. Re-run after structural changes.
 
 ## How to use
 
@@ -15,7 +15,7 @@
 | `src/App.tsx` | `src/components/CommandPalette/CommandPalette.tsx`, `src/components/ConfirmModal/ConfirmModal.tsx`, `src/components/MarkdownModal/MarkdownModal.tsx`, `src/components/SettingsModal/SettingsModal.tsx`, `src/components/UsernameModal/UsernameModal.tsx`, `src/components/WorkspaceModal/WorkspaceModal.tsx`, `src/components/WorkspaceSidebar/WorkspaceSidebar.tsx`, `src/components/WorkspaceView/WorkspaceView.tsx`, `src/components/ui/ContextMenu.tsx`, `src/components/ui/DictationButton.tsx`, `src/components/ui/ToastContainer.tsx`, `src/hooks/useGlobalKeybindings.ts`, `src/store/useAppStore.ts`, `src/types/index.ts`, `src/utils/tauri.ts` |
 | `src/components/CommandPalette/CommandPalette.tsx` | `src/store/useAppStore.ts` |
 | `src/components/ConfirmModal/ConfirmModal.tsx` | — |
-| `src/components/EditorPane.tsx` | `src/components/ConfirmModal/ConfirmModal.tsx`, `src/components/FileTree.tsx`, `src/components/GitPanel.tsx`, `src/components/MarkdownPreview.tsx`, `src/components/SearchPanel.tsx`, `src/store/useAppStore.ts`, `src/utils/fs.ts`, `src/utils/lspManager.ts` |
+| `src/components/EditorPane.tsx` | `src/components/ConfirmModal/ConfirmModal.tsx`, `src/components/FileTree.tsx`, `src/components/GitPanel.tsx`, `src/components/MarkdownPreview.tsx`, `src/components/SearchPanel.tsx`, `src/store/useAppStore.ts`, `src/utils/fs.ts`, `src/utils/lspManager.ts`, `src/vscode-extensions/setup.ts` |
 | `src/components/EditorWelcomeScreen.tsx` | `src/store/useAppStore.ts` |
 | `src/components/ErrorBoundary.tsx` | — |
 | `src/components/FileTree.tsx` | `src/components/ConfirmModal/ConfirmModal.tsx`, `src/components/FileTreeContextMenu.tsx`, `src/components/FileTreeInlineInput.tsx`, `src/hooks/useFileTreeContextMenu.ts`, `src/hooks/useFileTreeOperations.ts`, `src/store/useAppStore.ts`, `src/utils/fs.ts` |
@@ -75,6 +75,9 @@
 | `src/utils/lspManager.ts` | — |
 | `src/utils/shortcuts.ts` | — |
 | `src/utils/tauri.ts` | — |
+| `src/vscode-extensions/default-extensions.ts` | — |
+| `src/vscode-extensions/extensions.ts` | — |
+| `src/vscode-extensions/setup.ts` | `src/vscode-extensions/default-extensions.ts` |
 
 ## Table 2 — Dependents / Ripple Risk (sorted by blast radius)
 
@@ -135,6 +138,8 @@
 | `src/utils/layout.ts` | 1 | `src/store/useAppStore.ts` |
 | `src/utils/lspManager.ts` | 1 | `src/components/EditorPane.tsx` |
 | `src/utils/shortcuts.ts` | 1 | `src/hooks/useGlobalKeybindings.ts` |
+| `src/vscode-extensions/default-extensions.ts` | 1 | `src/vscode-extensions/setup.ts` |
+| `src/vscode-extensions/setup.ts` | 1 | `src/components/EditorPane.tsx` |
 | `src/components/EditorWelcomeScreen.tsx` | 0 | — |
 | `src/components/ErrorBoundary.tsx` | 0 | — |
 | `src/components/WorkspaceView/ClaudeTranscriptView.tsx` | 0 | — |
@@ -143,6 +148,7 @@
 | `src/test-setup.ts` | 0 | — |
 | `src/test_version.ts` | 0 | — |
 | `src/utils/dragState.ts` | 0 | — |
+| `src/vscode-extensions/extensions.ts` | 0 | — |
 
 ## High-Risk Files (3+ dependents)
 

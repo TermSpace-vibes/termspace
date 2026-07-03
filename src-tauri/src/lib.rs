@@ -2,6 +2,7 @@
 mod agent_hook;
 mod audio;
 mod browser_pane_manager;
+mod claude_session_manager;
 mod commands;
 mod daemon_client;
 mod db;
@@ -9,6 +10,7 @@ pub mod lsp_manager;
 mod native_terminal_manager;
 
 use browser_pane_manager::BrowserPaneManager;
+use claude_session_manager::ClaudeSessionManager;
 use commands::{DaemonClientState, DbState};
 use daemon_client::{ensure_daemon_running, DaemonClient};
 use native_terminal_manager::NativeTerminalManager;
@@ -71,7 +73,7 @@ pub fn run() {
             let daemon_client_opt: Option<DaemonClient> =
                 if ensure_daemon_running(app.handle()) {
                     match DaemonClient::connect(app.handle().clone()) {
-                        Ok(mut dc) => {
+                        Ok(dc) => {
                             // Startup reconcile: re-subscribe to every terminal in the DB.
                             // The daemon handles idempotency — live sessions resubscribe,
                             // dead ones spawn fresh.
@@ -110,6 +112,7 @@ pub fn run() {
             app.manage(DaemonClientState(Arc::new(Mutex::new(daemon_client_opt))));
 
             app.manage(BrowserPaneManager::new());
+            app.manage(ClaudeSessionManager::new());
             app.manage(audio::AudioPlayer::new());
             app.manage(commands::WatcherState(std::sync::Mutex::new(
                 std::collections::HashMap::new(),
@@ -223,6 +226,10 @@ pub fn run() {
             commands::spawn_lsp,
             commands::write_lsp_message,
             commands::search_files,
+            commands::spawn_claude_session,
+            commands::write_claude_session,
+            commands::stop_claude_session,
+            commands::close_claude_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

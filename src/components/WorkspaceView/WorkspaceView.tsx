@@ -363,6 +363,25 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
     state.addToast('Docker pane opened', 'info')
   }, [activeTabId])
 
+  const handleAddClaudePane = useCallback(async (targetId?: string, direction?: 'horizontal' | 'vertical') => {
+    if (!activeTabId) return;
+    const state = useAppStore.getState()
+    const currentClaude = state.claudePanesByTab[activeTabId] ?? []
+    const pane: import('../../types').ClaudePane = {
+      id: Math.random().toString(36).substring(2, 9),
+      tabId: activeTabId,
+      title: 'Claude Code',
+      cwd: '',
+      position: currentClaude.length,
+      createdAt: Date.now(),
+      status: 'ready',
+      error: null,
+    }
+    state.addClaudePane(activeTabId, pane, targetId, direction)
+    state.setActiveTerminalId(pane.id)
+    state.addToast('Claude Code pane opened', 'info')
+  }, [activeTabId])
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <WorkspaceHeader
@@ -374,6 +393,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
         onAddEditorPane={() => handleAddEditorPane()}
         onAddKubernetesPane={() => handleAddKubernetesPane()}
         onAddDockerPane={() => handleAddDockerPane()}
+        onAddClaudePane={() => handleAddClaudePane()}
         onEditWorkspace={() => onEditWorkspace(workspace)}
         onSelectTerminal={setActiveTerminalId}
         onCloseTerminal={handleCloseTerminal}

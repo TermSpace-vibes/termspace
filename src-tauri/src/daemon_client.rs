@@ -1,11 +1,12 @@
+#![allow(dead_code)]
 use crate::native_terminal_manager::{
-    get_all_text, scan_osc_sequences, search_term, serialize_snapshot, PortPayload,
-    SearchMatch, TermEventSender, LOCALHOST_RE,
+    alt_screen_wheel_bytes, get_all_text, scan_osc_sequences, search_term, serialize_snapshot,
+    PortPayload, SearchMatch, TermEventSender, LOCALHOST_RE,
 };
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::test::TermSize;
-use alacritty_terminal::term::{Config, Term};
+use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi;
 use base64::Engine;
 use parking_lot::Mutex;
@@ -189,12 +190,33 @@ impl DaemonClient {
         self.send_msg(&AppMsg::Kill { id: id.to_string() })
     }
 
+    /// See `NativeTerminalManager::scroll` for why alt-screen programs (Claude
+    /// Code, less, vim, htop, ...) need the wheel forwarded as a mouse report
+    /// or arrow keys instead of a local `scroll_display` nudge.
     pub fn scroll(&self, id: &str, delta: i32) -> Result<(), String> {
         let (term_arc, cwd_arc, title_arc) = {
             let terms = self.terms.lock();
             let s = terms.get(id).ok_or_else(|| format!("no terminal '{id}'"))?;
             (Arc::clone(&s.term), Arc::clone(&s.cwd), Arc::clone(&s.title))
         };
+
+        let wheel_bytes = {
+            let t = term_arc.lock();
+            let mode = *t.mode();
+            if mode.contains(TermMode::ALT_SCREEN) {
+                let cursor = t.grid().cursor.point;
+                Some(alt_screen_wheel_bytes(mode, delta, cursor.column.0, cursor.line.0.max(0) as usize))
+            } else {
+                None
+            }
+        };
+
+        if let Some(bytes) = wheel_bytes {
+            // The app's own redraw in response arrives via the normal output
+            // channel and updates the snapshot there — nothing to emit here.
+            return self.write(id, &bytes);
+        }
+
         let snapshot = {
             let mut t = term_arc.lock();
             t.scroll_display(Scroll::Delta(delta));

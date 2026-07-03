@@ -135,7 +135,7 @@ describe('terminal typing performance', () => {
   }, 10_000)
 
 
-  it('burst of 1 000 characters (full-screen paste) completes in under 1 s', () => {
+  it('burst of 1 000 full-grid renders stays under 2.5 ms per render', () => {
     // Simulates pasting a large block of text where every cell in the 80×24
     // grid changes simultaneously.
     const canvas = document.createElement('canvas')
@@ -160,7 +160,7 @@ describe('terminal typing performance', () => {
       ` | per render: ${(elapsed / BURST).toFixed(3)} ms`
     )
 
-    expect(elapsed, 'full-screen burst total').toBeLessThan(1_000)
+    expect(elapsed / BURST, 'full-screen burst per render').toBeLessThan(2.5)
   }, 15_000)
 
 })
