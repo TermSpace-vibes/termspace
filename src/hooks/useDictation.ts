@@ -15,6 +15,16 @@ interface UseDictationProps {
   onError?: (error: string) => void;
 }
 
+interface DictationModelStatus {
+  state: string;
+  source: string | null;
+  downloadedPath: string | null;
+  bundledPath: string | null;
+  sizeBytes: number | null;
+  expectedSizeBytes: number;
+  error: string | null;
+}
+
 export function useDictation({ onResult, onError }: UseDictationProps) {
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -183,6 +193,36 @@ export function useDictation({ onResult, onError }: UseDictationProps) {
     }
 
     try {
+      const provider = useAppStore.getState().settings.dictationProvider || 'local';
+      if (provider === 'local') {
+        const status = await invoke<DictationModelStatus>('get_dictation_model_status');
+        console.info('Transcription backend selected:', {
+          backend: 'local',
+          modelState: status.state,
+          modelPath: status.downloadedPath,
+          modelExists: status.state === 'downloaded' || status.state === 'loaded',
+          modelLoaded: status.state === 'loaded',
+          isDownloadedModelPath: status.source === 'downloaded',
+          isBundledModelPath: false,
+          isFallbackPath: false,
+        });
+
+        if (status.state === 'missing') {
+          throw new Error('Download the transcription model first.');
+        }
+        if (status.state === 'corrupted') {
+          throw new Error(status.error || 'Downloaded transcription model is corrupted. Re-download it from Settings.');
+        }
+        if (status.state !== 'loaded') {
+          const loadedStatus = await invoke<DictationModelStatus>('load_dictation_model');
+          console.info('Transcription local model loaded:', {
+            modelState: loadedStatus.state,
+            modelPath: loadedStatus.downloadedPath,
+            modelLoaded: loadedStatus.state === 'loaded',
+          });
+        }
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const context = new window.AudioContext({ sampleRate: 16000 });
       const source = context.createMediaStreamSource(stream);
@@ -214,13 +254,14 @@ export function useDictation({ onResult, onError }: UseDictationProps) {
       isListeningRef.current = true;
       setIsListening(true);
       setInterimTranscript('Listening...');
-      const provider = useAppStore.getState().settings.dictationProvider || 'local';
       const providerName = provider === 'openai' ? 'OpenAI' : provider === 'groq' ? 'Groq' : 'Local';
       useAppStore.getState().addToast(`${providerName} Dictation started.`, 'success');
       
     } catch (err: any) {
       console.error('Mic error:', err);
-      if (onError) onError('Microphone access denied or error occurred.');
+      const message = err instanceof Error ? err.message : String(err);
+      const isModelError = /model|transcription/i.test(message);
+      if (onError) onError(isModelError ? message : 'Microphone access denied or error occurred.');
     }
   }, [stopRecordingAndTranscribe, onError]);
 

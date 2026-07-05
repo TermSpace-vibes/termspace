@@ -118,10 +118,32 @@ pub fn run() {
                 std::collections::HashMap::new(),
             )));
 
-            let ctx = dictation_model::selected_model_path(app.handle())
-                .ok()
-                .flatten()
-                .and_then(|path| dictation_model::load_whisper_context_from_path(&path).ok());
+            let ctx = match dictation_model::selected_model_path(app.handle()) {
+                Ok(Some(path)) => {
+                    eprintln!(
+                        "Transcription backend selected at startup: local whisper; model path: {}; source: downloaded",
+                        path.display()
+                    );
+                    dictation_model::load_whisper_context_from_path(&path)
+                        .map_err(|error| {
+                            eprintln!(
+                                "Failed to load downloaded transcription model from {}: {}",
+                                path.display(),
+                                error
+                            );
+                            error
+                        })
+                        .ok()
+                }
+                Ok(None) => {
+                    eprintln!("Transcription backend selected at startup: none; downloaded model missing");
+                    None
+                }
+                Err(error) => {
+                    eprintln!("Failed to resolve downloaded transcription model path: {error}");
+                    None
+                }
+            };
             app.manage(commands::WhisperState(Arc::new(Mutex::new(ctx))));
 
             // Start local HTTP hook server

@@ -1187,8 +1187,16 @@ pub fn open_mic_settings() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_dictation_model_status(app: AppHandle) -> Result<DictationModelStatus, String> {
-    dictation_model::inspect_app_model_files(&app)
+pub fn get_dictation_model_status(
+    app: AppHandle,
+    state: State<'_, WhisperState>,
+) -> Result<DictationModelStatus, String> {
+    let status = dictation_model::inspect_app_model_files(&app)?;
+    if state.0.lock().is_some() {
+        Ok(dictation_model::loaded_status(status))
+    } else {
+        Ok(status)
+    }
 }
 
 #[tauri::command]
@@ -1197,10 +1205,14 @@ pub fn load_dictation_model(
     state: State<'_, WhisperState>,
 ) -> Result<DictationModelStatus, String> {
     let path = dictation_model::selected_model_path(&app)?
-        .ok_or_else(|| "No valid local dictation model found".to_string())?;
+        .ok_or_else(|| "Download the transcription model first.".to_string())?;
+    eprintln!(
+        "Transcription backend selected: local whisper; model path: {}; source: downloaded",
+        path.display()
+    );
     let context = dictation_model::load_whisper_context_from_path(&path)?;
     *state.0.lock() = Some(context);
-    dictation_model::inspect_app_model_files(&app)
+    get_dictation_model_status(app, state)
 }
 
 #[tauri::command]
@@ -1277,7 +1289,7 @@ pub async fn transcribe_chunk(
     let context_opt = state.0.lock();
     let ctx = match &*context_opt {
         Some(c) => c,
-        None => return Err("Whisper context not initialized".into()),
+        None => return Err("Download the transcription model first.".into()),
     };
 
     let mut state = ctx.create_state().map_err(|e| e.to_string())?;

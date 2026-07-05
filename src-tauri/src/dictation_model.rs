@@ -64,12 +64,6 @@ pub fn downloaded_part_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app_model_dir(app)?.join(MODEL_PART_FILE_NAME))
 }
 
-pub fn bundled_model_path(app: &tauri::AppHandle) -> Option<PathBuf> {
-    app.path()
-        .resolve("resources/ggml-base.en.bin", tauri::path::BaseDirectory::Resource)
-        .ok()
-}
-
 pub fn sha256_file(path: &Path) -> Result<String, String> {
     let file = File::open(path).map_err(|e| e.to_string())?;
     let mut reader = BufReader::new(file);
@@ -106,15 +100,15 @@ pub fn validate_model_file(path: &Path) -> Result<u64, String> {
 
 pub fn inspect_model_files(
     downloaded_path: &Path,
-    bundled_path: Option<&Path>,
+    _bundled_path: Option<&Path>,
 ) -> DictationModelStatus {
     if downloaded_path.exists() {
         return match validate_model_file(downloaded_path) {
             Ok(size) => status(
-                "ready",
+                "downloaded",
                 Some("downloaded"),
                 Some(downloaded_path),
-                bundled_path,
+                None,
                 Some(size),
                 None,
             ),
@@ -122,49 +116,36 @@ pub fn inspect_model_files(
                 "corrupted",
                 Some("downloaded"),
                 Some(downloaded_path),
-                bundled_path,
+                None,
                 std::fs::metadata(downloaded_path).ok().map(|m| m.len()),
                 Some(error),
             ),
         };
     }
 
-    if let Some(bundled_path) = bundled_path {
-        if bundled_path.exists() {
-            return status(
-                "ready",
-                Some("bundled"),
-                None,
-                Some(bundled_path),
-                std::fs::metadata(bundled_path).ok().map(|m| m.len()),
-                None,
-            );
-        }
-    }
-
-    status("missing", None, None, bundled_path, None, None)
+    status("missing", None, None, None, None, None)
 }
 
 pub fn inspect_app_model_files(app: &tauri::AppHandle) -> Result<DictationModelStatus, String> {
     let downloaded = downloaded_model_path(app)?;
-    Ok(inspect_model_files(&downloaded, bundled_model_path(app).as_deref()))
+    Ok(inspect_model_files(&downloaded, None))
 }
 
 pub fn selected_model_path(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
     let downloaded = downloaded_model_path(app)?;
-    let bundled = bundled_model_path(app);
 
     if validate_model_file(&downloaded).is_ok() {
         return Ok(Some(downloaded));
     }
 
-    if let Some(bundled_path) = bundled {
-        if bundled_path.exists() {
-            return Ok(Some(bundled_path));
-        }
-    }
-
     Ok(None)
+}
+
+pub fn loaded_status(mut status: DictationModelStatus) -> DictationModelStatus {
+    if status.state == "downloaded" && status.source.as_deref() == Some("downloaded") {
+        status.state = "loaded".to_string();
+    }
+    status
 }
 
 pub fn load_whisper_context_from_path(path: &Path) -> Result<WhisperContext, String> {
@@ -192,10 +173,6 @@ mod tests {
         fs::write(path, vec![byte; size]).unwrap();
     }
 
-    fn bundled_fixture_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/ggml-base.en.bin")
-    }
-
     #[test]
     fn dictation_model_missing_download_reports_missing_when_no_bundled_fallback() {
         let dir = temp_dir("missing");
@@ -206,22 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn dictation_model_uses_valid_download_before_bundled_fallback() {
-        let dir = temp_dir("downloaded-first");
-        let downloaded = dir.join(MODEL_FILE_NAME);
-        let bundled = dir.join("bundled.bin");
-        fs::copy(bundled_fixture_path(), &downloaded).unwrap();
-        write_bytes(&bundled, 32, 1);
-
-        let status = inspect_model_files(&downloaded, Some(&bundled));
-
-        assert_eq!(status.state, "ready");
-        assert_eq!(status.source.as_deref(), Some("downloaded"));
-        assert_eq!(status.downloaded_path.as_deref(), downloaded.to_str());
-    }
-
-    #[test]
-    fn dictation_model_reports_existing_bundled_fallback_as_ready() {
+    fn dictation_model_ignores_existing_bundled_fallback() {
         let dir = temp_dir("bundled");
         let downloaded = dir.join(MODEL_FILE_NAME);
         let bundled = dir.join("bundled.bin");
@@ -229,9 +191,9 @@ mod tests {
 
         let status = inspect_model_files(&downloaded, Some(&bundled));
 
-        assert_eq!(status.state, "ready");
-        assert_eq!(status.source.as_deref(), Some("bundled"));
-        assert_eq!(status.bundled_path.as_deref(), bundled.to_str());
+        assert_eq!(status.state, "missing");
+        assert_eq!(status.source, None);
+        assert_eq!(status.bundled_path, None);
     }
 
     #[test]

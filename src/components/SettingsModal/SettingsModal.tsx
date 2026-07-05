@@ -12,7 +12,7 @@ interface Props {
 
 type TabKey = 'Appearance' | 'Application' | 'Keybindings' | 'Data'
 type DictationModelSource = 'downloaded' | 'bundled' | null
-type DictationModelLoadState = 'idle' | 'checking' | 'downloading' | 'error'
+type DictationModelLoadState = 'idle' | 'checking' | 'downloading' | 'loading' | 'error'
 
 interface DictationModelStatus {
   state: string
@@ -37,11 +37,12 @@ function getDictationModelStatusText(
 ) {
   if (state === 'checking') return 'Checking local model...'
   if (state === 'downloading') return 'Downloading local model...'
+  if (state === 'loading') return 'Loading local model...'
   if (error) return error
   if (!status) return 'Local model status unavailable'
   if (status.error) return status.error
-  if (status.state === 'ready' && status.source === 'downloaded') return 'Downloaded model installed'
-  if (status.state === 'ready' && status.source === 'bundled') return 'Using bundled fallback model'
+  if (status.state === 'loaded' && status.source === 'downloaded') return 'Downloaded model loaded'
+  if (status.state === 'downloaded' && status.source === 'downloaded') return 'Downloaded model installed'
   if (status.state === 'corrupted') return 'Downloaded model is incomplete or corrupted'
   if (status.state === 'missing') return 'Local model not downloaded'
   return 'Local model status unavailable'
@@ -53,7 +54,9 @@ function getDictationModelButtonText(
 ) {
   if (state === 'checking') return 'Checking...'
   if (state === 'downloading') return 'Downloading...'
-  if (status?.state === 'ready' && status.source === 'downloaded') return 'Model Installed'
+  if (state === 'loading') return 'Loading...'
+  if (status?.state === 'loaded' && status.source === 'downloaded') return 'Model Loaded'
+  if (status?.state === 'downloaded' && status.source === 'downloaded') return 'Load Model'
   if (state === 'error' || status?.state === 'corrupted') return 'Retry Download'
   return 'Download Local Model'
 }
@@ -170,17 +173,18 @@ export function SettingsModal({ onClose }: Props) {
     }
   }, [])
 
-  async function handleDownloadDictationModel() {
-    setDictationModelState('downloading')
+  async function handleDictationModelAction() {
+    const shouldLoadExisting = dictationModelStatus?.state === 'downloaded' && dictationModelStatus.source === 'downloaded'
+    setDictationModelState(shouldLoadExisting ? 'loading' : 'downloading')
     setDictationModelProgress(0)
     setDictationModelError(null)
 
     try {
-      const status = await invoke<DictationModelStatus>('download_dictation_model')
+      const status = await invoke<DictationModelStatus>(shouldLoadExisting ? 'load_dictation_model' : 'download_dictation_model')
       setDictationModelStatus(status)
-      setDictationModelProgress(100)
+      if (!shouldLoadExisting) setDictationModelProgress(100)
       setDictationModelState('idle')
-      useAppStore.getState().addToast('Local dictation model installed', 'success')
+      useAppStore.getState().addToast(shouldLoadExisting ? 'Local dictation model loaded' : 'Local dictation model installed', 'success')
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setDictationModelError(message)
@@ -582,30 +586,26 @@ export function SettingsModal({ onClose }: Props) {
                           <div style={{ fontSize: 12, color: dictationModelError ? '#f87171' : 'var(--text-dim)', lineHeight: 1.5 }}>
                             {getDictationModelStatusText(dictationModelStatus, dictationModelState, dictationModelError)}
                           </div>
-                          {dictationModelStatus?.source === 'bundled' && (
-                            <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5 }}>
-                              Downloading installs the same model in local app storage for post-install use.
-                            </div>
-                          )}
                         </div>
                         <button
                           disabled={
                             dictationModelState === 'checking' ||
                             dictationModelState === 'downloading' ||
-                            (dictationModelStatus?.state === 'ready' && dictationModelStatus.source === 'downloaded')
+                            dictationModelState === 'loading' ||
+                            (dictationModelStatus?.state === 'loaded' && dictationModelStatus.source === 'downloaded')
                           }
-                          onClick={handleDownloadDictationModel}
+                          onClick={handleDictationModelAction}
                           style={{
                             padding: '8px 12px',
                             borderRadius: 6,
                             border: '1px solid var(--border-inactive)',
-                            background: dictationModelState === 'downloading' ? 'var(--bg-item)' : 'var(--accent)',
-                            color: dictationModelState === 'downloading' ? 'var(--text-inactive)' : 'var(--bg-main)',
+                            background: dictationModelState === 'downloading' || dictationModelState === 'loading' ? 'var(--bg-item)' : 'var(--accent)',
+                            color: dictationModelState === 'downloading' || dictationModelState === 'loading' ? 'var(--text-inactive)' : 'var(--bg-main)',
                             fontSize: 12,
                             fontWeight: 600,
-                            cursor: dictationModelState === 'checking' || dictationModelState === 'downloading' ? 'not-allowed' : 'pointer',
+                            cursor: dictationModelState === 'checking' || dictationModelState === 'downloading' || dictationModelState === 'loading' ? 'not-allowed' : 'pointer',
                             whiteSpace: 'nowrap',
-                            opacity: dictationModelStatus?.state === 'ready' && dictationModelStatus.source === 'downloaded' ? 0.7 : 1
+                            opacity: dictationModelStatus?.state === 'loaded' && dictationModelStatus.source === 'downloaded' ? 0.7 : 1
                           }}
                         >
                           {getDictationModelButtonText(dictationModelStatus, dictationModelState)}

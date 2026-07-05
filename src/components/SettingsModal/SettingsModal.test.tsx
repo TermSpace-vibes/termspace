@@ -108,4 +108,41 @@ describe('SettingsModal dictation model controls', () => {
     })
     expect(screen.getByText('network failed')).toBeInTheDocument()
   })
+
+  it('loads an existing downloaded model from settings', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'get_dictation_model_status') {
+        return Promise.resolve({
+          ...baseStatus,
+          state: 'downloaded',
+          source: 'downloaded',
+          downloadedPath: '/app/models/ggml-base.en.bin',
+          sizeBytes: 147964211,
+        })
+      }
+      if (command === 'load_dictation_model') {
+        return Promise.resolve({
+          ...baseStatus,
+          state: 'loaded',
+          source: 'downloaded',
+          downloadedPath: '/app/models/ggml-base.en.bin',
+          sizeBytes: 147964211,
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    render(<SettingsModal onClose={vi.fn()} />)
+    await openApplicationTab()
+    await screen.findByRole('button', { name: 'Load Model' })
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Load Model' }).click()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Model Loaded' })).toBeInTheDocument()
+    })
+    expect(invokeMock).toHaveBeenCalledWith('load_dictation_model')
+  })
 })
