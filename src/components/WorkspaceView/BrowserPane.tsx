@@ -3,6 +3,7 @@ import { Shield, ShieldCheck, Smartphone, Tablet, Monitor } from 'lucide-react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
+import { useBrowserMediaStore } from '../../store/useBrowserMediaStore'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 
 const EMPTY_ARRAY: any[] = []
@@ -37,6 +38,7 @@ export function BrowserPane({
   const browserHistory = useAppStore(s => s.browserHistory) || EMPTY_ARRAY as string[]
   const addToHistory = useAppStore(s => s.addToHistory)
   const addToast = useAppStore(s => s.addToast)
+  const workspaceName = useAppStore(s => s.workspaces.find(w => w.id === workspaceId)?.name || '')
   const bookmarks = useAppStore(s => s.bookmarks) || EMPTY_ARRAY as { url: string; title: string; icon?: string }[]
   const addBookmark = useAppStore(s => s.addBookmark)
   const removeBookmark = useAppStore(s => s.removeBookmark)
@@ -418,10 +420,29 @@ export function BrowserPane({
     tabsRef.current = tabs
   }, [tabs])
 
+  // Attribute every open browser-tab to its owning workspace/pane so the
+  // sidebar media widget (which only sees bare pane ids in its events) can
+  // resolve them back to a workspace/title for display.
+  useEffect(() => {
+    const { registerPane } = useBrowserMediaStore.getState()
+    tabs.forEach(tab => {
+      registerPane({
+        workspaceId,
+        workspaceName,
+        browserTabId: tab.id,
+        pageUrl: tab.url,
+        pageTitle: tab.title,
+      })
+    })
+  }, [tabs, workspaceId, workspaceName])
+
   // Hide main pane and destroy all ephemeral webviews on unmount
   useEffect(() => {
     return () => {
+      const mediaStore = useBrowserMediaStore.getState()
       tabsRef.current.forEach(tab => {
+        mediaStore.removeSessionsForPane(tab.id)
+        mediaStore.unregisterPane(tab.id)
         if (!tab.isDiscarded) {
           if (tab.id === browserPaneId) {
             invoke('hide_browser_pane', { id: tab.id }).catch(() => {})
@@ -489,6 +510,10 @@ export function BrowserPane({
     } else {
       invoke('destroy_ephemeral_browser_pane', { id: tabId }).catch(() => {})
     }
+
+    const mediaStore = useBrowserMediaStore.getState()
+    mediaStore.removeSessionsForPane(tabId)
+    mediaStore.unregisterPane(tabId)
   }
 
   const borderColor = isActive ? 'var(--accent, #4a7aff)' : 'var(--border-inactive, #333)'
