@@ -28,6 +28,20 @@ global.ResizeObserver = class ResizeObserver {
   disconnect() {}
 }
 
+// window.matchMedia is not available in jsdom
+window.matchMedia = window.matchMedia || function (query: string) {
+  return {
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  } as unknown as MediaQueryList
+}
+
 // Mock Tauri APIs
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue({}),

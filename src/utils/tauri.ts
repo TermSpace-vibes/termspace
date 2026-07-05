@@ -59,6 +59,7 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case 'browser_go_back':
     case 'browser_go_forward':
     case 'browser_reload':
+    case 'browser_media_control':
       return undefined as unknown as T;
     default:
       console.warn(`[Mock Tauri] Unhandled command: ${cmd}`);
