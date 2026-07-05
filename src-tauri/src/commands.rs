@@ -862,6 +862,20 @@ pub fn browser_open_devtools(browser: State<BrowserPaneManager>, id: String) -> 
     Ok(())
 }
 
+#[tauri::command]
+pub fn browser_media_control(
+    browser: State<BrowserPaneManager>,
+    id: String,
+    media_id: String,
+    action: String,
+) -> Result<(), String> {
+    if !matches!(action.as_str(), "play" | "pause" | "previoustrack" | "nexttrack") {
+        return Err(format!("unsupported media action '{}'", action));
+    }
+    browser.media_control(&id, &media_id, &action);
+    Ok(())
+}
+
 static HTTP_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
 
 pub fn get_http_client() -> reqwest::Client {

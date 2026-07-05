@@ -218,6 +218,7 @@ pub fn run() {
             commands::browser_reload,
             commands::browser_toggle_adblock,
             commands::browser_open_devtools,
+            commands::browser_media_control,
             commands::browser_preconnect,
             commands::get_browser_panes,
             commands::spawn_ephemeral_browser_pane,

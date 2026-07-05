@@ -32,6 +32,15 @@ fn hidden_pane_bounds(w: f64, h: f64) -> (f64, f64, f64, f64) {
     (HIDDEN_X, HIDDEN_Y, w.max(1.0), h.max(1.0))
 }
 
+/// Escapes a string for safe interpolation inside a single-quoted or
+/// double-quoted JS string literal built via `format!`. Media/action ids
+/// passed here originate from our own frontend (self-generated ids and a
+/// fixed action enum), but this is defense in depth against any value that
+/// happens to contain a quote or backslash.
+fn js_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 /// A live native webview plus its last-known on-screen bounds. Bounds are
 /// cached so `show()` can restore the rectangle after a `hide()`.
 struct PaneEntry {
@@ -698,6 +707,41 @@ impl BrowserPaneManager {
             let _ = entry.webview.eval(&js);
         }
     }
+
+    /// Sends a play/pause/previoustrack/nexttrack command to a specific
+    /// tracked media element (or, for track-skip actions, to whatever
+    /// handler the page itself registered via the Media Session API).
+    /// `action` must already be validated by the caller (the Tauri command
+    /// wrapper) — this method does not re-validate it.
+    pub fn media_control(&self, id: &str, media_id: &str, action: &str) {
+        let panes = self.panes.lock().unwrap();
+        let Some(entry) = panes.get(id) else { return };
+        let safe_media_id = js_escape(media_id);
+        let js = match action {
+            "previoustrack" | "nexttrack" => format!(
+                r#"(function() {{
+                    var h = window.__termspaceMediaHandlers && window.__termspaceMediaHandlers['{action}'];
+                    if (h) h();
+                }})();"#,
+                action = action
+            ),
+            "play" => format!(
+                r#"(function() {{
+                    var el = document.querySelector('[data-termspace-media-id="{media_id}"]');
+                    if (el) el.play();
+                }})();"#,
+                media_id = safe_media_id
+            ),
+            _ => format!(
+                r#"(function() {{
+                    var el = document.querySelector('[data-termspace-media-id="{media_id}"]');
+                    if (el) el.pause();
+                }})();"#,
+                media_id = safe_media_id
+            ),
+        };
+        let _ = entry.webview.eval(&js);
+    }
 }
 
 #[cfg(test)]
@@ -712,6 +756,16 @@ mod tests {
         assert_eq!(y, HIDDEN_Y);
         assert_eq!(w, 1280.0);
         assert_eq!(h, 720.0);
+    }
+
+    #[test]
+    fn js_escape_escapes_quotes_and_backslashes() {
+        assert_eq!(js_escape(r#"a"b\c"#), r#"a\"b\\c"#);
+    }
+
+    #[test]
+    fn js_escape_leaves_plain_ids_untouched() {
+        assert_eq!(js_escape("m1a2b3c4"), "m1a2b3c4");
     }
 
     #[test]
