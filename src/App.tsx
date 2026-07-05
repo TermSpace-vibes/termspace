@@ -13,6 +13,7 @@ import { CommandPalette } from './components/CommandPalette/CommandPalette'
 import { MarkdownModal } from './components/MarkdownModal/MarkdownModal'
 import { DictationButton } from './components/ui/DictationButton'
 import { useGlobalKeybindings } from './hooks/useGlobalKeybindings'
+import { useBrowserMediaBridge } from './hooks/useBrowserMediaBridge'
 import { Workspace, Terminal, EditorPane, BrowserPane } from './types'
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
 import { open } from '@tauri-apps/plugin-dialog'
@@ -81,6 +82,7 @@ export default function App() {
   const prevActiveWorkspaceIdRef = useRef<string | null>(null)
 
   useGlobalKeybindings()
+  useBrowserMediaBridge()
 
   useEffect(() => {
     const handleToggleSidebar = () => {
