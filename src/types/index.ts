@@ -37,6 +37,23 @@ export interface BrowserPane {
   autoReload?: boolean
 }
 
+export interface BrowserMediaSession {
+  id: string
+  workspaceId: string
+  workspaceName: string
+  browserTabId: string
+  pageUrl: string
+  pageTitle?: string
+  mediaTitle?: string
+  thumbnailUrl?: string
+  isPlaying: boolean
+  mediaType: 'audio' | 'video'
+  canPlayPause: boolean
+  canPrev: boolean
+  canNext: boolean
+  lastActiveAt: number
+}
+
 export interface EditorPane {
   id: string
   tabId: string
