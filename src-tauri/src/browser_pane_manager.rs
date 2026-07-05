@@ -271,6 +271,63 @@ impl BrowserPaneManager {
             }}, 300);
             observer.observe(document.documentElement, {{childList: true, subtree: true}});
 
+            (function() {{
+                const mediaHandlers = {{}};
+                const origSetActionHandler = navigator.mediaSession && navigator.mediaSession.setActionHandler;
+                if (navigator.mediaSession && origSetActionHandler) {{
+                    navigator.mediaSession.setActionHandler = function(action, handler) {{
+                        mediaHandlers[action] = handler;
+                        return origSetActionHandler.call(navigator.mediaSession, action, handler);
+                    }};
+                }}
+                window.__termspaceMediaHandlers = mediaHandlers;
+
+                function pushMediaUpdate(mediaId, el, ended) {{
+                    const meta = (navigator.mediaSession && navigator.mediaSession.metadata) || null;
+                    const payload = {{
+                        mediaId: mediaId,
+                        isPlaying: !el.paused && !el.ended,
+                        ended: !!ended,
+                        mediaType: el.tagName.toLowerCase(),
+                        mediaTitle: (meta && meta.title) || document.title || undefined,
+                        thumbnailUrl: (meta && meta.artwork && meta.artwork[0] && meta.artwork[0].src) ||
+                            (document.querySelector('link[rel="icon"]') || {{}}).href ||
+                            (document.querySelector('link[rel="shortcut icon"]') || {{}}).href || undefined,
+                        canPrev: !!mediaHandlers['previoustrack'],
+                        canNext: !!mediaHandlers['nexttrack'],
+                    }};
+                    const url = 'termspace-media://update?data=' + encodeURIComponent(JSON.stringify(payload));
+                    const iframe = document.createElement('iframe');
+                    iframe.style.display = 'none';
+                    iframe.src = url;
+                    document.body.appendChild(iframe);
+                    setTimeout(() => iframe.remove(), 100);
+                }}
+
+                function trackMediaElement(el) {{
+                    if (el.__termspaceMediaTracked) return;
+                    el.__termspaceMediaTracked = true;
+                    if (!el.dataset.termspaceMediaId) {{
+                        el.dataset.termspaceMediaId = 'm' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+                    }}
+                    const id = el.dataset.termspaceMediaId;
+                    el.addEventListener('play', () => pushMediaUpdate(id, el, false));
+                    el.addEventListener('pause', () => pushMediaUpdate(id, el, false));
+                    el.addEventListener('ended', () => pushMediaUpdate(id, el, true));
+                    el.addEventListener('loadedmetadata', () => pushMediaUpdate(id, el, false));
+                }}
+
+                function scanForMedia() {{
+                    document.querySelectorAll('video, audio').forEach(trackMediaElement);
+                }}
+
+                document.addEventListener('DOMContentLoaded', scanForMedia);
+                scanForMedia();
+
+                const mediaObserver = new MutationObserver(() => scanForMedia());
+                mediaObserver.observe(document.documentElement, {{childList: true, subtree: true}});
+            }})();
+
             window.addEventListener('contextmenu', (e) => {{
                 let target = e.target;
                 let urlToOpen = null;
@@ -317,6 +374,22 @@ impl BrowserPaneManager {
         .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15")
         .initialization_script(format!("{}\nObject.defineProperty(navigator, 'webdriver', {{get: () => false}});", init_js))
         .on_navigation(move |nav_url| {
+            if nav_url.scheme() == "termspace-media" {
+                if let Some(payload) = parse_media_update_url(&nav_url) {
+                    let _ = nav_app_handle.emit("browser-pane-media-update", serde_json::json!({
+                        "id": nav_id,
+                        "mediaId": payload.media_id,
+                        "isPlaying": payload.is_playing,
+                        "ended": payload.ended,
+                        "mediaType": payload.media_type,
+                        "mediaTitle": payload.media_title,
+                        "thumbnailUrl": payload.thumbnail_url,
+                        "canPrev": payload.can_prev,
+                        "canNext": payload.can_next,
+                    }));
+                }
+                return false;
+            }
             if nav_url.scheme() == "termspace-ctx" {
                 let url = nav_url.query_pairs().find(|(k, _)| k == "url").map(|(_, v)| v.into_owned()).unwrap_or_default();
                 let x = nav_url.query_pairs().find(|(k, _)| k == "x").map(|(_, v)| v.into_owned()).unwrap_or_default();
