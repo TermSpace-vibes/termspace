@@ -70,6 +70,54 @@ fn get_adblock_engine() -> std::sync::Arc<adblock::engine::Engine> {
     }).clone()
 }
 
+/// A single media state push from the injected page script, decoded from a
+/// `termspace-media://update?data=<json>` URL.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct MediaUpdatePayload {
+    pub media_id: String,
+    pub is_playing: bool,
+    /// True when the underlying element fired `ended`. Sessions in this
+    /// state are removed immediately by the frontend rather than aged out
+    /// by the paused-inactivity timer.
+    pub ended: bool,
+    pub media_type: String,
+    pub media_title: Option<String>,
+    pub thumbnail_url: Option<String>,
+    pub can_prev: bool,
+    pub can_next: bool,
+}
+
+/// Parses a `termspace-media://update?data=<json>` URL pushed by the
+/// injected page script (see `init_js` in `BrowserPaneManager::create`).
+/// Returns `None` for any other scheme or a malformed/missing payload so a
+/// misbehaving page can never crash the navigation-intercept path.
+pub fn parse_media_update_url(url: &tauri::Url) -> Option<MediaUpdatePayload> {
+    if url.scheme() != "termspace-media" {
+        return None;
+    }
+    let data = url
+        .query_pairs()
+        .find(|(k, _)| k == "data")
+        .map(|(_, v)| v.into_owned())?;
+    let v: serde_json::Value = serde_json::from_str(&data).ok()?;
+    Some(MediaUpdatePayload {
+        media_id: v.get("mediaId")?.as_str()?.to_string(),
+        is_playing: v.get("isPlaying")?.as_bool()?,
+        ended: v.get("ended").and_then(|b| b.as_bool()).unwrap_or(false),
+        media_type: v.get("mediaType")?.as_str()?.to_string(),
+        media_title: v
+            .get("mediaTitle")
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string()),
+        thumbnail_url: v
+            .get("thumbnailUrl")
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string()),
+        can_prev: v.get("canPrev").and_then(|b| b.as_bool()).unwrap_or(false),
+        can_next: v.get("canNext").and_then(|b| b.as_bool()).unwrap_or(false),
+    })
+}
+
 /// Owns every native browser-pane webview for the application.
 ///
 /// Stored in Tauri managed state (registered in `lib.rs` by Task 3) and shared
@@ -591,5 +639,43 @@ mod tests {
         assert_eq!(y, HIDDEN_Y);
         assert_eq!(w, 1280.0);
         assert_eq!(h, 720.0);
+    }
+
+    #[test]
+    fn parse_media_update_url_extracts_full_payload() {
+        let url: tauri::Url = "termspace-media://update?data=%7B%22mediaId%22%3A%22m1%22%2C%22isPlaying%22%3Atrue%2C%22ended%22%3Afalse%2C%22mediaType%22%3A%22video%22%2C%22mediaTitle%22%3A%22Cool%20Video%22%2C%22thumbnailUrl%22%3A%22https%3A%2F%2Fx.test%2Ft.jpg%22%2C%22canPrev%22%3Atrue%2C%22canNext%22%3Afalse%7D".parse().unwrap();
+        let payload = parse_media_update_url(&url).expect("payload should parse");
+        assert_eq!(payload.media_id, "m1");
+        assert!(payload.is_playing);
+        assert!(!payload.ended);
+        assert_eq!(payload.media_type, "video");
+        assert_eq!(payload.media_title.as_deref(), Some("Cool Video"));
+        assert_eq!(payload.thumbnail_url.as_deref(), Some("https://x.test/t.jpg"));
+        assert!(payload.can_prev);
+        assert!(!payload.can_next);
+    }
+
+    #[test]
+    fn parse_media_update_url_defaults_missing_optional_fields() {
+        let url: tauri::Url = "termspace-media://update?data=%7B%22mediaId%22%3A%22m1%22%2C%22isPlaying%22%3Afalse%2C%22ended%22%3Atrue%2C%22mediaType%22%3A%22audio%22%7D".parse().unwrap();
+        let payload = parse_media_update_url(&url).expect("payload should parse");
+        assert_eq!(payload.media_id, "m1");
+        assert!(payload.ended);
+        assert_eq!(payload.media_title, None);
+        assert_eq!(payload.thumbnail_url, None);
+        assert!(!payload.can_prev);
+        assert!(!payload.can_next);
+    }
+
+    #[test]
+    fn parse_media_update_url_rejects_wrong_scheme() {
+        let url: tauri::Url = "termspace-ctx://menu?url=https://x.test".parse().unwrap();
+        assert!(parse_media_update_url(&url).is_none());
+    }
+
+    #[test]
+    fn parse_media_update_url_rejects_missing_data_param() {
+        let url: tauri::Url = "termspace-media://update".parse().unwrap();
+        assert!(parse_media_update_url(&url).is_none());
     }
 }
