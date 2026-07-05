@@ -4,13 +4,59 @@ import { useAppStore } from '../../store/useAppStore'
 import { Settings } from '../../types'
 import { check } from '@tauri-apps/plugin-updater'
 import { getVersion } from '@tauri-apps/api/app'
-import { invoke } from '../../utils/tauri'
+import { invoke, listen } from '../../utils/tauri'
 
 interface Props {
   onClose: () => void
 }
 
 type TabKey = 'Appearance' | 'Application' | 'Keybindings' | 'Data'
+type DictationModelSource = 'downloaded' | 'bundled' | null
+type DictationModelLoadState = 'idle' | 'checking' | 'downloading' | 'error'
+
+interface DictationModelStatus {
+  state: string
+  source: DictationModelSource
+  downloadedPath: string | null
+  bundledPath: string | null
+  sizeBytes: number | null
+  expectedSizeBytes: number
+  error: string | null
+}
+
+interface DictationModelProgress {
+  downloadedBytes: number
+  totalBytes: number | null
+  progress: number | null
+}
+
+function getDictationModelStatusText(
+  status: DictationModelStatus | null,
+  state: DictationModelLoadState,
+  error: string | null
+) {
+  if (state === 'checking') return 'Checking local model...'
+  if (state === 'downloading') return 'Downloading local model...'
+  if (error) return error
+  if (!status) return 'Local model status unavailable'
+  if (status.error) return status.error
+  if (status.state === 'ready' && status.source === 'downloaded') return 'Downloaded model installed'
+  if (status.state === 'ready' && status.source === 'bundled') return 'Using bundled fallback model'
+  if (status.state === 'corrupted') return 'Downloaded model is incomplete or corrupted'
+  if (status.state === 'missing') return 'Local model not downloaded'
+  return 'Local model status unavailable'
+}
+
+function getDictationModelButtonText(
+  status: DictationModelStatus | null,
+  state: DictationModelLoadState
+) {
+  if (state === 'checking') return 'Checking...'
+  if (state === 'downloading') return 'Downloading...'
+  if (status?.state === 'ready' && status.source === 'downloaded') return 'Model Installed'
+  if (state === 'error' || status?.state === 'corrupted') return 'Retry Download'
+  return 'Download Local Model'
+}
 
 export function SettingsModal({ onClose }: Props) {
   const settings = useAppStore((s) => s.settings)
@@ -75,10 +121,73 @@ export function SettingsModal({ onClose }: Props) {
   const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'downloading' | 'ready' | 'none'>('idle')
   const [updateProgress, setUpdateProgress] = useState(0)
   const [updateVersion, setUpdateVersion] = useState('')
+  const [dictationModelStatus, setDictationModelStatus] = useState<DictationModelStatus | null>(null)
+  const [dictationModelState, setDictationModelState] = useState<DictationModelLoadState>('checking')
+  const [dictationModelProgress, setDictationModelProgress] = useState(0)
+  const [dictationModelError, setDictationModelError] = useState<string | null>(null)
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(console.error)
   }, [])
+
+  useEffect(() => {
+    let disposed = false
+    let unlistenProgress: (() => void) | null = null
+
+    invoke<DictationModelStatus>('get_dictation_model_status')
+      .then((status) => {
+        if (disposed) return
+        setDictationModelStatus(status)
+        setDictationModelState('idle')
+      })
+      .catch((error) => {
+        if (disposed) return
+        setDictationModelError(error instanceof Error ? error.message : String(error))
+        setDictationModelState('error')
+      })
+
+    listen<DictationModelProgress>('dictation-model-download-progress', (event) => {
+      const progress = event.payload as DictationModelProgress
+      const percent = progress.progress !== null
+        ? Math.round(progress.progress * 100)
+        : progress.totalBytes
+          ? Math.round((progress.downloadedBytes / progress.totalBytes) * 100)
+          : 0
+      setDictationModelProgress(Math.max(0, Math.min(100, percent)))
+    })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten()
+          return
+        }
+        unlistenProgress = unlisten
+      })
+      .catch(console.error)
+
+    return () => {
+      disposed = true
+      unlistenProgress?.()
+    }
+  }, [])
+
+  async function handleDownloadDictationModel() {
+    setDictationModelState('downloading')
+    setDictationModelProgress(0)
+    setDictationModelError(null)
+
+    try {
+      const status = await invoke<DictationModelStatus>('download_dictation_model')
+      setDictationModelStatus(status)
+      setDictationModelProgress(100)
+      setDictationModelState('idle')
+      useAppStore.getState().addToast('Local dictation model installed', 'success')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setDictationModelError(message)
+      setDictationModelState('error')
+      useAppStore.getState().addToast('Failed to download local dictation model', 'error')
+    }
+  }
 
   function handleSave() {
     updateSettings({ theme, fontSize, lineHeight, defaultShell, uiFontFamily, terminalFontFamily, timeFormat, autosave, showTabBar, iconTheme, keybindings, defaultTerminalType, smoothCaret, terminalRenderer, showWorkspaceDefaultPaths, toolPaneBehavior })
@@ -455,6 +564,74 @@ export function SettingsModal({ onClose }: Props) {
                       </div>
                     )}
                   </div>
+
+                  {(settings.dictationProvider || 'local') === 'local' && (
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 10,
+                      padding: 12,
+                      background: 'var(--bg-sidebar)',
+                      border: '1px solid var(--border-inactive)',
+                      borderRadius: 8,
+                      marginTop: 4
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <div style={{ fontSize: 13, color: 'var(--text-active)', fontWeight: 600 }}>Local Model</div>
+                          <div style={{ fontSize: 12, color: dictationModelError ? '#f87171' : 'var(--text-dim)', lineHeight: 1.5 }}>
+                            {getDictationModelStatusText(dictationModelStatus, dictationModelState, dictationModelError)}
+                          </div>
+                          {dictationModelStatus?.source === 'bundled' && (
+                            <div style={{ fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                              Downloading installs the same model in local app storage for post-install use.
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          disabled={
+                            dictationModelState === 'checking' ||
+                            dictationModelState === 'downloading' ||
+                            (dictationModelStatus?.state === 'ready' && dictationModelStatus.source === 'downloaded')
+                          }
+                          onClick={handleDownloadDictationModel}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: 6,
+                            border: '1px solid var(--border-inactive)',
+                            background: dictationModelState === 'downloading' ? 'var(--bg-item)' : 'var(--accent)',
+                            color: dictationModelState === 'downloading' ? 'var(--text-inactive)' : 'var(--bg-main)',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: dictationModelState === 'checking' || dictationModelState === 'downloading' ? 'not-allowed' : 'pointer',
+                            whiteSpace: 'nowrap',
+                            opacity: dictationModelStatus?.state === 'ready' && dictationModelStatus.source === 'downloaded' ? 0.7 : 1
+                          }}
+                        >
+                          {getDictationModelButtonText(dictationModelStatus, dictationModelState)}
+                        </button>
+                      </div>
+
+                      {(dictationModelState === 'downloading' || dictationModelProgress > 0) && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                              {dictationModelProgress}%
+                            </span>
+                          </div>
+                          <div style={{ height: 4, background: 'var(--border-inactive)', borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{
+                              height: '100%',
+                              width: `${dictationModelProgress}%`,
+                              background: 'var(--accent)',
+                              borderRadius: 2,
+                              transition: 'width 0.2s ease'
+                            }} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
                     <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>

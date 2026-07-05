@@ -1,6 +1,6 @@
 # Dependency Map
 
-> Auto-generated 2026-07-02 by `node scripts/gen-dep-map.js`. Re-run after structural changes.
+> Auto-generated 2026-07-05 by `node scripts/gen-dep-map.js`. Re-run after structural changes.
 
 ## How to use
 

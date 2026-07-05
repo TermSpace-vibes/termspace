@@ -6,6 +6,7 @@ mod claude_session_manager;
 mod commands;
 mod daemon_client;
 mod db;
+mod dictation_model;
 pub mod lsp_manager;
 mod native_terminal_manager;
 
@@ -17,7 +18,6 @@ use native_terminal_manager::NativeTerminalManager;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tauri::Manager;
-use whisper_rs::{WhisperContext, WhisperContextParameters};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -118,16 +118,10 @@ pub fn run() {
                 std::collections::HashMap::new(),
             )));
 
-            let resource_path = app.path().resolve(
-                "resources/ggml-base.en.bin",
-                tauri::path::BaseDirectory::Resource,
-            );
-            let ctx = if let Ok(path) = resource_path {
-                let params = WhisperContextParameters::default();
-                WhisperContext::new_with_params(&*path.to_string_lossy(), params).ok()
-            } else {
-                None
-            };
+            let ctx = dictation_model::selected_model_path(app.handle())
+                .ok()
+                .flatten()
+                .and_then(|path| dictation_model::load_whisper_context_from_path(&path).ok());
             app.manage(commands::WhisperState(Arc::new(Mutex::new(ctx))));
 
             // Start local HTTP hook server
@@ -220,6 +214,9 @@ pub fn run() {
             commands::get_docker_resources,
             commands::execute_docker_action,
             commands::set_k8s_context,
+            commands::get_dictation_model_status,
+            commands::load_dictation_model,
+            commands::download_dictation_model,
             commands::transcribe_chunk,
             commands::transcribe_openai,
             commands::start_workspace_watcher,

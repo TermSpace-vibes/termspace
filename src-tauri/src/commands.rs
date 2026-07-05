@@ -1,6 +1,9 @@
 use crate::browser_pane_manager::BrowserPaneManager;
 use crate::claude_session_manager::ClaudeSessionManager;
 use crate::db::{self, Terminal, Workspace};
+use crate::dictation_model::{
+    self, DictationModelStatus, MODEL_PART_FILE_NAME, MODEL_URL,
+};
 use crate::native_terminal_manager::NativeTerminalManager;
 use notify_debouncer_mini::{
     new_debouncer,
@@ -9,6 +12,7 @@ use notify_debouncer_mini::{
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use std::collections::HashMap;
+use std::io::Write;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -40,6 +44,14 @@ struct ProcessSnapshot {
 static PROCESS_CACHE: OnceLock<Mutex<Option<ProcessSnapshot>>> = OnceLock::new();
 fn process_cache() -> &'static Mutex<Option<ProcessSnapshot>> {
     PROCESS_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictationModelDownloadProgress {
+    pub downloaded_bytes: u64,
+    pub total_bytes: Option<u64>,
+    pub progress: Option<f64>,
 }
 
 #[derive(serde::Serialize)]
@@ -1172,6 +1184,88 @@ pub fn open_mic_settings() -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_dictation_model_status(app: AppHandle) -> Result<DictationModelStatus, String> {
+    dictation_model::inspect_app_model_files(&app)
+}
+
+#[tauri::command]
+pub fn load_dictation_model(
+    app: AppHandle,
+    state: State<'_, WhisperState>,
+) -> Result<DictationModelStatus, String> {
+    let path = dictation_model::selected_model_path(&app)?
+        .ok_or_else(|| "No valid local dictation model found".to_string())?;
+    let context = dictation_model::load_whisper_context_from_path(&path)?;
+    *state.0.lock() = Some(context);
+    dictation_model::inspect_app_model_files(&app)
+}
+
+#[tauri::command]
+pub async fn download_dictation_model(
+    app: AppHandle,
+    state: State<'_, WhisperState>,
+) -> Result<DictationModelStatus, String> {
+    let model_dir = dictation_model::app_model_dir(&app)?;
+    std::fs::create_dir_all(&model_dir).map_err(|e| e.to_string())?;
+
+    let final_path = dictation_model::downloaded_model_path(&app)?;
+    if final_path.exists() && dictation_model::validate_model_file(&final_path).is_ok() {
+        return load_dictation_model(app, state);
+    }
+
+    if final_path.exists() {
+        std::fs::remove_file(&final_path).map_err(|e| e.to_string())?;
+    }
+
+    let part_path = dictation_model::downloaded_part_path(&app)?;
+    if part_path.exists() {
+        std::fs::remove_file(&part_path).map_err(|e| e.to_string())?;
+    }
+
+    let response = reqwest::Client::new()
+        .get(MODEL_URL)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        return Err(format!("Model download failed: HTTP {}", response.status()));
+    }
+
+    let total_bytes = response.content_length();
+    let mut file = std::fs::File::create(&part_path).map_err(|e| e.to_string())?;
+    let mut downloaded_bytes = 0_u64;
+    let mut response = response;
+
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        file.write_all(&chunk).map_err(|e| e.to_string())?;
+        downloaded_bytes += chunk.len() as u64;
+        let progress = total_bytes
+            .filter(|total| *total > 0)
+            .map(|total| (downloaded_bytes as f64 / total as f64).clamp(0.0, 1.0));
+        let _ = app.emit(
+            "dictation-model-download-progress",
+            DictationModelDownloadProgress {
+                downloaded_bytes,
+                total_bytes,
+                progress,
+            },
+        );
+    }
+
+    file.flush().map_err(|e| e.to_string())?;
+    drop(file);
+
+    if let Err(error) = dictation_model::validate_model_file(&part_path) {
+        let _ = std::fs::remove_file(&part_path);
+        return Err(format!("{MODEL_PART_FILE_NAME} failed validation: {error}"));
+    }
+
+    std::fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
+    load_dictation_model(app, state)
 }
 
 #[tauri::command]
