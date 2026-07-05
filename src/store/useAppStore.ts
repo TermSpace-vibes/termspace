@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
 import { Workspace, Terminal, BrowserPane, EditorPane, ClaudePane, LayoutNode, LayoutDirection, Settings, GitStatus, WorkspaceTab } from '../types'
+import { useBrowserMediaStore } from './useBrowserMediaStore'
 import {
   addTerminalToLayout, removeTerminalFromLayout, swapTerminalsInLayout,
   updateSplitSizes,
@@ -234,6 +235,7 @@ export const useAppStore = create<AppState>()(
               void invoke('close_claude_session', { sessionId: pane.id }).catch(() => {})
             }
           }
+          useBrowserMediaStore.getState().removeSessionsForWorkspace(id)
           return {
             workspaces: s.workspaces.filter((w) => w.id !== id),
             activeWorkspaceId:

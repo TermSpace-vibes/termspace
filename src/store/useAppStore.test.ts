@@ -37,6 +37,27 @@ describe('useAppStore', () => {
     expect(useAppStore.getState().workspaces).toHaveLength(0)
   })
 
+  it('clears browser media sessions belonging to a removed workspace', async () => {
+    const { useBrowserMediaStore } = await import('./useBrowserMediaStore')
+    useBrowserMediaStore.setState({
+      paneInfo: {},
+      sessions: {
+        'tab-a:m1': {
+          id: 'tab-a:m1', workspaceId: 'ws-1', workspaceName: 'Work', browserTabId: 'tab-a',
+          pageUrl: 'u1', isPlaying: true, mediaType: 'video', canPlayPause: true,
+          canPrev: false, canNext: false, lastActiveAt: Date.now(),
+        },
+      },
+    })
+
+    act(() => {
+      useAppStore.getState().setWorkspaces([ws1])
+      useAppStore.getState().removeWorkspace('ws-1')
+    })
+
+    expect(useBrowserMediaStore.getState().sessions).toEqual({})
+  })
+
   it('sets active workspace', () => {
     act(() => useAppStore.getState().setActiveWorkspaceId('ws-1'))
     expect(useAppStore.getState().activeWorkspaceId).toBe('ws-1')
