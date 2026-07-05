@@ -3,6 +3,7 @@ import { useAppStore } from '../../store/useAppStore'
 import { AddWorkspaceButton } from './AddWorkspaceButton'
 import { WorkspaceItem } from './WorkspaceItem'
 import { ProjectTasks } from './ProjectTasks'
+import { MediaWidget } from './MediaWidget'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { ChevronRight, ChevronDown, Search } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
@@ -293,6 +294,8 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
       <ProjectTasks isCollapsed={isCollapsed} />
 
       </div>
+
+      <MediaWidget />
 
       {/* ── Fixed Footer ─────────────────────────────────────────────────── */}
       <div
