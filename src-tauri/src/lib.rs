@@ -257,6 +257,8 @@ pub fn run() {
             commands::transcribe_openai,
             commands::insert_text_into_active_app,
             commands::open_accessibility_settings,
+            commands::get_global_dictation_permission_status,
+            commands::request_accessibility_permission,
             commands::register_global_dictation_shortcut,
             commands::unregister_global_dictation_shortcut,
             commands::get_global_dictation_shortcut_status,

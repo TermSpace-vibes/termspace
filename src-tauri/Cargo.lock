@@ -5481,6 +5481,7 @@ dependencies = [
  "adblock",
  "alacritty_terminal",
  "base64 0.22.1",
+ "core-foundation 0.10.1",
  "ignore",
  "image 0.24.9",
  "libc",

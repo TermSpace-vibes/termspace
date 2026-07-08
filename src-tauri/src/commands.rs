@@ -11,7 +11,7 @@ use crate::global_shortcut_service::{
     self, GlobalShortcutState, GlobalShortcutStatus,
 };
 use crate::native_terminal_manager::NativeTerminalManager;
-use crate::platform_permissions;
+use crate::platform_permissions::{self, GlobalDictationPermissionStatus};
 use notify_debouncer_mini::{
     new_debouncer,
     notify::{self, RecursiveMode},
@@ -1400,6 +1400,17 @@ pub fn insert_text_into_active_app(
 #[tauri::command]
 pub fn open_accessibility_settings() -> Result<(), String> {
     platform_permissions::open_accessibility_settings()
+}
+
+#[tauri::command]
+pub fn get_global_dictation_permission_status(
+) -> Result<GlobalDictationPermissionStatus, String> {
+    Ok(platform_permissions::get_global_dictation_permission_status())
+}
+
+#[tauri::command]
+pub fn request_accessibility_permission() -> Result<GlobalDictationPermissionStatus, String> {
+    Ok(platform_permissions::request_accessibility_permission())
 }
 
 #[tauri::command]

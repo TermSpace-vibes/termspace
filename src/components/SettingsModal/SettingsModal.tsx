@@ -13,6 +13,7 @@ interface Props {
 type TabKey = 'Appearance' | 'Application' | 'Keybindings' | 'Data'
 type DictationModelSource = 'downloaded' | 'bundled' | null
 type DictationModelLoadState = 'idle' | 'checking' | 'downloading' | 'loading' | 'error'
+type GlobalPermissionState = 'checking' | 'idle' | 'requesting' | 'error'
 
 interface DictationModelStatus {
   state: string
@@ -28,6 +29,15 @@ interface DictationModelProgress {
   downloadedBytes: number
   totalBytes: number | null
   progress: number | null
+}
+
+interface GlobalDictationPermissionStatus {
+  platform: string
+  accessibilityGranted: boolean
+  accessibilityPromptSupported: boolean
+  accessibilitySettingsSupported: boolean
+  autoPasteSupported: boolean
+  message: string | null
 }
 
 function getDictationModelStatusText(
@@ -134,9 +144,32 @@ export function SettingsModal({ onClose }: Props) {
   const [dictationModelState, setDictationModelState] = useState<DictationModelLoadState>('checking')
   const [dictationModelProgress, setDictationModelProgress] = useState(0)
   const [dictationModelError, setDictationModelError] = useState<string | null>(null)
+  const [globalPermissionStatus, setGlobalPermissionStatus] = useState<GlobalDictationPermissionStatus | null>(null)
+  const [globalPermissionState, setGlobalPermissionState] = useState<GlobalPermissionState>('checking')
+  const [globalPermissionError, setGlobalPermissionError] = useState<string | null>(null)
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(console.error)
+  }, [])
+
+  useEffect(() => {
+    let disposed = false
+
+    invoke<GlobalDictationPermissionStatus>('get_global_dictation_permission_status')
+      .then((status) => {
+        if (disposed) return
+        setGlobalPermissionStatus(status)
+        setGlobalPermissionState('idle')
+      })
+      .catch((error) => {
+        if (disposed) return
+        setGlobalPermissionError(error instanceof Error ? error.message : String(error))
+        setGlobalPermissionState('error')
+      })
+
+    return () => {
+      disposed = true
+    }
   }, [])
 
   useEffect(() => {
@@ -196,6 +229,30 @@ export function SettingsModal({ onClose }: Props) {
       setDictationModelError(message)
       setDictationModelState('error')
       useAppStore.getState().addToast('Failed to download local dictation model', 'error')
+    }
+  }
+
+  async function handleRequestAccessibilityPermission() {
+    setGlobalPermissionState('requesting')
+    setGlobalPermissionError(null)
+
+    try {
+      const status = await invoke<GlobalDictationPermissionStatus>('request_accessibility_permission')
+      setGlobalPermissionStatus(status)
+      setGlobalPermissionState('idle')
+    } catch (error) {
+      setGlobalPermissionError(error instanceof Error ? error.message : String(error))
+      setGlobalPermissionState('error')
+    }
+  }
+
+  async function handleOpenAccessibilitySettings() {
+    setGlobalPermissionError(null)
+
+    try {
+      await invoke('open_accessibility_settings')
+    } catch (error) {
+      setGlobalPermissionError(error instanceof Error ? error.message : String(error))
     }
   }
 
@@ -710,6 +767,79 @@ export function SettingsModal({ onClose }: Props) {
                       />
                       <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Auto-paste into active app</span>
                     </label>
+                    {globalDictationEnabled && globalDictationAutoPaste && (
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 10,
+                        padding: 12,
+                        background: 'var(--bg-main)',
+                        border: '1px solid var(--border-inactive)',
+                        borderRadius: 8,
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ fontSize: 13, color: 'var(--text-active)', fontWeight: 600 }}>Paste Permission</div>
+                            <div style={{
+                              fontSize: 12,
+                              color: globalPermissionError ? '#f87171' : 'var(--text-dim)',
+                              lineHeight: 1.5,
+                            }}>
+                              {globalPermissionState === 'checking'
+                                ? 'Checking paste permission...'
+                                : globalPermissionError ||
+                                  globalPermissionStatus?.message ||
+                                  (globalPermissionStatus?.accessibilityGranted
+                                    ? 'Paste control allowed.'
+                                    : 'Accessibility permission is needed for automatic paste.')}
+                            </div>
+                          </div>
+                          {!globalPermissionStatus?.accessibilityGranted && (
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              {globalPermissionStatus?.accessibilityPromptSupported && (
+                                <button
+                                  type="button"
+                                  disabled={globalPermissionState === 'requesting'}
+                                  onClick={handleRequestAccessibilityPermission}
+                                  style={{
+                                    padding: '8px 12px',
+                                    borderRadius: 6,
+                                    border: '1px solid var(--border-inactive)',
+                                    background: globalPermissionState === 'requesting' ? 'var(--bg-item)' : 'var(--accent)',
+                                    color: globalPermissionState === 'requesting' ? 'var(--text-inactive)' : 'var(--bg-main)',
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    cursor: globalPermissionState === 'requesting' ? 'not-allowed' : 'pointer',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {globalPermissionState === 'requesting' ? 'Requesting...' : 'Allow Paste Control'}
+                                </button>
+                              )}
+                              {globalPermissionStatus?.accessibilitySettingsSupported && (
+                                <button
+                                  type="button"
+                                  onClick={handleOpenAccessibilitySettings}
+                                  style={{
+                                    padding: '8px 12px',
+                                    borderRadius: 6,
+                                    border: '1px solid var(--border-inactive)',
+                                    background: 'transparent',
+                                    color: 'var(--text-active)',
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  Open Settings
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
                       <input
                         type="checkbox"

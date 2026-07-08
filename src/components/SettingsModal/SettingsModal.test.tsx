@@ -179,4 +179,53 @@ describe('SettingsModal dictation model controls', () => {
       globalDictationPasteDelayMs: 120,
     })
   })
+
+  it('shows a paste permission gateway and requests accessibility permission', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'get_dictation_model_status') return Promise.resolve(baseStatus)
+      if (command === 'get_global_dictation_permission_status') {
+        return Promise.resolve({
+          platform: 'macos',
+          accessibilityGranted: false,
+          accessibilityPromptSupported: true,
+          accessibilitySettingsSupported: true,
+          autoPasteSupported: true,
+          message: 'Accessibility permission is needed for automatic paste.',
+        })
+      }
+      if (command === 'request_accessibility_permission') {
+        return Promise.resolve({
+          platform: 'macos',
+          accessibilityGranted: false,
+          accessibilityPromptSupported: true,
+          accessibilitySettingsSupported: true,
+          autoPasteSupported: true,
+          message: 'Approve Termspace in Accessibility, then return here.',
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    useAppStore.setState({
+      settings: {
+        ...useAppStore.getState().settings,
+        dictationProvider: 'local',
+        globalDictationEnabled: true,
+        globalDictationAutoPaste: true,
+      },
+    })
+
+    render(<SettingsModal onClose={vi.fn()} />)
+    await openApplicationTab()
+
+    expect(await screen.findByText('Paste Permission')).toBeInTheDocument()
+    expect(screen.getByText('Accessibility permission is needed for automatic paste.')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Allow Paste Control' }))
+    })
+
+    expect(invokeMock).toHaveBeenCalledWith('request_accessibility_permission')
+    expect(await screen.findByText('Approve Termspace in Accessibility, then return here.')).toBeInTheDocument()
+  })
 })
