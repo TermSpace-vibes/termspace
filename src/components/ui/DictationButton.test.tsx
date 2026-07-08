@@ -9,18 +9,14 @@ let dictationState = {
   interimTranscript: '',
   toggleListening: vi.fn(),
 }
+let storeState: any
 
 vi.mock('../../hooks/useDictation', () => ({
   useDictation: () => dictationState,
 }))
 
 vi.mock('../../store/useAppStore', () => ({
-  useAppStore: (selector: any) => selector({
-    activeTerminalId: 'terminal-1',
-    addToast: vi.fn(),
-    dictationButtonPosition: null,
-    setDictationButtonPosition: vi.fn(),
-  }),
+  useAppStore: (selector: any) => selector(storeState),
 }))
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -34,6 +30,16 @@ describe('DictationButton', () => {
       isProcessing: false,
       interimTranscript: '',
       toggleListening: vi.fn(),
+    }
+    storeState = {
+      activeTerminalId: 'terminal-1',
+      addToast: vi.fn(),
+      dictationButtonPosition: null,
+      setDictationButtonPosition: vi.fn(),
+      settings: {
+        globalDictationEnabled: false,
+        globalDictationShowFloatingButton: true,
+      },
     }
   })
 
@@ -60,5 +66,17 @@ describe('DictationButton', () => {
 
     expect(screen.getByText('Processing transcription...')).toBeInTheDocument()
     expect(screen.getByTestId('dictation-processing-spinner')).toBeInTheDocument()
+  })
+
+  it('hides when the global floating button setting is disabled', () => {
+    storeState.settings = {
+      ...storeState.settings,
+      globalDictationEnabled: true,
+      globalDictationShowFloatingButton: false,
+    }
+
+    const { container } = render(<DictationButton />)
+
+    expect(container).toBeEmptyDOMElement()
   })
 })

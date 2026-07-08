@@ -87,17 +87,28 @@ export function useGlobalTranscription() {
     })
   }, [addToast, settings.globalDictationEnabled, settings.globalDictationHotkey])
 
+  const requestToggle = useCallback(() => {
+    if (!useAppStore.getState().settings.globalDictationEnabled) return
+    if (isProcessingRef.current) return
+    void toggleListeningRef.current()
+  }, [])
+
   useEffect(() => {
     const unlistenPromise = listen('global-dictation-toggle', () => {
-      if (!useAppStore.getState().settings.globalDictationEnabled) return
-      if (isProcessingRef.current) return
-      void toggleListeningRef.current()
+      requestToggle()
     })
 
+    const handleDomToggle = () => {
+      if (!useAppStore.getState().settings.globalDictationEnabled) return
+      requestToggle()
+    }
+    window.addEventListener('termspace:toggle-global-dictation', handleDomToggle)
+
     return () => {
+      window.removeEventListener('termspace:toggle-global-dictation', handleDomToggle)
       unlistenPromise.then((unlisten) => unlisten()).catch(console.error)
     }
-  }, [])
+  }, [requestToggle])
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('termspace:global-dictation-state', {

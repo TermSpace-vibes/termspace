@@ -185,6 +185,12 @@ export function useKeybindingHandler() {
 
     if (matchShortcut(e, keybindings.toggleDictation || 'CmdOrCtrl+Shift+M')) {
       if (e.repeat) return false
+      if (
+        settings.globalDictationEnabled &&
+        (settings.globalDictationHotkey || 'CmdOrCtrl+Shift+M') === (keybindings.toggleDictation || 'CmdOrCtrl+Shift+M')
+      ) {
+        return false
+      }
       e.preventDefault()
       window.dispatchEvent(new CustomEvent('termspace:toggle-dictation'))
       return true

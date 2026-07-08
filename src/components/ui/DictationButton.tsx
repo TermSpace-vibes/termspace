@@ -10,11 +10,27 @@ import { motion, PanInfo } from 'framer-motion';
 export const DictationButton: React.FC = () => {
   const activeTerminalId = useAppStore((state) => state.activeTerminalId);
   const addToast = useAppStore((state) => state.addToast);
+  const settings = useAppStore((state) => state.settings);
   const dictationButtonPosition = useAppStore((state) => state.dictationButtonPosition);
   const setDictationButtonPosition = useAppStore((state) => state.setDictationButtonPosition);
   const dragRef = useRef<HTMLDivElement>(null);
   // Track whether the user actually dragged so we don't fire a toggle on drag-end
   const didDragRef = useRef(false);
+  const [globalDictationState, setGlobalDictationState] = React.useState<{
+    isListening: boolean;
+    isProcessing: boolean;
+    interimTranscript: string;
+    toggleListening: () => void;
+  } | null>(null);
+
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const customEvent = event as CustomEvent<typeof globalDictationState>;
+      setGlobalDictationState(customEvent.detail);
+    };
+    window.addEventListener('termspace:global-dictation-state', handler);
+    return () => window.removeEventListener('termspace:global-dictation-state', handler);
+  }, []);
 
   // Clamp position to ensure it stays on screen if window is resized
   const clampedPosition = React.useMemo(() => {
@@ -55,10 +71,28 @@ export const DictationButton: React.FC = () => {
     }
   }, [addToast]);
 
-  const { isListening, isProcessing, toggleListening, interimTranscript } = useDictation({ onResult: handleResult, onError: handleError });
+  const terminalDictation = useDictation({
+    onResult: handleResult,
+    onError: handleError,
+    listenForGlobalToggle: !settings.globalDictationEnabled,
+  });
+  const fallbackGlobalDictation = React.useMemo(() => ({
+    isListening: false,
+    isProcessing: false,
+    interimTranscript: '',
+    toggleListening: () => window.dispatchEvent(new CustomEvent('termspace:toggle-global-dictation')),
+  }), []);
+  const activeDictation = settings.globalDictationEnabled
+    ? (globalDictationState || fallbackGlobalDictation)
+    : terminalDictation;
+  const { isListening, isProcessing, toggleListening, interimTranscript } = activeDictation;
   const isActive = isListening || isProcessing;
   const statusText = isProcessing ? 'Processing transcription...' : interimTranscript;
   const waveformBars = [12, 24, 16, 30, 20, 26, 14];
+
+  if (settings.globalDictationEnabled && settings.globalDictationShowFloatingButton === false) {
+    return null;
+  }
 
   return (
     <motion.div
@@ -111,7 +145,7 @@ export const DictationButton: React.FC = () => {
           transition: 'background-color 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s',
           outline: 'none',
         }}
-        title="Dictate to Terminal (Web Speech API)"
+        title={settings.globalDictationEnabled ? 'Dictate to Active App' : 'Dictate to Terminal'}
       >
         {isProcessing ? (
           <motion.div
