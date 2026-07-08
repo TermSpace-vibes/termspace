@@ -7,6 +7,7 @@ mod clipboard_insertion_service;
 mod commands;
 mod daemon_client;
 mod db;
+mod dictation_overlay_service;
 mod dictation_model;
 mod global_shortcut_service;
 pub mod lsp_manager;
@@ -132,6 +133,7 @@ pub fn run() {
             )));
             app.manage(global_shortcut_service::GlobalShortcutState::default());
             app.manage(tray_service::TrayState::default());
+            app.manage(dictation_overlay_service::DictationOverlayState::default());
 
             let ctx = match dictation_model::selected_model_path(app.handle()) {
                 Ok(Some(path)) => {
@@ -280,6 +282,12 @@ pub fn run() {
             commands::show_tray_icon,
             commands::hide_tray_icon,
             commands::set_tray_dictation_state,
+            commands::show_dictation_overlay,
+            commands::hide_dictation_overlay,
+            commands::move_dictation_overlay,
+            commands::toggle_global_dictation_from_overlay,
+            commands::update_dictation_overlay_state,
+            commands::get_dictation_overlay_state,
             commands::start_workspace_watcher,
             commands::stop_workspace_watcher,
             commands::spawn_lsp,
