@@ -12,9 +12,80 @@ interface GlobalInsertionResult {
   permissionRequired: string | null
 }
 
+function isEditableElement(element: Element | null): element is HTMLInputElement | HTMLTextAreaElement | HTMLElement {
+  if (!element || !(element instanceof HTMLElement)) return false
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+    return !element.disabled && !element.readOnly
+  }
+  return element.isContentEditable
+}
+
+function insertIntoEditableElement(element: HTMLElement, text: string) {
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+    const start = element.selectionStart ?? element.value.length
+    const end = element.selectionEnd ?? start
+    element.setRangeText(text, start, end, 'end')
+    element.dispatchEvent(new InputEvent('input', {
+      bubbles: true,
+      inputType: 'insertText',
+      data: text,
+    }))
+    return true
+  }
+
+  if (!element.isContentEditable) return false
+
+  element.focus()
+  const selection = window.getSelection()
+  if (!selection) return false
+
+  const range = selection.rangeCount > 0
+    ? selection.getRangeAt(0)
+    : document.createRange()
+
+  if (selection.rangeCount === 0) {
+    range.selectNodeContents(element)
+    range.collapse(false)
+  }
+
+  range.deleteContents()
+  const node = document.createTextNode(text)
+  range.insertNode(node)
+  range.setStartAfter(node)
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  element.dispatchEvent(new InputEvent('input', {
+    bubbles: true,
+    inputType: 'insertText',
+    data: text,
+  }))
+  return true
+}
+
+function hasKnownTerminal(terminalId: string | null) {
+  if (!terminalId) return false
+  const { terminalsByTab } = useAppStore.getState()
+  return Object.values(terminalsByTab).some((terminals) =>
+    terminals.some((terminal) => terminal.id === terminalId)
+  )
+}
+
 export function useGlobalTranscription() {
   const settings = useAppStore((s) => s.settings)
   const addToast = useAppStore((s) => s.addToast)
+  const lastEditableElementRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    const handleFocusIn = (event: FocusEvent) => {
+      if (isEditableElement(event.target as Element | null)) {
+        lastEditableElementRef.current = event.target as HTMLElement
+      }
+    }
+
+    window.addEventListener('focusin', handleFocusIn)
+    return () => window.removeEventListener('focusin', handleFocusIn)
+  }, [])
 
   const handleResult = useCallback(async (text: string) => {
     if (!text.trim()) {
@@ -24,6 +95,30 @@ export function useGlobalTranscription() {
 
     try {
       const currentSettings = useAppStore.getState().settings
+      const termspaceHasFocus = document.hasFocus()
+      const activeElement = document.activeElement
+
+      if (termspaceHasFocus) {
+        const editableTarget = isEditableElement(activeElement)
+          ? activeElement
+          : lastEditableElementRef.current
+
+        if (editableTarget && insertIntoEditableElement(editableTarget, text)) {
+          addToast('Dictation inserted.', 'success')
+          return
+        }
+
+        const activeTerminalId = useAppStore.getState().activeTerminalId
+        if (hasKnownTerminal(activeTerminalId)) {
+          await invoke('write_terminal', {
+            terminalId: activeTerminalId,
+            data: text,
+          })
+          addToast('Dictation inserted.', 'success')
+          return
+        }
+      }
+
       const result = await invoke<GlobalInsertionResult>('insert_text_into_active_app', {
         text,
         options: {

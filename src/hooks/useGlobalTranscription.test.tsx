@@ -81,6 +81,57 @@ describe('useGlobalTranscription', () => {
     })
   })
 
+  it('inserts into a focused Termspace text input without OS paste', async () => {
+    const input = document.createElement('input')
+    input.value = 'hello '
+    document.body.appendChild(input)
+    input.focus()
+    input.setSelectionRange(input.value.length, input.value.length)
+
+    renderHook(() => useGlobalTranscription())
+
+    await act(async () => {
+      await capturedOnResult?.('world ')
+    })
+
+    expect(input.value).toBe('hello world ')
+    expect(invokeMock).not.toHaveBeenCalledWith('insert_text_into_active_app', expect.anything())
+
+    input.remove()
+  })
+
+  it('writes into the active Termspace terminal when the app owns focus', async () => {
+    document.body.focus()
+    useAppStore.setState({
+      activeTerminalId: 'terminal-1',
+      terminalsByTab: {
+        'tab-1': [{
+          id: 'terminal-1',
+          workspaceId: 'workspace-1',
+          tabId: 'tab-1',
+          shell: 'zsh',
+          cwd: '/tmp',
+          title: 'Terminal',
+          position: 0,
+          sizePercent: 50,
+          createdAt: Date.now(),
+        }],
+      },
+    })
+
+    renderHook(() => useGlobalTranscription())
+
+    await act(async () => {
+      await capturedOnResult?.('ls ')
+    })
+
+    expect(invokeMock).toHaveBeenCalledWith('write_terminal', {
+      terminalId: 'terminal-1',
+      data: 'ls ',
+    })
+    expect(invokeMock).not.toHaveBeenCalledWith('insert_text_into_active_app', expect.anything())
+  })
+
   it('does not insert an empty transcript', async () => {
     renderHook(() => useGlobalTranscription())
 
