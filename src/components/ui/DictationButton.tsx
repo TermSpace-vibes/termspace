@@ -90,7 +90,7 @@ export const DictationButton: React.FC = () => {
   const statusText = isProcessing ? 'Processing transcription...' : interimTranscript;
   const waveformBars = [12, 24, 16, 30, 20, 26, 14];
 
-  if (settings.globalDictationEnabled && settings.globalDictationShowFloatingButton === false) {
+  if (settings.globalDictationEnabled) {
     return null;
   }
 
