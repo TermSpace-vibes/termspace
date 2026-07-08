@@ -721,9 +721,29 @@ impl BrowserPaneManager {
             "previoustrack" | "nexttrack" => format!(
                 r#"(function() {{
                     var h = window.__termspaceMediaHandlers && window.__termspaceMediaHandlers['{action}'];
-                    if (h) h();
+                    if (h) {{
+                        h();
+                        return;
+                    }}
+                    if (location.hostname === 'youtube.com' || location.hostname.endsWith('.youtube.com') || location.hostname === 'youtu.be') {{
+                        var selector = '{selector}';
+                        var btn = document.querySelector(selector);
+                        if (btn) {{
+                            btn.click();
+                            return;
+                        }}
+                        if ('{action}' === 'previoustrack') {{
+                            var video = document.querySelector('video');
+                            if (video) video.currentTime = 0;
+                        }}
+                    }}
                 }})();"#,
-                action = action
+                action = action,
+                selector = if action == "nexttrack" {
+                    ".ytp-next-button, a.ytp-next-button"
+                } else {
+                    ".ytp-prev-button, a.ytp-prev-button"
+                }
             ),
             "play" => format!(
                 r#"(function() {{

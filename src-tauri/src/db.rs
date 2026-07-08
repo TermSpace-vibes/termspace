@@ -238,6 +238,23 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+fn ui_state_key(key: &str) -> String {
+    format!("ui:{key}")
+}
+
+pub fn get_ui_state(conn: &Connection, key: &str) -> Result<Option<String>> {
+    get_setting(conn, &ui_state_key(key))
+}
+
+pub fn set_ui_state(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    set_setting(conn, &ui_state_key(key), value)
+}
+
+pub fn delete_ui_state(conn: &Connection, key: &str) -> Result<()> {
+    conn.execute("DELETE FROM settings WHERE key=?1", params![ui_state_key(key)])?;
+    Ok(())
+}
+
 pub fn create_workspace(
     conn: &Connection,
     name: &str,
@@ -635,6 +652,38 @@ mod tests {
         assert_eq!(count, 4);
 
         // Clean up the temp DB file (and any WAL/SHM sidecars).
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("db-wal"));
+        let _ = std::fs::remove_file(path.with_extension("db-shm"));
+    }
+
+    #[test]
+    fn test_ui_state_settings_roundtrip() {
+        let path = std::env::temp_dir().join(format!(
+            "termspace_ui_state_test_{}_{}.db",
+            std::process::id(),
+            now_ms()
+        ));
+        let conn = init_db(&path).unwrap();
+
+        assert_eq!(get_ui_state(&conn, "workspace-ui-state-v1").unwrap(), None);
+
+        set_ui_state(&conn, "workspace-ui-state-v1", r#"{"activeTabIds":{"ws-1":"tab-2"}}"#).unwrap();
+        assert_eq!(
+            get_ui_state(&conn, "workspace-ui-state-v1").unwrap(),
+            Some(r#"{"activeTabIds":{"ws-1":"tab-2"}}"#.to_string())
+        );
+
+        set_ui_state(&conn, "workspace-ui-state-v1", r#"{"activeTabIds":{"ws-1":"tab-3"}}"#).unwrap();
+        assert_eq!(
+            get_ui_state(&conn, "workspace-ui-state-v1").unwrap(),
+            Some(r#"{"activeTabIds":{"ws-1":"tab-3"}}"#.to_string())
+        );
+
+        delete_ui_state(&conn, "workspace-ui-state-v1").unwrap();
+        assert_eq!(get_ui_state(&conn, "workspace-ui-state-v1").unwrap(), None);
+
         drop(conn);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("db-wal"));

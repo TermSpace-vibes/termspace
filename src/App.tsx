@@ -15,7 +15,10 @@ import { DictationButton } from './components/ui/DictationButton'
 import { useGlobalKeybindings } from './hooks/useGlobalKeybindings'
 import { useBrowserMediaBridge } from './hooks/useBrowserMediaBridge'
 import { useGlobalTranscription } from './hooks/useGlobalTranscription'
+import { buildDurableWorkspaceUiState, useSqliteUiStateSync, WORKSPACE_UI_STATE_KEY } from './hooks/useSqliteUiStateSync'
 import { Workspace, Terminal, EditorPane, BrowserPane } from './types'
+import { getSqliteUiState, setSqliteUiState } from './utils/sqliteUiState'
+import type { DurableWorkspaceUiState } from './store/useAppStore'
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
 import { open } from '@tauri-apps/plugin-dialog'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -62,6 +65,7 @@ export default function App() {
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null)
   const [workspaceToDelete, setWorkspaceToDelete] = useState<Workspace | null>(null)
   const [loading, setLoading] = useState(true)
+  const [uiStateHydrated, setUiStateHydrated] = useState(false)
   const [bootstrapError, setBootstrapError] = useState<string | null>(null)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [isAnimatingSidebar, setIsAnimatingSidebar] = useState(false)
@@ -85,6 +89,7 @@ export default function App() {
   useGlobalKeybindings()
   useBrowserMediaBridge()
   useGlobalTranscription()
+  useSqliteUiStateSync(uiStateHydrated)
 
   useEffect(() => {
     const handleToggleSidebar = () => {
@@ -285,6 +290,19 @@ export default function App() {
         }
       } catch (e) {
         console.error("Failed to load username", e)
+      }
+
+      try {
+        const durableUiState = await getSqliteUiState<DurableWorkspaceUiState>(WORKSPACE_UI_STATE_KEY)
+        if (durableUiState) {
+          useAppStore.getState().hydrateDurableUiState(durableUiState)
+        } else {
+          await setSqliteUiState(WORKSPACE_UI_STATE_KEY, buildDurableWorkspaceUiState())
+        }
+      } catch (e) {
+        console.error("Failed to load durable UI state", e)
+      } finally {
+        if (isMounted) setUiStateHydrated(true)
       }
 
       const wsList = await withTimeout(invoke<Workspace[]>('get_workspaces'), 5000, 'get_workspaces')

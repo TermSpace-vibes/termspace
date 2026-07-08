@@ -1187,6 +1187,25 @@ pub fn search_files_by_name(path: String, query: String) -> Result<Vec<String>, 
 pub fn clear_database(db: State<DbState>) -> Result<(), String> {
     db::clear_all_data(&db.0.lock()).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn get_ui_state(db: State<DbState>, key: String) -> Result<Option<String>, String> {
+    let conn = db.0.lock();
+    db::get_ui_state(&conn, &key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_ui_state(db: State<DbState>, key: String, value: String) -> Result<(), String> {
+    let conn = db.0.lock();
+    db::set_ui_state(&conn, &key, &value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_ui_state(db: State<DbState>, key: String) -> Result<(), String> {
+    let conn = db.0.lock();
+    db::delete_ui_state(&conn, &key).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn get_username(db: State<DbState>) -> Result<Option<String>, String> {
     let conn = db.0.lock();
