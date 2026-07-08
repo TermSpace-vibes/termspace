@@ -109,32 +109,74 @@ enum PasteError {
 }
 
 #[cfg(target_os = "macos")]
+fn paste_automation_backend() -> &'static str {
+    "core_graphics"
+}
+
+#[cfg(target_os = "macos")]
 fn simulate_paste() -> Result<(), PasteError> {
-    let output = std::process::Command::new("osascript")
-        .args([
-            "-e",
-            r#"tell application "System Events" to keystroke "v" using command down"#,
-        ])
-        .output()
-        .map_err(|error| PasteError::Failed(format!("Failed to run paste automation: {error}")))?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    if stderr.contains("not allowed assistive access")
-        || stderr.contains("assistive")
-        || stderr.contains("Accessibility")
-        || stderr.contains("1002")
+    if !crate::platform_permissions::get_global_dictation_permission_status().accessibility_granted
     {
         return Err(PasteError::PermissionRequired("accessibility"));
     }
 
-    Err(PasteError::Failed(format!(
-        "Automatic paste failed; transcript was copied. {}",
-        stderr.trim()
-    )))
+    macos_native_paste::send_cmd_v()
+}
+
+#[cfg(target_os = "macos")]
+mod macos_native_paste {
+    use super::PasteError;
+    use std::{ffi::c_void, ptr, thread, time::Duration};
+
+    type CGEventRef = *mut c_void;
+    type CGEventSourceRef = *mut c_void;
+    type CGEventTapLocation = u32;
+    type CGEventFlags = u64;
+    type CGKeyCode = u16;
+
+    const K_CG_HID_EVENT_TAP: CGEventTapLocation = 0;
+    const K_CG_EVENT_FLAG_MASK_COMMAND: CGEventFlags = 1 << 20;
+    const KEY_CODE_V: CGKeyCode = 0x09;
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn CGEventCreateKeyboardEvent(
+            source: CGEventSourceRef,
+            virtual_key: CGKeyCode,
+            key_down: bool,
+        ) -> CGEventRef;
+        fn CGEventSetFlags(event: CGEventRef, flags: CGEventFlags);
+        fn CGEventPost(tap: CGEventTapLocation, event: CGEventRef);
+        fn CFRelease(cf: *const c_void);
+    }
+
+    pub fn send_cmd_v() -> Result<(), PasteError> {
+        unsafe {
+            let key_down = CGEventCreateKeyboardEvent(ptr::null_mut(), KEY_CODE_V, true);
+            let key_up = CGEventCreateKeyboardEvent(ptr::null_mut(), KEY_CODE_V, false);
+
+            if key_down.is_null() || key_up.is_null() {
+                if !key_down.is_null() {
+                    CFRelease(key_down.cast());
+                }
+                if !key_up.is_null() {
+                    CFRelease(key_up.cast());
+                }
+                return Err(PasteError::PermissionRequired("accessibility"));
+            }
+
+            CGEventSetFlags(key_down, K_CG_EVENT_FLAG_MASK_COMMAND);
+            CGEventSetFlags(key_up, K_CG_EVENT_FLAG_MASK_COMMAND);
+            CGEventPost(K_CG_HID_EVENT_TAP, key_down);
+            thread::sleep(Duration::from_millis(20));
+            CGEventPost(K_CG_HID_EVENT_TAP, key_up);
+
+            CFRelease(key_down.cast());
+            CFRelease(key_up.cast());
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -193,5 +235,11 @@ mod tests {
         assert_eq!(clamp_paste_delay(10), 50);
         assert_eq!(clamp_paste_delay(120), 120);
         assert_eq!(clamp_paste_delay(5000), 1000);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_paste_backend_uses_termspace_accessibility_identity() {
+        assert_eq!(paste_automation_backend(), "core_graphics");
     }
 }
