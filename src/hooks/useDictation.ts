@@ -13,6 +13,7 @@ declare global {
 interface UseDictationProps {
   onResult: (text: string) => void;
   onError?: (error: string) => void;
+  onStateChange?: (state: { isListening: boolean; isProcessing: boolean }) => void;
   listenForGlobalToggle?: boolean;
 }
 
@@ -26,7 +27,7 @@ interface DictationModelStatus {
   error: string | null;
 }
 
-export function useDictation({ onResult, onError, listenForGlobalToggle = true }: UseDictationProps) {
+export function useDictation({ onResult, onError, onStateChange, listenForGlobalToggle = true }: UseDictationProps) {
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
@@ -43,6 +44,7 @@ export function useDictation({ onResult, onError, listenForGlobalToggle = true }
     isListeningRef.current = false;
     setIsListening(false);
     setIsProcessing(true);
+    onStateChange?.({ isListening: false, isProcessing: true });
     setInterimTranscript('Processing transcription...');
 
     const currentRate = audioContextRef.current ? audioContextRef.current.sampleRate : 16000;
@@ -69,6 +71,7 @@ export function useDictation({ onResult, onError, listenForGlobalToggle = true }
     if (audioDataRef.current.length === 0) {
       setInterimTranscript('');
       setIsProcessing(false);
+      onStateChange?.({ isListening: false, isProcessing: false });
       return;
     }
 
@@ -184,8 +187,9 @@ export function useDictation({ onResult, onError, listenForGlobalToggle = true }
     
     setInterimTranscript('');
     setIsProcessing(false);
+    onStateChange?.({ isListening: false, isProcessing: false });
     audioDataRef.current = [];
-  }, [onResult, onError]);
+  }, [onResult, onError, onStateChange]);
 
   const toggleListening = useCallback(async () => {
     if (isListeningRef.current) {
@@ -254,6 +258,7 @@ export function useDictation({ onResult, onError, listenForGlobalToggle = true }
 
       isListeningRef.current = true;
       setIsListening(true);
+      onStateChange?.({ isListening: true, isProcessing: false });
       setInterimTranscript('Listening...');
       const providerName = provider === 'openai' ? 'OpenAI' : provider === 'groq' ? 'Groq' : 'Local';
       useAppStore.getState().addToast(`${providerName} Dictation started.`, 'success');
@@ -264,7 +269,7 @@ export function useDictation({ onResult, onError, listenForGlobalToggle = true }
       const isModelError = /model|transcription/i.test(message);
       if (onError) onError(isModelError ? message : 'Microphone access denied or error occurred.');
     }
-  }, [stopRecordingAndTranscribe, onError]);
+  }, [stopRecordingAndTranscribe, onError, onStateChange]);
 
   useEffect(() => {
     if (!listenForGlobalToggle) return;

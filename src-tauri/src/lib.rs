@@ -48,6 +48,9 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        if let Some(state) = app.try_state::<tray_service::TrayState>() {
+                            let _ = tray_service::mark_global_dictation_toggle_requested(&state);
+                        }
                         let _ = app.emit("global-dictation-toggle", ());
                     }
                 })

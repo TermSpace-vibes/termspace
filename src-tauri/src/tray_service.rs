@@ -13,6 +13,7 @@ const PROCESSING_ICON: &[u8] = include_bytes!("../icons/tray/processing.png");
 pub struct TrayState {
     pub active: AtomicBool,
     pub icon: Mutex<Option<tauri::tray::TrayIcon>>,
+    pub dictation_state: Mutex<String>,
 }
 
 pub fn icon_bytes_for_state(state: &str) -> &'static [u8] {
@@ -25,6 +26,18 @@ pub fn icon_bytes_for_state(state: &str) -> &'static [u8] {
 
 pub fn is_active(state: &TrayState) -> bool {
     state.active.load(Ordering::SeqCst)
+}
+
+pub fn current_dictation_state(state: &TrayState) -> String {
+    state.dictation_state.lock().clone()
+}
+
+pub fn next_state_after_global_toggle(current: &str) -> &'static str {
+    match current {
+        "listening" => "processing",
+        "processing" => "processing",
+        _ => "listening",
+    }
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -81,6 +94,9 @@ pub fn show_tray_icon(app: &AppHandle, state: &TrayState) -> Result<(), String> 
             } = event
             {
                 let app = tray.app_handle();
+                if let Some(state) = app.try_state::<TrayState>() {
+                    let _ = mark_global_dictation_toggle_requested(&state);
+                }
                 let _ = app.emit("global-dictation-toggle", ());
             }
         })
@@ -99,13 +115,26 @@ pub fn hide_tray_icon(state: &TrayState) -> Result<(), String> {
 }
 
 pub fn set_tray_dictation_state(state: &TrayState, dictation_state: &str) -> Result<(), String> {
+    let normalized_state = match dictation_state {
+        "listening" => "listening",
+        "processing" => "processing",
+        _ => "idle",
+    };
+    *state.dictation_state.lock() = normalized_state.to_string();
+
     let guard = state.icon.lock();
     if let Some(tray) = guard.as_ref() {
-        let image = Image::from_bytes(icon_bytes_for_state(dictation_state)).map_err(|e| e.to_string())?;
+        let image = Image::from_bytes(icon_bytes_for_state(normalized_state)).map_err(|e| e.to_string())?;
         tray.set_icon_with_as_template(Some(image), true)
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+pub fn mark_global_dictation_toggle_requested(state: &TrayState) -> Result<(), String> {
+    let current = current_dictation_state(state);
+    let next = next_state_after_global_toggle(&current);
+    set_tray_dictation_state(state, next)
 }
 
 #[cfg(test)]
@@ -123,6 +152,29 @@ mod tests {
     fn unknown_state_falls_back_to_idle() {
         assert_eq!(icon_bytes_for_state("bogus"), IDLE_ICON);
         assert_eq!(icon_bytes_for_state(""), IDLE_ICON);
+    }
+
+    #[test]
+    fn global_toggle_moves_idle_to_listening() {
+        let state = TrayState::default();
+        mark_global_dictation_toggle_requested(&state).unwrap();
+        assert_eq!(current_dictation_state(&state), "listening");
+    }
+
+    #[test]
+    fn global_toggle_moves_listening_to_processing() {
+        let state = TrayState::default();
+        set_tray_dictation_state(&state, "listening").unwrap();
+        mark_global_dictation_toggle_requested(&state).unwrap();
+        assert_eq!(current_dictation_state(&state), "processing");
+    }
+
+    #[test]
+    fn global_toggle_keeps_processing_state() {
+        let state = TrayState::default();
+        set_tray_dictation_state(&state, "processing").unwrap();
+        mark_global_dictation_toggle_requested(&state).unwrap();
+        assert_eq!(current_dictation_state(&state), "processing");
     }
 
     #[test]
