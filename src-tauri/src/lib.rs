@@ -8,6 +8,7 @@ mod commands;
 mod daemon_client;
 mod db;
 mod dictation_model;
+mod global_shortcut_service;
 pub mod lsp_manager;
 mod native_terminal_manager;
 mod platform_permissions;
@@ -19,7 +20,7 @@ use daemon_client::{ensure_daemon_running, DaemonClient};
 use native_terminal_manager::NativeTerminalManager;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -41,6 +42,15 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        let _ = app.emit("global-dictation-toggle", ());
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
             #[cfg(target_os = "macos")]
             {
@@ -119,6 +129,7 @@ pub fn run() {
             app.manage(commands::WatcherState(std::sync::Mutex::new(
                 std::collections::HashMap::new(),
             )));
+            app.manage(global_shortcut_service::GlobalShortcutState::default());
 
             let ctx = match dictation_model::selected_model_path(app.handle()) {
                 Ok(Some(path)) => {
@@ -246,6 +257,9 @@ pub fn run() {
             commands::transcribe_openai,
             commands::insert_text_into_active_app,
             commands::open_accessibility_settings,
+            commands::register_global_dictation_shortcut,
+            commands::unregister_global_dictation_shortcut,
+            commands::get_global_dictation_shortcut_status,
             commands::start_workspace_watcher,
             commands::stop_workspace_watcher,
             commands::spawn_lsp,

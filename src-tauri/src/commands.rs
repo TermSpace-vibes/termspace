@@ -7,6 +7,9 @@ use crate::db::{self, Terminal, Workspace};
 use crate::dictation_model::{
     self, DictationModelStatus, MODEL_PART_FILE_NAME, MODEL_URL,
 };
+use crate::global_shortcut_service::{
+    self, GlobalShortcutState, GlobalShortcutStatus,
+};
 use crate::native_terminal_manager::NativeTerminalManager;
 use crate::platform_permissions;
 use notify_debouncer_mini::{
@@ -1397,6 +1400,30 @@ pub fn insert_text_into_active_app(
 #[tauri::command]
 pub fn open_accessibility_settings() -> Result<(), String> {
     platform_permissions::open_accessibility_settings()
+}
+
+#[tauri::command]
+pub fn register_global_dictation_shortcut(
+    app: AppHandle,
+    state: State<'_, GlobalShortcutState>,
+    shortcut: String,
+) -> Result<GlobalShortcutStatus, String> {
+    global_shortcut_service::register(&app, &state, shortcut)
+}
+
+#[tauri::command]
+pub fn unregister_global_dictation_shortcut(
+    app: AppHandle,
+    state: State<'_, GlobalShortcutState>,
+) -> Result<GlobalShortcutStatus, String> {
+    global_shortcut_service::unregister(&app, &state)
+}
+
+#[tauri::command]
+pub fn get_global_dictation_shortcut_status(
+    state: State<'_, GlobalShortcutState>,
+) -> Result<GlobalShortcutStatus, String> {
+    Ok(global_shortcut_service::get_status(&state))
 }
 
 #[derive(serde::Serialize)]
