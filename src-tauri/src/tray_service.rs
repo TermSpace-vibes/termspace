@@ -61,6 +61,7 @@ pub fn show_tray_icon(app: &AppHandle, state: &TrayState) -> Result<(), String> 
 
     let tray = TrayIconBuilder::new()
         .icon(icon)
+        .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -101,7 +102,8 @@ pub fn set_tray_dictation_state(state: &TrayState, dictation_state: &str) -> Res
     let guard = state.icon.lock();
     if let Some(tray) = guard.as_ref() {
         let image = Image::from_bytes(icon_bytes_for_state(dictation_state)).map_err(|e| e.to_string())?;
-        tray.set_icon(Some(image)).map_err(|e| e.to_string())?;
+        tray.set_icon_with_as_template(Some(image), true)
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }

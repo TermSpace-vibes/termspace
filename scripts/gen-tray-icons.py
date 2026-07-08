@@ -46,17 +46,19 @@ def circle_pixels(filled, ring_width=2, dot=False):
             dist = (dx * dx + dy * dy) ** 0.5
             on = dist <= r_outer and (filled or dist >= r_inner)
             if on:
-                pixels.append((20, 20, 20, 255))
+                pixels.append((0, 0, 0, 255))
             else:
                 pixels.append((0, 0, 0, 0))
     if dot:
-        dot_r = 2.2
+        # Template images ignore RGB and render purely from the alpha silhouette,
+        # so the "processing" marker must be a transparent cutout, not a color change.
+        hole_r = 2.2
         for y in range(SIZE):
             for x in range(SIZE):
                 dx, dy = x - cx, y - cy
-                if (dx * dx + dy * dy) ** 0.5 <= dot_r:
+                if (dx * dx + dy * dy) ** 0.5 <= hole_r:
                     idx = y * SIZE + x
-                    pixels[idx] = (255, 255, 255, 255)
+                    pixels[idx] = (0, 0, 0, 0)
     return pixels
 
 
