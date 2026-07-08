@@ -24,6 +24,9 @@ import getThemeServiceOverride from '@codingame/monaco-vscode-theme-service-over
 import getLanguageDetectionServiceOverride from '@codingame/monaco-vscode-language-detection-worker-service-override'
 
 import { registerDefaultExtensions } from './default-extensions'
+import { registerDynamicTheme, type DynamicThemeTokenColor } from './dynamic-theme'
+
+export { registerDynamicTheme, type DynamicThemeTokenColor }
 
 let initPromise: Promise<void> | null = null
 
@@ -83,3 +86,4 @@ export async function initializeExtensions(): Promise<void> {
 
   return initPromise
 }
+

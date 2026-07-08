@@ -80,8 +80,9 @@
 | `src/utils/shortcuts.ts` | — |
 | `src/utils/tauri.ts` | — |
 | `src/vscode-extensions/default-extensions.ts` | — |
+| `src/vscode-extensions/dynamic-theme.ts` | — |
 | `src/vscode-extensions/extensions.ts` | — |
-| `src/vscode-extensions/setup.ts` | `src/vscode-extensions/default-extensions.ts` |
+| `src/vscode-extensions/setup.ts` | `src/vscode-extensions/default-extensions.ts`, `src/vscode-extensions/dynamic-theme.ts` |
 
 ## Table 2 — Dependents / Ripple Risk (sorted by blast radius)
 
@@ -147,6 +148,7 @@
 | `src/utils/lspManager.ts` | 1 | `src/components/EditorPane.tsx` |
 | `src/utils/shortcuts.ts` | 1 | `src/hooks/useGlobalKeybindings.ts` |
 | `src/vscode-extensions/default-extensions.ts` | 1 | `src/vscode-extensions/setup.ts` |
+| `src/vscode-extensions/dynamic-theme.ts` | 1 | `src/vscode-extensions/setup.ts` |
 | `src/vscode-extensions/setup.ts` | 1 | `src/components/EditorPane.tsx` |
 | `src/components/EditorWelcomeScreen.tsx` | 0 | — |
 | `src/components/ErrorBoundary.tsx` | 0 | — |
