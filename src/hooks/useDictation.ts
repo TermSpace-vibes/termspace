@@ -13,6 +13,7 @@ declare global {
 interface UseDictationProps {
   onResult: (text: string) => void;
   onError?: (error: string) => void;
+  listenForGlobalToggle?: boolean;
 }
 
 interface DictationModelStatus {
@@ -25,7 +26,7 @@ interface DictationModelStatus {
   error: string | null;
 }
 
-export function useDictation({ onResult, onError }: UseDictationProps) {
+export function useDictation({ onResult, onError, listenForGlobalToggle = true }: UseDictationProps) {
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
@@ -266,10 +267,12 @@ export function useDictation({ onResult, onError }: UseDictationProps) {
   }, [stopRecordingAndTranscribe, onError]);
 
   useEffect(() => {
+    if (!listenForGlobalToggle) return;
+
     const handleGlobalToggle = () => toggleListening();
     window.addEventListener('termspace:toggle-dictation', handleGlobalToggle as EventListener);
     return () => window.removeEventListener('termspace:toggle-dictation', handleGlobalToggle as EventListener);
-  }, [toggleListening]);
+  }, [toggleListening, listenForGlobalToggle]);
 
   return { isListening, isProcessing, toggleListening, mediaStream: streamRef.current, interimTranscript };
 }

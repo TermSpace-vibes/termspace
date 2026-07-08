@@ -14,6 +14,7 @@ import { MarkdownModal } from './components/MarkdownModal/MarkdownModal'
 import { DictationButton } from './components/ui/DictationButton'
 import { useGlobalKeybindings } from './hooks/useGlobalKeybindings'
 import { useBrowserMediaBridge } from './hooks/useBrowserMediaBridge'
+import { useGlobalTranscription } from './hooks/useGlobalTranscription'
 import { Workspace, Terminal, EditorPane, BrowserPane } from './types'
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
 import { open } from '@tauri-apps/plugin-dialog'
@@ -83,6 +84,7 @@ export default function App() {
 
   useGlobalKeybindings()
   useBrowserMediaBridge()
+  useGlobalTranscription()
 
   useEffect(() => {
     const handleToggleSidebar = () => {
@@ -744,4 +746,3 @@ export default function App() {
     </div>
   )
 }
-
