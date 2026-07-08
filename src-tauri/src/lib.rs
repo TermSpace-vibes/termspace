@@ -12,6 +12,7 @@ mod global_shortcut_service;
 pub mod lsp_manager;
 mod native_terminal_manager;
 mod platform_permissions;
+mod tray_service;
 
 use browser_pane_manager::BrowserPaneManager;
 use claude_session_manager::ClaudeSessionManager;
