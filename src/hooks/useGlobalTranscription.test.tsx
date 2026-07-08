@@ -7,6 +7,7 @@ const invokeMock = vi.fn()
 const listenMock = vi.fn()
 const toggleListeningMock = vi.fn()
 let capturedOnResult: ((text: string) => void | Promise<void>) | null = null
+let dictationMockState = { isListening: false, isProcessing: false }
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
@@ -20,8 +21,8 @@ vi.mock('./useDictation', () => ({
   useDictation: ({ onResult }: { onResult: (text: string) => void | Promise<void> }) => {
     capturedOnResult = onResult
     return {
-      isListening: false,
-      isProcessing: false,
+      isListening: dictationMockState.isListening,
+      isProcessing: dictationMockState.isProcessing,
       interimTranscript: '',
       toggleListening: toggleListeningMock,
     }
@@ -32,6 +33,7 @@ describe('useGlobalTranscription', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     capturedOnResult = null
+    dictationMockState = { isListening: false, isProcessing: false }
     listenMock.mockResolvedValue(() => {})
     invokeMock.mockResolvedValue({
       inserted: true,
@@ -140,5 +142,72 @@ describe('useGlobalTranscription', () => {
     })
 
     expect(invokeMock).not.toHaveBeenCalledWith('insert_text_into_active_app', expect.anything())
+  })
+
+  it('shows the tray icon when global dictation is enabled', async () => {
+    renderHook(() => useGlobalTranscription())
+
+    await act(async () => {})
+
+    expect(invokeMock).toHaveBeenCalledWith('show_tray_icon')
+  })
+
+  it('hides the tray icon when global dictation is disabled', async () => {
+    useAppStore.setState({
+      settings: {
+        ...useAppStore.getState().settings,
+        globalDictationEnabled: false,
+      },
+    })
+
+    renderHook(() => useGlobalTranscription())
+
+    await act(async () => {})
+
+    expect(invokeMock).toHaveBeenCalledWith('hide_tray_icon')
+  })
+
+  it('reports listening/processing state to the tray icon', async () => {
+    dictationMockState = { isListening: true, isProcessing: false }
+
+    const { rerender } = renderHook(() => useGlobalTranscription())
+
+    await act(async () => {})
+
+    expect(invokeMock).toHaveBeenCalledWith('set_tray_dictation_state', {
+      dictationState: 'listening',
+    })
+
+    dictationMockState = { isListening: false, isProcessing: true }
+    rerender()
+
+    await act(async () => {})
+
+    expect(invokeMock).toHaveBeenCalledWith('set_tray_dictation_state', {
+      dictationState: 'processing',
+    })
+  })
+
+  it('forwards open-dictation-settings to the existing settings event', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+    let settingsHandler: (() => void) | undefined
+
+    listenMock.mockImplementation((event: string, handler: () => void) => {
+      if (event === 'open-dictation-settings') {
+        settingsHandler = handler
+      }
+      return Promise.resolve(() => {})
+    })
+
+    renderHook(() => useGlobalTranscription())
+
+    await act(async () => {})
+    settingsHandler?.()
+
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'termspace:open-settings' })
+    )
+
+    dispatchSpy.mockRestore()
   })
 })

@@ -172,6 +172,7 @@ export function useGlobalTranscription() {
   useEffect(() => {
     if (!settings.globalDictationEnabled) {
       invoke('unregister_global_dictation_shortcut').catch(console.error)
+      invoke('hide_tray_icon').catch(console.error)
       return
     }
 
@@ -180,7 +181,20 @@ export function useGlobalTranscription() {
     }).catch((error) => {
       addToast(`Global dictation hotkey failed: ${error}`, 'error')
     })
+    invoke('show_tray_icon').catch((error) => {
+      addToast(`Tray icon failed: ${error}`, 'error')
+    })
   }, [addToast, settings.globalDictationEnabled, settings.globalDictationHotkey])
+
+  useEffect(() => {
+    if (!settings.globalDictationEnabled) return
+    const state = dictation.isProcessing
+      ? 'processing'
+      : dictation.isListening
+        ? 'listening'
+        : 'idle'
+    invoke('set_tray_dictation_state', { dictationState: state }).catch(console.error)
+  }, [dictation.isListening, dictation.isProcessing, settings.globalDictationEnabled])
 
   const requestToggle = useCallback(() => {
     if (!useAppStore.getState().settings.globalDictationEnabled) return
@@ -210,6 +224,16 @@ export function useGlobalTranscription() {
       detail: dictation,
     }))
   }, [dictation])
+
+  useEffect(() => {
+    const unlistenPromise = listen('open-dictation-settings', () => {
+      window.dispatchEvent(new CustomEvent('termspace:open-settings'))
+    })
+
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten()).catch(console.error)
+    }
+  }, [])
 
   return dictation
 }
