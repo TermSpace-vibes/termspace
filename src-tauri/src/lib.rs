@@ -3,12 +3,14 @@ mod agent_hook;
 mod audio;
 mod browser_pane_manager;
 mod claude_session_manager;
+mod clipboard_insertion_service;
 mod commands;
 mod daemon_client;
 mod db;
 mod dictation_model;
 pub mod lsp_manager;
 mod native_terminal_manager;
+mod platform_permissions;
 
 use browser_pane_manager::BrowserPaneManager;
 use claude_session_manager::ClaudeSessionManager;
@@ -242,6 +244,8 @@ pub fn run() {
             commands::download_dictation_model,
             commands::transcribe_chunk,
             commands::transcribe_openai,
+            commands::insert_text_into_active_app,
+            commands::open_accessibility_settings,
             commands::start_workspace_watcher,
             commands::stop_workspace_watcher,
             commands::spawn_lsp,

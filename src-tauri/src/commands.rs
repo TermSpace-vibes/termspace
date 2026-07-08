@@ -1,10 +1,14 @@
 use crate::browser_pane_manager::BrowserPaneManager;
 use crate::claude_session_manager::ClaudeSessionManager;
+use crate::clipboard_insertion_service::{
+    self, GlobalInsertionOptions, GlobalInsertionResult,
+};
 use crate::db::{self, Terminal, Workspace};
 use crate::dictation_model::{
     self, DictationModelStatus, MODEL_PART_FILE_NAME, MODEL_URL,
 };
 use crate::native_terminal_manager::NativeTerminalManager;
+use crate::platform_permissions;
 use notify_debouncer_mini::{
     new_debouncer,
     notify::{self, RecursiveMode},
@@ -1379,6 +1383,20 @@ pub async fn transcribe_openai(
         .await
         .map_err(|e| e.to_string())?;
     Ok(response.text)
+}
+
+#[tauri::command]
+pub fn insert_text_into_active_app(
+    app: AppHandle,
+    text: String,
+    options: GlobalInsertionOptions,
+) -> Result<GlobalInsertionResult, String> {
+    clipboard_insertion_service::insert_text_into_active_app(&app, text, options)
+}
+
+#[tauri::command]
+pub fn open_accessibility_settings() -> Result<(), String> {
+    platform_permissions::open_accessibility_settings()
 }
 
 #[derive(serde::Serialize)]
