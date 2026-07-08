@@ -105,6 +105,12 @@ export function SettingsModal({ onClose }: Props) {
     settings.toolPaneBehavior || 'split'
   )
   const [smoothCaret, setSmoothCaret] = useState(settings.smoothCaret ?? true)
+  const [globalDictationEnabled, setGlobalDictationEnabled] = useState(settings.globalDictationEnabled ?? false)
+  const [globalDictationHotkey, setGlobalDictationHotkey] = useState(settings.globalDictationHotkey || 'CmdOrCtrl+Shift+M')
+  const [globalDictationAutoPaste, setGlobalDictationAutoPaste] = useState(settings.globalDictationAutoPaste ?? true)
+  const [globalDictationRestoreClipboard, setGlobalDictationRestoreClipboard] = useState(settings.globalDictationRestoreClipboard ?? true)
+  const [globalDictationShowFloatingButton, setGlobalDictationShowFloatingButton] = useState(settings.globalDictationShowFloatingButton ?? true)
+  const [globalDictationPasteDelayMs, setGlobalDictationPasteDelayMs] = useState(settings.globalDictationPasteDelayMs ?? 120)
   const [keybindings, setKeybindings] = useState<Settings['keybindings']>({
     newTerminal: settings.keybindings?.newTerminal || 'CmdOrCtrl+T',
     closeTerminal: settings.keybindings?.closeTerminal || 'CmdOrCtrl+W',
@@ -194,7 +200,30 @@ export function SettingsModal({ onClose }: Props) {
   }
 
   function handleSave() {
-    updateSettings({ theme, fontSize, lineHeight, defaultShell, uiFontFamily, terminalFontFamily, timeFormat, autosave, showTabBar, iconTheme, keybindings, defaultTerminalType, smoothCaret, terminalRenderer, showWorkspaceDefaultPaths, toolPaneBehavior })
+    updateSettings({
+      theme,
+      fontSize,
+      lineHeight,
+      defaultShell,
+      uiFontFamily,
+      terminalFontFamily,
+      timeFormat,
+      autosave,
+      showTabBar,
+      iconTheme,
+      keybindings,
+      defaultTerminalType,
+      smoothCaret,
+      terminalRenderer,
+      showWorkspaceDefaultPaths,
+      toolPaneBehavior,
+      globalDictationEnabled,
+      globalDictationHotkey,
+      globalDictationAutoPaste,
+      globalDictationRestoreClipboard,
+      globalDictationShowFloatingButton,
+      globalDictationPasteDelayMs,
+    })
     useAppStore.getState().addToast('Settings saved', 'success')
     onClose()
   }
@@ -632,6 +661,95 @@ export function SettingsModal({ onClose }: Props) {
                       )}
                     </div>
                   )}
+
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 10,
+                    padding: 12,
+                    background: 'var(--bg-sidebar)',
+                    border: '1px solid var(--border-inactive)',
+                    borderRadius: 8,
+                    marginTop: 4
+                  }}>
+                    <div style={{ fontSize: 13, color: 'var(--text-active)', fontWeight: 600 }}>System-wide dictation</div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={globalDictationEnabled}
+                        onChange={(e) => setGlobalDictationEnabled(e.target.checked)}
+                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
+                      />
+                      <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Enable system-wide dictation</span>
+                    </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <label htmlFor="global-dictation-hotkey" style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Global hotkey</label>
+                      <input
+                        id="global-dictation-hotkey"
+                        value={globalDictationHotkey}
+                        onChange={(e) => setGlobalDictationHotkey(e.target.value)}
+                        style={{
+                          padding: '10px 14px',
+                          background: 'var(--bg-main)',
+                          border: '1px solid var(--border-inactive)',
+                          borderRadius: 6,
+                          color: 'var(--text-active)',
+                          outline: 'none',
+                          fontSize: 14,
+                          width: '100%',
+                          maxWidth: 260,
+                        }}
+                      />
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={globalDictationAutoPaste}
+                        onChange={(e) => setGlobalDictationAutoPaste(e.target.checked)}
+                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
+                      />
+                      <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Auto-paste into active app</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={globalDictationRestoreClipboard}
+                        onChange={(e) => setGlobalDictationRestoreClipboard(e.target.checked)}
+                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
+                      />
+                      <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Restore clipboard after paste</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={globalDictationShowFloatingButton}
+                        onChange={(e) => setGlobalDictationShowFloatingButton(e.target.checked)}
+                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
+                      />
+                      <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Show floating dictation button</span>
+                    </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <label htmlFor="global-dictation-paste-delay" style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Paste delay</label>
+                      <input
+                        id="global-dictation-paste-delay"
+                        type="number"
+                        min={50}
+                        max={1000}
+                        value={globalDictationPasteDelayMs}
+                        onChange={(e) => setGlobalDictationPasteDelayMs(Number(e.target.value) || 120)}
+                        style={{
+                          padding: '10px 14px',
+                          background: 'var(--bg-main)',
+                          border: '1px solid var(--border-inactive)',
+                          borderRadius: 6,
+                          color: 'var(--text-active)',
+                          outline: 'none',
+                          fontSize: 14,
+                          width: 120,
+                        }}
+                      />
+                    </div>
+                  </div>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
                     <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>

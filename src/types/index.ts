@@ -138,6 +138,12 @@ export interface Settings {
   dictationProvider?: 'local' | 'openai' | 'groq'
   dictationApiKey?: string
   dictationPrompt?: string
+  globalDictationEnabled?: boolean
+  globalDictationHotkey?: string
+  globalDictationAutoPaste?: boolean
+  globalDictationRestoreClipboard?: boolean
+  globalDictationShowFloatingButton?: boolean
+  globalDictationPasteDelayMs?: number
   minimapEnabled?: boolean
   showToolingPane?: boolean
   discardTabsAfterMs?: number | 'never'

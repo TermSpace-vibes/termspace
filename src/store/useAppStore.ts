@@ -202,6 +202,12 @@ export const useAppStore = create<AppState>()(
         showTabBar: true,
         iconTheme: 'colorful',
         showWorkspaceDefaultPaths: true,
+        globalDictationEnabled: false,
+        globalDictationHotkey: 'CmdOrCtrl+Shift+M',
+        globalDictationAutoPaste: true,
+        globalDictationRestoreClipboard: true,
+        globalDictationShowFloatingButton: true,
+        globalDictationPasteDelayMs: 120,
         keybindings: {
           newTerminal: 'CmdOrCtrl+T',
           closeTerminal: 'CmdOrCtrl+W',

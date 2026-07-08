@@ -1,6 +1,6 @@
 import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SettingsModal } from './SettingsModal'
 import { useAppStore } from '../../store/useAppStore'
 
@@ -144,5 +144,39 @@ describe('SettingsModal dictation model controls', () => {
       expect(screen.getByRole('button', { name: 'Model Loaded' })).toBeInTheDocument()
     })
     expect(invokeMock).toHaveBeenCalledWith('load_dictation_model')
+  })
+
+  it('renders and saves system-wide dictation settings', async () => {
+    useAppStore.setState({
+      settings: {
+        ...useAppStore.getState().settings,
+        dictationProvider: 'local',
+        globalDictationEnabled: false,
+        globalDictationHotkey: 'CmdOrCtrl+Shift+M',
+        globalDictationAutoPaste: true,
+        globalDictationRestoreClipboard: true,
+        globalDictationShowFloatingButton: true,
+        globalDictationPasteDelayMs: 120,
+      },
+    })
+
+    render(<SettingsModal onClose={vi.fn()} />)
+    await openApplicationTab()
+
+    fireEvent.click(screen.getByLabelText('Enable system-wide dictation'))
+    fireEvent.change(screen.getByLabelText('Global hotkey'), {
+      target: { value: 'CmdOrCtrl+Shift+D' },
+    })
+    fireEvent.click(screen.getByLabelText('Auto-paste into active app'))
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(useAppStore.getState().settings).toMatchObject({
+      globalDictationEnabled: true,
+      globalDictationHotkey: 'CmdOrCtrl+Shift+D',
+      globalDictationAutoPaste: false,
+      globalDictationRestoreClipboard: true,
+      globalDictationShowFloatingButton: true,
+      globalDictationPasteDelayMs: 120,
+    })
   })
 })
