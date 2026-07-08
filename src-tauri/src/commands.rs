@@ -10,6 +10,7 @@ use crate::dictation_model::{
 use crate::global_shortcut_service::{
     self, GlobalShortcutState, GlobalShortcutStatus,
 };
+use crate::tray_service::{self, TrayState};
 use crate::native_terminal_manager::NativeTerminalManager;
 use crate::platform_permissions::{self, GlobalDictationPermissionStatus};
 use notify_debouncer_mini::{
@@ -1435,6 +1436,24 @@ pub fn get_global_dictation_shortcut_status(
     state: State<'_, GlobalShortcutState>,
 ) -> Result<GlobalShortcutStatus, String> {
     Ok(global_shortcut_service::get_status(&state))
+}
+
+#[tauri::command]
+pub fn show_tray_icon(app: AppHandle, state: State<'_, TrayState>) -> Result<(), String> {
+    tray_service::show_tray_icon(&app, &state)
+}
+
+#[tauri::command]
+pub fn hide_tray_icon(state: State<'_, TrayState>) -> Result<(), String> {
+    tray_service::hide_tray_icon(&state)
+}
+
+#[tauri::command]
+pub fn set_tray_dictation_state(
+    state: State<'_, TrayState>,
+    dictation_state: String,
+) -> Result<(), String> {
+    tray_service::set_tray_dictation_state(&state, &dictation_state)
 }
 
 #[derive(serde::Serialize)]

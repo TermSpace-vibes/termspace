@@ -131,6 +131,7 @@ pub fn run() {
                 std::collections::HashMap::new(),
             )));
             app.manage(global_shortcut_service::GlobalShortcutState::default());
+            app.manage(tray_service::TrayState::default());
 
             let ctx = match dictation_model::selected_model_path(app.handle()) {
                 Ok(Some(path)) => {
@@ -263,6 +264,9 @@ pub fn run() {
             commands::register_global_dictation_shortcut,
             commands::unregister_global_dictation_shortcut,
             commands::get_global_dictation_shortcut_status,
+            commands::show_tray_icon,
+            commands::hide_tray_icon,
+            commands::set_tray_dictation_state,
             commands::start_workspace_watcher,
             commands::stop_workspace_watcher,
             commands::spawn_lsp,
