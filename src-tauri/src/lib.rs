@@ -182,6 +182,19 @@ pub fn run() {
                 let _ = window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
             }
 
+            if let Some(window) = app.get_webview_window("main") {
+                let window_handle = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        let tray_state = window_handle.app_handle().state::<tray_service::TrayState>();
+                        if tray_service::is_active(&tray_state) {
+                            api.prevent_close();
+                            let _ = window_handle.hide();
+                        }
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
