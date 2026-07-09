@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { initializeExtensions } from '../vscode-extensions/setup'
-import * as monacoEditor from 'monaco-editor'
+import { initializeExtensions, registerDynamicTheme } from '../vscode-extensions/setup'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import Editor, { DiffEditor } from '@monaco-editor/react'
 import { X, Save, Image as ImageIcon, FileCode, ChevronRight, Columns, Rows, Eye, EyeOff, Folder, GitBranch, Search } from 'lucide-react'
@@ -169,7 +168,8 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
   const [originalFileContent, setOriginalFileContent] = useState('')
   const [isDirty, setIsDirty] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [showPreview, setShowPreview] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [showPreview, setShowPreview] = useState(false)
   const [showConfirmDiscard, setShowConfirmDiscard] = useState<{ path: string } | null>(null)
   const [extensionsReady, setExtensionsReady] = useState(false)
   
@@ -260,60 +260,68 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, { capture: true });
   }, [isActive, selectAllInEditor]);
 
-  // Theme initialization — uses the service-overridden Monaco instance directly
+  // Theme initialization — registers the dynamic theme as a proper VS Code
+  // theme extension contribution (via vscode-extensions/setup.ts) rather
+  // than calling the legacy monaco.editor.defineTheme()/setTheme() API,
+  // which throws once the workbench theme service override is installed.
   useEffect(() => {
+    if (!extensionsReady) return
     const theme = EDITOR_THEMES[settings.theme] || EDITOR_THEMES['warm-dark']
+    const themeId = `termspace-dynamic-${settings.theme}`
 
-    monacoEditor.editor.defineTheme('termspace-dynamic', {
-      base: theme.base,
-      inherit: true,
-      rules: [
-        { token: 'comment', foreground: theme.comment.slice(1), fontStyle: 'italic' },
-        { token: 'keyword', foreground: theme.keyword.slice(1) },
-        { token: 'string', foreground: theme.string.slice(1) },
-        { token: 'number', foreground: theme.function.slice(1) },
-        { token: 'type', foreground: theme.type.slice(1) },
-        { token: 'type.identifier', foreground: theme.type.slice(1) },
-        { token: 'function', foreground: theme.function.slice(1) },
-        { token: 'identifier.function', foreground: theme.function.slice(1) },
-        { token: 'delimiter', foreground: theme.muted.slice(1) },
-        { token: 'operator', foreground: theme.keyword.slice(1) },
-      ],
-      colors: {
-        'editor.background': theme.bg,
-        'editor.foreground': theme.text,
-        'editorLineNumber.foreground': theme.dim,
-        'editorLineNumber.activeForeground': theme.muted,
-        'editorCursor.foreground': theme.accent,
-        'editor.selectionBackground': `${theme.accent}55`,
-        'editor.inactiveSelectionBackground': `${theme.accent}2d`,
-        'editor.lineHighlightBackground': `${theme.surface}80`,
-        'editor.lineHighlightBorder': `${theme.accent}66`,
-        'editorIndentGuide.background1': `${theme.border}`,
-        'editorIndentGuide.activeBackground1': `${theme.muted}`,
-        'editorGutter.background': theme.bg,
-        'editorWidget.background': theme.surface,
-        'editorWidget.border': theme.border,
-        'editorSuggestWidget.background': theme.surface,
-        'editorSuggestWidget.border': theme.border,
-        'editorSuggestWidget.foreground': theme.text,
-        'editorSuggestWidget.highlightForeground': theme.accent,
-        'editorSuggestWidget.selectedBackground': `${theme.accent}26`,
-        'editorHoverWidget.background': theme.surface,
-        'editorHoverWidget.border': theme.border,
-        'editorStickyScroll.background': theme.bg,
-        'minimap.background': theme.bg,
-        'scrollbarSlider.background': `${theme.muted}33`,
-        'scrollbarSlider.hoverBackground': `${theme.muted}55`,
-        'scrollbarSlider.activeBackground': `${theme.muted}77`,
-      },
-    })
-    monacoEditor.editor.setTheme('termspace-dynamic')
-  }, [settings.theme])
+    const colors = {
+      'editor.background': theme.bg,
+      'editor.foreground': theme.text,
+      'editorLineNumber.foreground': theme.dim,
+      'editorLineNumber.activeForeground': theme.muted,
+      'editorCursor.foreground': theme.accent,
+      'editor.selectionBackground': `${theme.accent}55`,
+      'editor.inactiveSelectionBackground': `${theme.accent}2d`,
+      'editor.lineHighlightBackground': `${theme.surface}80`,
+      'editor.lineHighlightBorder': `${theme.accent}66`,
+      'editorIndentGuide.background1': `${theme.border}`,
+      'editorIndentGuide.activeBackground1': `${theme.muted}`,
+      'editorGutter.background': theme.bg,
+      'editorWidget.background': theme.surface,
+      'editorWidget.border': theme.border,
+      'editorSuggestWidget.background': theme.surface,
+      'editorSuggestWidget.border': theme.border,
+      'editorSuggestWidget.foreground': theme.text,
+      'editorSuggestWidget.highlightForeground': theme.accent,
+      'editorSuggestWidget.selectedBackground': `${theme.accent}26`,
+      'editorHoverWidget.background': theme.surface,
+      'editorHoverWidget.border': theme.border,
+      'editorStickyScroll.background': theme.bg,
+      'minimap.background': theme.bg,
+      'scrollbarSlider.background': `${theme.muted}33`,
+      'scrollbarSlider.hoverBackground': `${theme.muted}55`,
+      'scrollbarSlider.activeBackground': `${theme.muted}77`,
+    }
+
+    // VS Code themes target real TextMate scopes (this app uses
+    // @codingame/monaco-vscode-textmate-service-override for tokenization),
+    // not the short Monarch token names the old monaco.editor.defineTheme
+    // `rules` array used — mapped here to their closest TextMate equivalents.
+    const tokenColors = [
+      { scope: ['comment'], settings: { foreground: theme.comment, fontStyle: 'italic' } },
+      { scope: ['keyword', 'keyword.operator', 'keyword.control'], settings: { foreground: theme.keyword } },
+      { scope: ['string'], settings: { foreground: theme.string } },
+      { scope: ['constant.numeric'], settings: { foreground: theme.function } },
+      { scope: ['entity.name.type', 'support.type'], settings: { foreground: theme.type } },
+      { scope: ['entity.name.function', 'support.function'], settings: { foreground: theme.function } },
+      { scope: ['punctuation'], settings: { foreground: theme.muted } },
+    ]
+
+    return registerDynamicTheme(themeId, 'Termspace Dynamic', theme.base, colors, tokenColors)
+  }, [settings.theme, extensionsReady])
+
+  const FILE_LOAD_TIMEOUT_MS = 15000
 
   useEffect(() => {
     const controller = new AbortController()
-    
+    setLoadError(null)
+    setShowPreview(false)
+
     const loadFile = async () => {
       if (!editorPane?.activeFilePath) {
         setFileContent('')
@@ -321,7 +329,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
         setIsDirty(false)
         return
       }
-      
+
       if (isBinaryFile(editorPane.activeFilePath)) {
         setFileContent('')
         setOriginalFileContent('')
@@ -331,10 +339,15 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
 
       setIsLoading(true)
       try {
-        const content = await readTextFileContent(editorPane.activeFilePath)
+        const content = await Promise.race([
+          readTextFileContent(editorPane.activeFilePath),
+          new Promise<string>((_, reject) =>
+            setTimeout(() => reject(new Error('Timed out reading file')), FILE_LOAD_TIMEOUT_MS)
+          ),
+        ])
         if (controller.signal.aborted) return
         setFileContent(content)
-        
+
         if (editorPane.diffViewEnabled) {
           try {
             const relativePath = editorPane.activeFilePath.replace(editorPane.rootPath + '/', '')
@@ -348,11 +361,12 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
             }
           }
         }
-        
+
         setIsDirty(false)
       } catch (err: any) {
         if (controller.signal.aborted) return
         console.error('Failed to read file:', err)
+        setLoadError(err?.message || String(err))
         addToast(`Failed to read file: ${err?.message || err}`, 'error')
       } finally {
         if (!controller.signal.aborted) {
@@ -360,7 +374,7 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
         }
       }
     }
-    
+
     loadFile()
     return () => controller.abort()
   }, [editorPane?.activeFilePath, editorPane?.diffViewEnabled, editorPane?.rootPath, addToast])
@@ -960,6 +974,16 @@ export const EditorPaneComponent: React.FC<EditorPaneComponentProps> = ({
                     width: 16, height: 16, borderRadius: '50%', border: '2px solid var(--editor-dim)', 
                     borderTopColor: 'var(--editor-accent)', marginRight: 12, animation: 'spin 1s linear infinite' 
                   }} /> Loading file content...
+                </div>
+              ) : loadError ? (
+                <div style={{
+                  position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', color: 'var(--editor-muted)',
+                  backgroundColor: 'var(--editor-bg)', padding: 32, textAlign: 'center'
+                }}>
+                  <FileCode size={48} style={{ marginBottom: 16, opacity: 0.3, color: '#ef4444' }} />
+                  <p style={{ fontSize: 14, color: 'var(--editor-text)' }}>Failed to load file</p>
+                  <p style={{ fontSize: 12, opacity: 0.7, marginTop: 8, fontFamily: 'var(--terminal-font-family, monospace)', backgroundColor: 'var(--editor-surface)', padding: '4px 8px', borderRadius: 4 }}>{loadError}</p>
                 </div>
               ) : isImageFile(editorPane.activeFilePath) ? (
                 <div style={{

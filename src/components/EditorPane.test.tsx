@@ -88,6 +88,7 @@ vi.mock('./ConfirmModal/ConfirmModal', () => ({
 
 vi.mock('../vscode-extensions/setup', () => ({
   initializeExtensions: vi.fn().mockResolvedValue(undefined),
+  registerDynamicTheme: vi.fn(() => vi.fn()),
 }))
 
 describe('EditorPaneComponent', () => {
@@ -232,6 +233,45 @@ describe('EditorPaneComponent', () => {
     vi.useRealTimers()
 
     expect(updateEditorPaneLayout).toHaveBeenCalledWith(workspaceId, editorPaneId, { fileTreeWidth: 25 })
+  })
+
+  it('opens markdown files in source mode by default, not preview', async () => {
+    useAppStore.setState({
+      editorPanesByTab: {
+        [workspaceId]: [
+          {
+            id: editorPaneId,
+            workspaceId,
+            rootPath: '/tmp',
+            openFiles: ['notes.md'],
+            activeFilePath: 'notes.md',
+            mruStack: ['notes.md'],
+            fileTreeWidth: 20,
+            position: 0,
+            createdAt: 1000,
+          } as EditorPane
+        ]
+      }
+    })
+
+    await renderEditorPane()
+
+    expect(screen.getByTestId('monaco-editor')).toBeInTheDocument()
+    expect(screen.getByTitle('Show Preview')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTitle('Show Preview'))
+    expect(screen.getByTitle('Hide Preview')).toBeInTheDocument()
+  })
+
+  it('shows an error instead of an infinite loading spinner when the file read fails', async () => {
+    const fs = await import('../utils/fs')
+    vi.mocked(fs.readTextFileContent).mockRejectedValueOnce(new Error('permission denied'))
+
+    await renderEditorPane()
+
+    expect(await screen.findByText('Failed to load file')).toBeInTheDocument()
+    expect(screen.getByText('permission denied')).toBeInTheDocument()
+    expect(screen.queryByText('Loading file content...')).not.toBeInTheDocument()
   })
 
   it('registers a Monaco Cmd+A command that selects the full model range', async () => {
