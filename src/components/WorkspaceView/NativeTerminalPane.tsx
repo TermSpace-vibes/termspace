@@ -589,6 +589,20 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     setPendingPasteText(null)
   }, [terminalId])
 
+  // On the alt screen, scroll wheel/page ticks are forwarded to the child app
+  // as input (see native_terminal_manager.rs `scroll()`) instead of moving
+  // `displayOffset` — the app redraws its own content in response. We have no
+  // way to know how that redraw reflows previously selected text, so a
+  // selection made before the scroll would otherwise stay frozen at the same
+  // rows while unrelated content scrolls in underneath it. Clear it instead.
+  const clearSelectionOnAltScreenScroll = useCallback(() => {
+    if (isAlternateRef.current && !isDraggingRef.current && selectionRef.current) {
+      selectionRef.current = null
+      sendSelection(null)
+      scheduleRender()
+    }
+  }, [sendSelection, scheduleRender])
+
   const handlePaste = useCallback(async () => {
     try {
       const imagePath = await invoke<string | null>('process_pasted_image');
@@ -682,11 +696,13 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     // Page scroll forwarded to Rust scrollback buffer.
     if (e.key === 'PageUp') {
       e.preventDefault()
+      clearSelectionOnAltScreenScroll()
       invoke('scroll_terminal', { terminalId, delta: 1 }).catch(console.error)
       return
     }
     if (e.key === 'PageDown') {
       e.preventDefault()
+      clearSelectionOnAltScreenScroll()
       invoke('scroll_terminal', { terminalId, delta: -1 }).catch(console.error)
       return
     }
@@ -697,7 +713,9 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       queueWrite(data)
     }
 
-  }, [terminalId, queueWrite, sendSelection, scheduleRender, handlePaste])
+  }, [terminalId, queueWrite, sendSelection, scheduleRender, handlePaste, clearSelectionOnAltScreenScroll])
+
+  const lastScrollEmitRef = useRef<number>(0)
 
   const flushPendingScroll = useCallback((now?: number) => {
     scrollFrameRef.current = null
@@ -711,14 +729,21 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     }
 
     if (pendingScrollDeltaRef.current !== 0) {
-      invoke('scroll_terminal', { terminalId, delta: pendingScrollDeltaRef.current }).catch(console.error)
-      pendingScrollDeltaRef.current = 0
+      if (t - lastScrollEmitRef.current >= 16) {
+        clearSelectionOnAltScreenScroll()
+        invoke('scroll_terminal', { terminalId, delta: pendingScrollDeltaRef.current }).catch(console.error)
+        pendingScrollDeltaRef.current = 0
+        lastScrollEmitRef.current = t
+      } else {
+        scrollFrameRef.current = requestAnimationFrame(flushPendingScroll)
+        return
+      }
     }
 
     if (isDraggingRef.current && edgeScrollDeltaRef.current !== 0) {
       scrollFrameRef.current = requestAnimationFrame(flushPendingScroll)
     }
-  }, [terminalId])
+  }, [terminalId, clearSelectionOnAltScreenScroll])
 
   const scheduleScrollFlush = useCallback(() => {
     if (scrollFrameRef.current !== null) return
@@ -1364,6 +1389,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
       >
         <canvas
           ref={canvasRef}
+          data-terminal-id={terminalId}
           tabIndex={0}
           onKeyDown={handleKeyDown}
           onCopy={(e) => {

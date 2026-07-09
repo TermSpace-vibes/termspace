@@ -266,7 +266,7 @@ impl NativeTerminalManager {
                 use std::sync::mpsc::RecvTimeoutError;
                 use std::time::{Duration, Instant};
 
-                const EMIT_INTERVAL: Duration = Duration::from_millis(16); // ~60Hz cap
+                const EMIT_INTERVAL: Duration = Duration::from_millis(8); // ~120Hz cap for ProMotion
                 const QUIET_WINDOW: Duration = Duration::from_millis(2);
 
                 let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();

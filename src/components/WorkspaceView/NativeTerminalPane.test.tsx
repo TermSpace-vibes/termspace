@@ -306,6 +306,53 @@ describe('NativeTerminalPane selection drag', () => {
     expect(after.endRow).toBe(before.endRow + 5)
   })
 
+  it('clears a stale selection instead of leaving it frozen when paging on the alt screen', () => {
+    const { container } = render(
+      <NativeTerminalPane
+        terminalId="t-1"
+        workspaceId="ws-1"
+        isActive={true}
+        isMaximized={false}
+        onFocus={vi.fn()}
+        onToggleMaximize={vi.fn()}
+        onClose={vi.fn()}
+        onSplit={vi.fn()}
+      />
+    )
+
+    createdWorker.onmessage?.({ data: { type: 'ready' } } as MessageEvent)
+
+    // Enter the alt screen (e.g. vim/less/a full-screen TUI) via metadata,
+    // matching how the real worker reports it after a snapshot.
+    createdWorker.onmessage?.({
+      data: {
+        type: 'metadata',
+        cwd: null,
+        title: null,
+        displayOffset: 0,
+        totalHistory: 0,
+        isAlternate: true,
+      },
+    } as MessageEvent)
+
+    const canvas = container.querySelector('canvas')!
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 4, clientY: 200 })
+    fireEvent.mouseMove(window, { clientX: 100, clientY: 200 })
+    fireEvent.mouseUp(window, { clientX: 100, clientY: 200 })
+
+    const selectionsBeforePage = postedMessages.filter(m => m.type === 'selection')
+    expect(selectionsBeforePage[selectionsBeforePage.length - 1].selection).toBeTruthy()
+
+    // displayOffset never moves on the alt screen — the wheel/page tick is
+    // forwarded to the child app instead (see native_terminal_manager.rs).
+    // Without a clear, the old selection would stay frozen on screen while
+    // the app's own redraw scrolls unrelated content underneath it.
+    fireEvent.keyDown(canvas, { key: 'PageDown' })
+
+    const selectionsAfterPage = postedMessages.filter(m => m.type === 'selection')
+    expect(selectionsAfterPage[selectionsAfterPage.length - 1].selection).toBeNull()
+  })
+
   it('forwards initial snapshots to the worker before the worker ready message', async () => {
     render(
       <NativeTerminalPane
