@@ -295,7 +295,7 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
 
       </div>
 
-      <MediaWidget />
+      <MediaWidget isCollapsed={isCollapsed} onExpand={onToggleCollapse} />
 
       {/* ── Fixed Footer ─────────────────────────────────────────────────── */}
       <div
