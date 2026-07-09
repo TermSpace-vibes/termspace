@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, Pause, Play, SkipBack, SkipForward } from 'lucide-react'
 import { useBrowserMediaStore } from '../../store/useBrowserMediaStore'
 import { invoke } from '../../utils/tauri'
+import type { BrowserMediaSession } from '../../types'
 
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false)
@@ -16,12 +17,40 @@ function usePrefersReducedMotion(): boolean {
   return reduced
 }
 
+function preferRepresentativeSession(
+  current: BrowserMediaSession | undefined,
+  candidate: BrowserMediaSession
+): BrowserMediaSession {
+  if (!current) return candidate
+  if (candidate.isPlaying !== current.isPlaying) {
+    return candidate.isPlaying ? candidate : current
+  }
+  return candidate.lastActiveAt > current.lastActiveAt ? candidate : current
+}
+
+function collapseSessionsByBrowserTab(sessions: BrowserMediaSession[]): BrowserMediaSession[] {
+  const byTab = new Map<string, BrowserMediaSession>()
+  sessions.forEach((session) => {
+    byTab.set(session.browserTabId, preferRepresentativeSession(byTab.get(session.browserTabId), session))
+  })
+  return Array.from(byTab.values()).sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+}
+
+function isYouTubeSession(session: BrowserMediaSession): boolean {
+  try {
+    const host = new URL(session.pageUrl).hostname.toLowerCase()
+    return host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be'
+  } catch {
+    return session.pageUrl.includes('youtube.com') || session.pageUrl.includes('youtu.be')
+  }
+}
+
 export function MediaWidget() {
   const sessions = useBrowserMediaStore(s => s.sessions)
   const reducedMotion = usePrefersReducedMotion()
 
   const sorted = useMemo(
-    () => Object.values(sessions).sort((a, b) => b.lastActiveAt - a.lastActiveAt),
+    () => collapseSessionsByBrowserTab(Object.values(sessions)),
     [sessions]
   )
 
@@ -53,12 +82,15 @@ export function MediaWidget() {
     const [browserTabId, mediaId] = current.id.split(':')
     invoke('browser_media_control', { id: browserTabId, mediaId, action }).catch(() => {})
   }
+  const hasYouTubeFallbackControls = isYouTubeSession(current)
+  const showPrevTrack = current.canPrev || hasYouTubeFallbackControls
+  const showNextTrack = current.canNext || hasYouTubeFallbackControls
 
   return (
-    <div style={{ padding: '8px 10px', flexShrink: 0 }}>
+    <div style={{ padding: '10px 10px', flexShrink: 0 }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-item-active)',
-        borderRadius: 10, padding: 8, position: 'relative',
+        borderRadius: 10, padding: '12px 10px', position: 'relative', minHeight: 72,
       }}>
         {sorted.length > 1 && (
           <button onClick={() => goTo(-1)} aria-label="Previous session" style={navBtnStyle}>
@@ -66,7 +98,7 @@ export function MediaWidget() {
           </button>
         )}
 
-        <div style={{ flex: 1, minWidth: 0, position: 'relative', height: 36, overflow: 'hidden' }}>
+        <div style={{ flex: 1, minWidth: 0, position: 'relative', height: 52, overflow: 'hidden' }}>
           <AnimatePresence initial={false}>
             <motion.div
               key={current.id}
@@ -80,17 +112,17 @@ export function MediaWidget() {
                 <img
                   src={current.thumbnailUrl}
                   alt=""
-                  style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }}
+                  style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }}
                   onError={(e) => { e.currentTarget.style.display = 'none' }}
                 />
               ) : (
-                <div style={{ width: 32, height: 32, borderRadius: 6, background: 'var(--bg-main)', flexShrink: 0 }} />
+                <div style={{ width: 44, height: 44, borderRadius: 6, background: 'var(--bg-main)', flexShrink: 0 }} />
               )}
               <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                <div style={{ fontSize: 12, color: 'var(--text-active)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: 12, lineHeight: '18px', color: 'var(--text-active)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {current.mediaTitle || current.pageTitle || current.pageUrl}
                 </div>
-                <div style={{ fontSize: 10, color: 'var(--text-dim)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: 10, lineHeight: '14px', color: 'var(--text-dim)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {current.workspaceName}
                 </div>
               </div>
@@ -98,7 +130,7 @@ export function MediaWidget() {
           </AnimatePresence>
         </div>
 
-        {current.canPrev && (
+        {showPrevTrack && (
           <button onClick={() => control('previoustrack')} aria-label="Previous track" style={navBtnStyle}>
             <SkipBack size={14} />
           </button>
@@ -110,7 +142,7 @@ export function MediaWidget() {
         >
           {current.isPlaying ? <Pause size={14} /> : <Play size={14} />}
         </button>
-        {current.canNext && (
+        {showNextTrack && (
           <button onClick={() => control('nexttrack')} aria-label="Next track" style={navBtnStyle}>
             <SkipForward size={14} />
           </button>
@@ -127,7 +159,7 @@ export function MediaWidget() {
 }
 
 const navBtnStyle: CSSProperties = {
-  width: 24, height: 24, background: 'transparent', border: 'none', borderRadius: 6,
+  width: 28, height: 28, background: 'transparent', border: 'none', borderRadius: 6,
   color: 'var(--text-dim)', cursor: 'pointer', display: 'flex', alignItems: 'center',
   justifyContent: 'center', flexShrink: 0,
 }

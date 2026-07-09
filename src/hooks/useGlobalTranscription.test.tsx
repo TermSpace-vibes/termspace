@@ -6,7 +6,9 @@ import { useAppStore } from '../store/useAppStore'
 const invokeMock = vi.fn()
 const listenMock = vi.fn()
 const toggleListeningMock = vi.fn()
+const writeTextMock = vi.fn()
 let capturedOnResult: ((text: string) => void | Promise<void>) | null = null
+let capturedOnStateChange: ((state: { isListening: boolean; isProcessing: boolean }) => void) | null = null
 let dictationMockState = { isListening: false, isProcessing: false }
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -17,9 +19,20 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: (...args: unknown[]) => listenMock(...args),
 }))
 
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
+  writeText: (...args: unknown[]) => writeTextMock(...args),
+}))
+
 vi.mock('./useDictation', () => ({
-  useDictation: ({ onResult }: { onResult: (text: string) => void | Promise<void> }) => {
+  useDictation: ({
+    onResult,
+    onStateChange,
+  }: {
+    onResult: (text: string) => void | Promise<void>
+    onStateChange?: (state: { isListening: boolean; isProcessing: boolean }) => void
+  }) => {
     capturedOnResult = onResult
+    capturedOnStateChange = onStateChange ?? null
     return {
       isListening: dictationMockState.isListening,
       isProcessing: dictationMockState.isProcessing,
@@ -33,8 +46,10 @@ describe('useGlobalTranscription', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     capturedOnResult = null
+    capturedOnStateChange = null
     dictationMockState = { isListening: false, isProcessing: false }
     listenMock.mockResolvedValue(() => {})
+    writeTextMock.mockResolvedValue(undefined)
     invokeMock.mockResolvedValue({
       inserted: true,
       copied: true,
@@ -102,10 +117,16 @@ describe('useGlobalTranscription', () => {
     input.remove()
   })
 
-  it('writes into the active Termspace terminal when the app owns focus', async () => {
-    document.body.focus()
+  it('writes into the focused Termspace terminal canvas', async () => {
+    const canvas = document.createElement('canvas')
+    canvas.tabIndex = 0
+    canvas.dataset.terminalId = 'terminal-1'
+    document.body.appendChild(canvas)
+    canvas.focus()
+
     useAppStore.setState({
-      activeTerminalId: 'terminal-1',
+      activeWorkspaceId: 'workspace-1',
+      activeTabIds: { 'workspace-1': 'tab-1' },
       terminalsByTab: {
         'tab-1': [{
           id: 'terminal-1',
@@ -132,6 +153,89 @@ describe('useGlobalTranscription', () => {
       data: 'ls ',
     })
     expect(invokeMock).not.toHaveBeenCalledWith('insert_text_into_active_app', expect.anything())
+
+    canvas.remove()
+  })
+
+  it('writes into the last-focused terminal after focus moves to the mic button', async () => {
+    // Mirrors clicking the floating dictation button: it steals DOM focus
+    // away from the terminal canvas, but the user still means "dictate into
+    // the terminal I was just using."
+    const canvas = document.createElement('canvas')
+    canvas.tabIndex = 0
+    canvas.dataset.terminalId = 'terminal-1'
+    document.body.appendChild(canvas)
+
+    const micButton = document.createElement('button')
+    document.body.appendChild(micButton)
+
+    useAppStore.setState({
+      activeWorkspaceId: 'workspace-1',
+      activeTabIds: { 'workspace-1': 'tab-1' },
+      terminalsByTab: {
+        'tab-1': [{
+          id: 'terminal-1',
+          workspaceId: 'workspace-1',
+          tabId: 'tab-1',
+          shell: 'zsh',
+          cwd: '/tmp',
+          title: 'Terminal',
+          position: 0,
+          sizePercent: 50,
+          createdAt: Date.now(),
+        }],
+      },
+    })
+
+    // Focus events must happen after the hook's focusin listener is mounted.
+    renderHook(() => useGlobalTranscription())
+
+    canvas.focus()
+    micButton.focus()
+
+    await act(async () => {
+      await capturedOnResult?.('ls ')
+    })
+
+    expect(invokeMock).toHaveBeenCalledWith('write_terminal', {
+      terminalId: 'terminal-1',
+      data: 'ls ',
+    })
+
+    canvas.remove()
+    micButton.remove()
+  })
+
+  it('copies to clipboard instead of writing to a terminal in a background tab', async () => {
+    document.body.focus()
+    useAppStore.setState({
+      activeWorkspaceId: 'workspace-1',
+      activeTabIds: { 'workspace-1': 'tab-2' },
+      terminalsByTab: {
+        'tab-1': [{
+          id: 'terminal-1',
+          workspaceId: 'workspace-1',
+          tabId: 'tab-1',
+          shell: 'zsh',
+          cwd: '/tmp',
+          title: 'Terminal',
+          position: 0,
+          sizePercent: 50,
+          createdAt: Date.now(),
+        }],
+        'tab-2': [],
+      },
+    })
+
+    renderHook(() => useGlobalTranscription())
+
+    await act(async () => {
+      await capturedOnResult?.('ls ')
+    })
+
+    expect(invokeMock).not.toHaveBeenCalledWith('write_terminal', expect.anything())
+    expect(invokeMock).not.toHaveBeenCalledWith('insert_text_into_active_app', expect.anything())
+    expect(writeTextMock).toHaveBeenCalledWith('ls ')
   })
 
   it('does not insert an empty transcript', async () => {
@@ -150,6 +254,32 @@ describe('useGlobalTranscription', () => {
     await act(async () => {})
 
     expect(invokeMock).toHaveBeenCalledWith('show_tray_icon')
+  })
+
+  it('shows the overlay window when global dictation floating button is enabled', async () => {
+    renderHook(() => useGlobalTranscription())
+
+    await act(async () => {})
+
+    expect(invokeMock).toHaveBeenCalledWith('show_dictation_overlay', {
+      position: null,
+    })
+  })
+
+  it('hides the overlay window when global floating button is disabled', async () => {
+    useAppStore.setState({
+      settings: {
+        ...useAppStore.getState().settings,
+        globalDictationEnabled: true,
+        globalDictationShowFloatingButton: false,
+      },
+    })
+
+    renderHook(() => useGlobalTranscription())
+
+    await act(async () => {})
+
+    expect(invokeMock).toHaveBeenCalledWith('hide_dictation_overlay')
   })
 
   it('hides the tray icon when global dictation is disabled', async () => {
@@ -182,6 +312,42 @@ describe('useGlobalTranscription', () => {
     rerender()
 
     await act(async () => {})
+
+    expect(invokeMock).toHaveBeenCalledWith('set_tray_dictation_state', {
+      dictationState: 'processing',
+    })
+  })
+
+  it('publishes global dictation state to the overlay window', async () => {
+    dictationMockState = { isListening: true, isProcessing: false }
+
+    renderHook(() => useGlobalTranscription())
+
+    await act(async () => {})
+
+    expect(invokeMock).toHaveBeenCalledWith('update_dictation_overlay_state', {
+      payload: {
+        isListening: true,
+        isProcessing: false,
+        interimTranscript: '',
+      },
+    })
+  })
+
+  it('updates the tray icon directly from dictation state changes', async () => {
+    renderHook(() => useGlobalTranscription())
+
+    await act(async () => {
+      capturedOnStateChange?.({ isListening: true, isProcessing: false })
+    })
+
+    expect(invokeMock).toHaveBeenCalledWith('set_tray_dictation_state', {
+      dictationState: 'listening',
+    })
+
+    await act(async () => {
+      capturedOnStateChange?.({ isListening: false, isProcessing: true })
+    })
 
     expect(invokeMock).toHaveBeenCalledWith('set_tray_dictation_state', {
       dictationState: 'processing',

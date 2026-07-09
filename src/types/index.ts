@@ -143,6 +143,7 @@ export interface Settings {
   globalDictationAutoPaste?: boolean
   globalDictationRestoreClipboard?: boolean
   globalDictationShowFloatingButton?: boolean
+  globalDictationOverlayPosition?: { x: number; y: number }
   globalDictationPasteDelayMs?: number
   minimapEnabled?: boolean
   showToolingPane?: boolean

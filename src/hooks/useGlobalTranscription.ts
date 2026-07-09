@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { useAppStore } from '../store/useAppStore'
 import { useDictation } from './useDictation'
 
@@ -63,23 +64,38 @@ function insertIntoEditableElement(element: HTMLElement, text: string) {
   return true
 }
 
-function hasKnownTerminal(terminalId: string | null) {
+// Scoped to the tab the user is actually looking at — checking across every
+// tab (as the old implementation did) meant a terminal in a background tab
+// still counted as a valid target, so dictation could silently land in a
+// pane the user can no longer see while still reporting success.
+function isTerminalInActiveTab(terminalId: string | null) {
   if (!terminalId) return false
-  const { terminalsByTab } = useAppStore.getState()
-  return Object.values(terminalsByTab).some((terminals) =>
-    terminals.some((terminal) => terminal.id === terminalId)
-  )
+  const { activeWorkspaceId, activeTabIds, terminalsByTab } = useAppStore.getState()
+  const activeTabId = activeWorkspaceId ? activeTabIds[activeWorkspaceId] : undefined
+  if (!activeTabId) return false
+  return (terminalsByTab[activeTabId] ?? []).some((terminal) => terminal.id === terminalId)
+}
+
+function focusedTerminalId(element: Element | null): string | null {
+  if (!(element instanceof HTMLElement)) return null
+  return element.dataset.terminalId ?? null
 }
 
 export function useGlobalTranscription() {
   const settings = useAppStore((s) => s.settings)
   const addToast = useAppStore((s) => s.addToast)
   const lastEditableElementRef = useRef<HTMLElement | null>(null)
+  const lastFocusedTerminalIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     const handleFocusIn = (event: FocusEvent) => {
-      if (isEditableElement(event.target as Element | null)) {
-        lastEditableElementRef.current = event.target as HTMLElement
+      const target = event.target as Element | null
+      if (isEditableElement(target)) {
+        lastEditableElementRef.current = target as HTMLElement
+      }
+      const terminalId = focusedTerminalId(target)
+      if (terminalId) {
+        lastFocusedTerminalIdRef.current = terminalId
       }
     }
 
@@ -108,15 +124,29 @@ export function useGlobalTranscription() {
           return
         }
 
-        const activeTerminalId = useAppStore.getState().activeTerminalId
-        if (hasKnownTerminal(activeTerminalId)) {
+        // Fall back to the last-focused terminal the same way the editable
+        // branch above falls back to lastEditableElementRef — clicking the
+        // floating dictation button (or the tray hotkey path) moves DOM focus
+        // to that button/nothing, so requiring literal current focus here
+        // would break the common "focus terminal, then dictate" flow. Still
+        // scoped to the active tab so a background tab's terminal can't be
+        // silently targeted (see isTerminalInActiveTab).
+        const targetTerminalId = focusedTerminalId(activeElement) ?? lastFocusedTerminalIdRef.current
+        if (targetTerminalId && isTerminalInActiveTab(targetTerminalId)) {
           await invoke('write_terminal', {
-            terminalId: activeTerminalId,
+            terminalId: targetTerminalId,
             data: text,
           })
           addToast('Dictation inserted.', 'success')
           return
         }
+
+        // Termspace has focus but nothing recognizable is focused inside it —
+        // sending a synthetic Cmd+V to ourselves here has no reliable target,
+        // so just copy the transcript instead of falsely claiming insertion.
+        await writeText(text)
+        addToast('Transcript copied. Click into a text field or terminal to paste.', 'info')
+        return
       }
 
       const result = await invoke<GlobalInsertionResult>('insert_text_into_active_app', {
@@ -155,9 +185,20 @@ export function useGlobalTranscription() {
     addToast(error, 'error')
   }, [addToast])
 
+  const syncTrayDictationState = useCallback((state: { isListening: boolean; isProcessing: boolean }) => {
+    if (!useAppStore.getState().settings.globalDictationEnabled) return
+    const dictationState = state.isProcessing
+      ? 'processing'
+      : state.isListening
+        ? 'listening'
+        : 'idle'
+    invoke('set_tray_dictation_state', { dictationState }).catch(console.error)
+  }, [])
+
   const dictation = useDictation({
     onResult: handleResult,
     onError: handleError,
+    onStateChange: syncTrayDictationState,
     listenForGlobalToggle: false,
   })
 
@@ -187,6 +228,28 @@ export function useGlobalTranscription() {
   }, [addToast, settings.globalDictationEnabled, settings.globalDictationHotkey])
 
   useEffect(() => {
+    const shouldShowOverlay =
+      settings.globalDictationEnabled &&
+      settings.globalDictationShowFloatingButton !== false
+
+    if (!shouldShowOverlay) {
+      invoke('hide_dictation_overlay').catch(console.error)
+      return
+    }
+
+    invoke('show_dictation_overlay', {
+      position: settings.globalDictationOverlayPosition ?? null,
+    }).catch((error) => {
+      addToast(`Dictation overlay failed: ${error}`, 'error')
+    })
+  }, [
+    addToast,
+    settings.globalDictationEnabled,
+    settings.globalDictationOverlayPosition,
+    settings.globalDictationShowFloatingButton,
+  ])
+
+  useEffect(() => {
     if (!settings.globalDictationEnabled) return
     const state = dictation.isProcessing
       ? 'processing'
@@ -195,6 +258,22 @@ export function useGlobalTranscription() {
         : 'idle'
     invoke('set_tray_dictation_state', { dictationState: state }).catch(console.error)
   }, [dictation.isListening, dictation.isProcessing, settings.globalDictationEnabled])
+
+  useEffect(() => {
+    if (!settings.globalDictationEnabled) return
+    invoke('update_dictation_overlay_state', {
+      payload: {
+        isListening: dictation.isListening,
+        isProcessing: dictation.isProcessing,
+        interimTranscript: dictation.interimTranscript,
+      },
+    }).catch(console.error)
+  }, [
+    dictation.interimTranscript,
+    dictation.isListening,
+    dictation.isProcessing,
+    settings.globalDictationEnabled,
+  ])
 
   const requestToggle = useCallback(() => {
     if (!useAppStore.getState().settings.globalDictationEnabled) return

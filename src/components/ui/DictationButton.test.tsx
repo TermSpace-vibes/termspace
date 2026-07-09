@@ -79,4 +79,16 @@ describe('DictationButton', () => {
 
     expect(container).toBeEmptyDOMElement()
   })
+
+  it('hides the in-app button whenever global dictation is enabled', () => {
+    storeState.settings = {
+      ...storeState.settings,
+      globalDictationEnabled: true,
+      globalDictationShowFloatingButton: true,
+    }
+
+    const { container } = render(<DictationButton />)
+
+    expect(container).toBeEmptyDOMElement()
+  })
 })

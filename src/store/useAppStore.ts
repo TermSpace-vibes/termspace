@@ -124,6 +124,18 @@ interface AppState {
 
   dictationButtonPosition: { x: number, y: number } | null
   setDictationButtonPosition: (pos: { x: number, y: number } | null) => void
+  hydrateDurableUiState: (state: DurableWorkspaceUiState) => void
+}
+
+export interface DurableWorkspaceUiState {
+  activeTabIds?: Record<string, string>
+  layoutsByTab?: Record<string, LayoutNode | null>
+  browserPanesByTab?: Record<string, BrowserPane[]>
+  editorPanesByTab?: Record<string, EditorPane[]>
+  activeFileByTab?: Record<string, string | null>
+  kubernetesPanesByTab?: Record<string, import('../types').KubernetesPane[]>
+  dockerPanesByTab?: Record<string, import('../types').DockerPane[]>
+  claudePanesByTab?: Record<string, ClaudePane[]>
 }
 
 export const useAppStore = create<AppState>()(
@@ -160,6 +172,16 @@ export const useAppStore = create<AppState>()(
       draggedTerminalId: null,
       dictationButtonPosition: null,
       username: null,
+      hydrateDurableUiState: (durableState) => set((s) => ({
+        activeTabIds: durableState.activeTabIds ?? s.activeTabIds,
+        layoutsByTab: durableState.layoutsByTab ?? s.layoutsByTab,
+        browserPanesByTab: durableState.browserPanesByTab ?? s.browserPanesByTab,
+        editorPanesByTab: durableState.editorPanesByTab ?? s.editorPanesByTab,
+        activeFileByTab: durableState.activeFileByTab ?? s.activeFileByTab,
+        kubernetesPanesByTab: durableState.kubernetesPanesByTab ?? s.kubernetesPanesByTab,
+        dockerPanesByTab: durableState.dockerPanesByTab ?? s.dockerPanesByTab,
+        claudePanesByTab: durableState.claudePanesByTab ?? s.claudePanesByTab,
+      })),
       setUsername: (name) => set({ username: name }),
       addRecentProject: (path) => set((s) => ({
         recentProjects: [path, ...s.recentProjects.filter(p => p !== path)].slice(0, 50)
@@ -912,6 +934,7 @@ export const useAppStore = create<AppState>()(
         toolingTerminalsByWorkspace: state.toolingTerminalsByWorkspace,
         activeToolingTerminalId: state.activeToolingTerminalId,
         layoutsByTab: state.layoutsByTab,
+        browserPanesByTab: state.browserPanesByTab,
         browserHistory: state.browserHistory,
         bookmarks: state.bookmarks,
         editorPanesByTab: state.editorPanesByTab,

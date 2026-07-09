@@ -4,7 +4,14 @@ import { listen } from '@tauri-apps/api/event'
 import { invoke } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
 import { useBrowserMediaStore } from '../../store/useBrowserMediaStore'
+import { useBrowserStartupMediaGate } from '../../hooks/useBrowserStartupMediaGate'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
+import { deleteSqliteUiState, getSqliteUiState, setSqliteUiState } from '../../utils/sqliteUiState'
+import {
+  browserPaneTabsStateKey,
+  normalizePersistedBrowserTabs,
+} from '../../utils/browserPaneTabsState'
+import type { BrowserPaneTabsSnapshot, BrowserPaneTabState } from '../../utils/browserPaneTabsState'
 
 const EMPTY_ARRAY: any[] = []
 
@@ -29,7 +36,7 @@ export function BrowserPane({
   onFocus, onClose, onSplit, onToggleMaximize,
 }: Props) {
   // Tabs state
-  const [tabs, setTabs] = useState<{ id: string; url: string; title: string; icon?: string; isDiscarded?: boolean }[]>([
+  const [tabs, setTabs] = useState<BrowserPaneTabState[]>([
     { id: browserPaneId, url: initialUrl, title: 'New Tab' }
   ])
   const [activeTabId, setActiveTabId] = useState(browserPaneId)
@@ -66,6 +73,11 @@ export function BrowserPane({
   const hiddenTabsRef = useRef<Set<string>>(new Set())
   const discardTimersRef = useRef<{ [id: string]: ReturnType<typeof setTimeout> }>({})
   const preconnectedUrlsRef = useRef<Set<string>>(new Set())
+  const browserTabsRestoredRef = useRef(false)
+
+  // Auto-pause media that starts playing in this (non-focused) pane during the
+  // startup grace window; auto-resume it when the pane becomes focused.
+  useBrowserStartupMediaGate({ isActive, tabIds: tabs.map((t) => t.id) })
 
   // Fetch suggestions
   useEffect(() => {
@@ -181,6 +193,51 @@ export function BrowserPane({
       h: targetH,
     }).catch(() => {})
   }, [activeTabId, isModalOpen, isHidden, showBookmarks, showHistory, browserPaneId, activeTab?.url, viewportMode])
+
+  useEffect(() => {
+    let cancelled = false
+    const restoreTabs = async () => {
+      try {
+        const saved = await getSqliteUiState<BrowserPaneTabsSnapshot>(browserPaneTabsStateKey(browserPaneId))
+        if (cancelled) return
+        const normalized = normalizePersistedBrowserTabs(browserPaneId, initialUrl, saved)
+        const tabsToSpawn = normalized.tabs.filter(
+          tab => tab.id !== browserPaneId && !tab.isDiscarded && tab.url !== 'termspace://newtab'
+        )
+        await Promise.all(tabsToSpawn.map(tab => invoke('spawn_ephemeral_browser_pane', {
+          id: tab.id,
+          url: tab.url,
+          x: -10000,
+          y: -10000,
+          w: 800,
+          h: 600,
+          adblockEnabled,
+        }).catch(console.error)))
+        if (cancelled) return
+        setTabs(normalized.tabs)
+        setActiveTabId(normalized.activeTabId)
+      } catch (err) {
+        console.error('Failed to restore browser tabs:', err)
+      } finally {
+        browserTabsRestoredRef.current = true
+      }
+    }
+    restoreTabs()
+    return () => {
+      cancelled = true
+    }
+  }, [browserPaneId, initialUrl, adblockEnabled])
+
+  useEffect(() => {
+    if (!browserTabsRestoredRef.current) return
+    const snapshot: BrowserPaneTabsSnapshot = { tabs, activeTabId }
+    const timer = setTimeout(() => {
+      setSqliteUiState(browserPaneTabsStateKey(browserPaneId), snapshot).catch((err) => {
+        console.error('Failed to persist browser tabs:', err)
+      })
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [tabs, activeTabId, browserPaneId])
 
   // Handle hiding inactive tabs efficiently
   useEffect(() => {
@@ -491,6 +548,7 @@ export function BrowserPane({
     e.stopPropagation()
     if (tabs.length === 1) {
       // If it's the last tab, close the whole pane
+      deleteSqliteUiState(browserPaneTabsStateKey(browserPaneId)).catch(() => {})
       onClose()
       return
     }

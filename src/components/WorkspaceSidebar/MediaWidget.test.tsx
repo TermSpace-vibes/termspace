@@ -60,6 +60,31 @@ describe('MediaWidget', () => {
     expect(screen.getByText('Second')).toBeTruthy()
   })
 
+  it('collapses multiple media elements from the same browser tab into one slide', () => {
+    useBrowserMediaStore.setState({
+      sessions: {
+        'tab-a:m1': {
+          id: 'tab-a:m1', workspaceId: 'ws-1', workspaceName: 'Work', browserTabId: 'tab-a',
+          pageUrl: 'https://www.youtube.com/watch?v=abc', mediaTitle: 'Visible Video',
+          isPlaying: true, mediaType: 'video', canPlayPause: true, canPrev: false,
+          canNext: false, lastActiveAt: 2000,
+        },
+        'tab-a:m2': {
+          id: 'tab-a:m2', workspaceId: 'ws-1', workspaceName: 'Work', browserTabId: 'tab-a',
+          pageUrl: 'https://www.youtube.com/watch?v=abc', mediaTitle: 'Background Element',
+          isPlaying: false, mediaType: 'video', canPlayPause: true, canPrev: false,
+          canNext: false, lastActiveAt: 3000,
+        },
+      },
+      paneInfo: {},
+    })
+
+    render(<MediaWidget />)
+    expect(screen.getByText('Visible Video')).toBeTruthy()
+    expect(screen.queryByLabelText('Previous session')).toBeNull()
+    expect(screen.queryByLabelText('Next session')).toBeNull()
+  })
+
   it('calls browser_media_control with the correct pane/media ids on play/pause', () => {
     useBrowserMediaStore.setState({
       sessions: {
@@ -92,5 +117,34 @@ describe('MediaWidget', () => {
     render(<MediaWidget />)
     expect(screen.getByLabelText('Previous track')).toBeTruthy()
     expect(screen.queryByLabelText('Next track')).toBeNull()
+  })
+
+  it('shows YouTube fallback previous and next track buttons when handlers are not reported', () => {
+    useBrowserMediaStore.setState({
+      sessions: {
+        'tab-a:m1': {
+          id: 'tab-a:m1', workspaceId: 'ws-1', workspaceName: 'Work', browserTabId: 'tab-a',
+          pageUrl: 'https://www.youtube.com/watch?v=abc', mediaTitle: 'YouTube Video',
+          isPlaying: true, mediaType: 'video', canPlayPause: true, canPrev: false,
+          canNext: false, lastActiveAt: 2000,
+        },
+      },
+      paneInfo: {},
+    })
+
+    render(<MediaWidget />)
+    fireEvent.click(screen.getByLabelText('Previous track'))
+    fireEvent.click(screen.getByLabelText('Next track'))
+
+    expect(invokeMock).toHaveBeenCalledWith('browser_media_control', {
+      id: 'tab-a',
+      mediaId: 'm1',
+      action: 'previoustrack',
+    })
+    expect(invokeMock).toHaveBeenCalledWith('browser_media_control', {
+      id: 'tab-a',
+      mediaId: 'm1',
+      action: 'nexttrack',
+    })
   })
 })

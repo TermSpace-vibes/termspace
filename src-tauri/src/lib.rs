@@ -7,6 +7,7 @@ mod clipboard_insertion_service;
 mod commands;
 mod daemon_client;
 mod db;
+mod dictation_overlay_service;
 mod dictation_model;
 mod global_shortcut_service;
 pub mod lsp_manager;
@@ -47,6 +48,9 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        if let Some(state) = app.try_state::<tray_service::TrayState>() {
+                            let _ = tray_service::mark_global_dictation_toggle_requested(&state);
+                        }
                         let _ = app.emit("global-dictation-toggle", ());
                     }
                 })
@@ -132,6 +136,7 @@ pub fn run() {
             )));
             app.manage(global_shortcut_service::GlobalShortcutState::default());
             app.manage(tray_service::TrayState::default());
+            app.manage(dictation_overlay_service::DictationOverlayState::default());
 
             let ctx = match dictation_model::selected_model_path(app.handle()) {
                 Ok(Some(path)) => {
@@ -256,6 +261,9 @@ pub fn run() {
             commands::get_username,
             commands::set_username,
             commands::clear_database,
+            commands::get_ui_state,
+            commands::set_ui_state,
+            commands::delete_ui_state,
             commands::duplicate_file,
             commands::open_mic_settings,
             commands::play_notification_sound,
@@ -280,6 +288,12 @@ pub fn run() {
             commands::show_tray_icon,
             commands::hide_tray_icon,
             commands::set_tray_dictation_state,
+            commands::show_dictation_overlay,
+            commands::hide_dictation_overlay,
+            commands::move_dictation_overlay,
+            commands::toggle_global_dictation_from_overlay,
+            commands::update_dictation_overlay_state,
+            commands::get_dictation_overlay_state,
             commands::start_workspace_watcher,
             commands::stop_workspace_watcher,
             commands::spawn_lsp,

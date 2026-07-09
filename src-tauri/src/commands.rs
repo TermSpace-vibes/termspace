@@ -4,6 +4,9 @@ use crate::clipboard_insertion_service::{
     self, GlobalInsertionOptions, GlobalInsertionResult,
 };
 use crate::db::{self, Terminal, Workspace};
+use crate::dictation_overlay_service::{
+    self, DictationOverlayPayload, DictationOverlayState, OverlayPosition,
+};
 use crate::dictation_model::{
     self, DictationModelStatus, MODEL_PART_FILE_NAME, MODEL_URL,
 };
@@ -1184,6 +1187,25 @@ pub fn search_files_by_name(path: String, query: String) -> Result<Vec<String>, 
 pub fn clear_database(db: State<DbState>) -> Result<(), String> {
     db::clear_all_data(&db.0.lock()).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn get_ui_state(db: State<DbState>, key: String) -> Result<Option<String>, String> {
+    let conn = db.0.lock();
+    db::get_ui_state(&conn, &key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_ui_state(db: State<DbState>, key: String, value: String) -> Result<(), String> {
+    let conn = db.0.lock();
+    db::set_ui_state(&conn, &key, &value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_ui_state(db: State<DbState>, key: String) -> Result<(), String> {
+    let conn = db.0.lock();
+    db::delete_ui_state(&conn, &key).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn get_username(db: State<DbState>) -> Result<Option<String>, String> {
     let conn = db.0.lock();
@@ -1454,6 +1476,53 @@ pub fn set_tray_dictation_state(
     dictation_state: String,
 ) -> Result<(), String> {
     tray_service::set_tray_dictation_state(&state, &dictation_state)
+}
+
+#[tauri::command]
+pub fn show_dictation_overlay(
+    app: AppHandle,
+    state: State<'_, DictationOverlayState>,
+    position: Option<OverlayPosition>,
+) -> Result<(), String> {
+    dictation_overlay_service::show_overlay(&app, &state, position)
+}
+
+#[tauri::command]
+pub fn hide_dictation_overlay(
+    app: AppHandle,
+    state: State<'_, DictationOverlayState>,
+) -> Result<(), String> {
+    dictation_overlay_service::hide_overlay(&app, &state)
+}
+
+#[tauri::command]
+pub fn move_dictation_overlay(
+    app: AppHandle,
+    state: State<'_, DictationOverlayState>,
+    position: OverlayPosition,
+) -> Result<(), String> {
+    dictation_overlay_service::move_overlay(&app, &state, position)
+}
+
+#[tauri::command]
+pub fn toggle_global_dictation_from_overlay(app: AppHandle) -> Result<(), String> {
+    dictation_overlay_service::toggle_from_overlay(&app)
+}
+
+#[tauri::command]
+pub fn update_dictation_overlay_state(
+    app: AppHandle,
+    state: State<'_, DictationOverlayState>,
+    payload: DictationOverlayPayload,
+) -> Result<(), String> {
+    dictation_overlay_service::update_state(&app, &state, payload)
+}
+
+#[tauri::command]
+pub fn get_dictation_overlay_state(
+    state: State<'_, DictationOverlayState>,
+) -> Result<DictationOverlayPayload, String> {
+    Ok(dictation_overlay_service::get_state(&state))
 }
 
 #[derive(serde::Serialize)]
