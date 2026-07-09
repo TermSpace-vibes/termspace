@@ -1,7 +1,7 @@
-import { useEffect, useState, memo, useCallback } from 'react'
+import { useEffect, useState, memo, useCallback, useMemo } from 'react'
 import { invoke } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
-import { Workspace, Terminal, BrowserPane as BrowserPaneType, EditorPane as EditorPaneType } from '../../types'
+import { Workspace, Terminal, BrowserPane as BrowserPaneType, EditorPane as EditorPaneType, WorkspaceTab } from '../../types'
 import { TerminalGrid } from './TerminalGrid'
 import { WorkspaceTabBar } from './WorkspaceTabBar'
 import { ToolingPane } from './ToolingPane'
@@ -21,6 +21,7 @@ const EMPTY_EDITOR_PANES: EditorPaneType[] = []
 const EMPTY_KUBERNETES_PANES: import('../../types').KubernetesPane[] = []
 const EMPTY_DOCKER_PANES: import('../../types').DockerPane[] = []
 const EMPTY_CLAUDE_PANES: import('../../types').ClaudePane[] = []
+const EMPTY_TABS: WorkspaceTab[] = []
 
 const SystemStats = memo(() => {
   const settings = useAppStore((s) => s.settings)
@@ -79,6 +80,11 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
   const kubernetesPanes = useAppStore((s) => activeTabId ? s.kubernetesPanesByTab[activeTabId] ?? EMPTY_KUBERNETES_PANES : EMPTY_KUBERNETES_PANES)
   const dockerPanes = useAppStore((s) => activeTabId ? s.dockerPanesByTab[activeTabId] ?? EMPTY_DOCKER_PANES : EMPTY_DOCKER_PANES)
   const claudePanes = useAppStore((s) => activeTabId ? s.claudePanesByTab[activeTabId] ?? EMPTY_CLAUDE_PANES : EMPTY_CLAUDE_PANES)
+  const tabs = useAppStore((s) => s.tabsByWorkspace[workspace.id] ?? EMPTY_TABS)
+  const renderTabs = useMemo(() => {
+    if (!activeTabId || tabs.some((tab) => tab.id === activeTabId)) return tabs
+    return [...tabs, { id: activeTabId, workspaceId: workspace.id, name: 'Tab 1', position: tabs.length, createdAt: 0 }]
+  }, [activeTabId, tabs, workspace.id])
 
   useEffect(() => {
     if (activeTabId && !isLoaded && !isLoading) {
@@ -427,170 +433,177 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
         showTabBar={settings.showTabBar !== false}
       />
       <WorkspaceTabBar workspaceId={workspace.id} />
-      {terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || kubernetesPanes.length > 0 || dockerPanes.length > 0 || claudePanes.length > 0 ? (
-        <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
-          <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
-            <Panel defaultSize={75} minSize={20}>
-              <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
-                <TerminalGrid
-                  workspaceId={workspace.id}
-                  tabId={activeTabId!}
-                  activeTerminalId={activeTerminalId}
-                  onFocus={setActiveTerminalId}
-                  onClose={handleCloseTerminal}
-                  onSplit={handleAddTerminal}
-                  onCloseBrowserPane={handleCloseBrowserPane}
-                  onSplitBrowserPane={handleAddBrowserPane}
-                  onCloseClaudePane={handleCloseClaudePane}
-                />
-                <SystemStats />
-              </div>
-            </Panel>
-            {settings.showToolingPane && editorPanes.length > 0 && (
-              <>
-                <Separator style={{ height: 4, cursor: 'row-resize', background: 'var(--border-inactive)' }} />
-                <Panel defaultSize={25} minSize={10}>
-                  <ToolingPane workspaceId={activeTabId!} />
-                </Panel>
-              </>
-            )}
-          </Group>
-        </div>
-      ) : !isLoaded || isLoading ? (
-        <div
-          key="activating"
-          style={{
-            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexDirection: 'column', gap: 24, background: 'var(--bg-main)',
-            animation: 'fadeIn 0.3s ease-out'
-          }}
-        >
-          <div style={{ fontSize: 40, opacity: 0.8, filter: 'drop-shadow(0 0 12px rgba(232, 160, 69, 0.4))' }}>{workspace.emoji}</div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'loadingPulse 1.2s ease-in-out infinite' }} />
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'loadingPulse 1.2s ease-in-out infinite', animationDelay: '0.2s' }} />
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'loadingPulse 1.2s ease-in-out infinite', animationDelay: '0.4s' }} />
+      <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
+        <Group orientation="vertical" style={{ flex: 1, minHeight: 0, display: (terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || kubernetesPanes.length > 0 || dockerPanes.length > 0 || claudePanes.length > 0) ? 'flex' : 'none' }}>
+          <Panel defaultSize={75} minSize={20}>
+            <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
+              {renderTabs.map((tab) => (
+                <div key={tab.id} style={{ display: tab.id === activeTabId ? 'flex' : 'none', flex: 1, flexDirection: 'column', minWidth: 0, height: '100%' }}>
+                  <TerminalGrid
+                    workspaceId={workspace.id}
+                    tabId={tab.id}
+                    activeTerminalId={activeTerminalId}
+                    onFocus={setActiveTerminalId}
+                    onClose={handleCloseTerminal}
+                    onSplit={handleAddTerminal}
+                    onCloseBrowserPane={handleCloseBrowserPane}
+                    onSplitBrowserPane={handleAddBrowserPane}
+                    onCloseClaudePane={handleCloseClaudePane}
+                  />
+                </div>
+              ))}
+              <SystemStats />
             </div>
-            <span style={{ color: 'var(--text-dim)', fontSize: 13, fontFamily: 'SF Mono, Menlo, monospace', letterSpacing: 2, textTransform: 'uppercase' }}>
-              Activating Workspace
-            </span>
+          </Panel>
+          {settings.showToolingPane && editorPanes.length > 0 && (
+            <>
+              <Separator style={{ height: 4, cursor: 'row-resize', background: 'var(--border-inactive)' }} />
+              <Panel defaultSize={25} minSize={10}>
+                <ToolingPane workspaceId={activeTabId!} />
+              </Panel>
+            </>
+          )}
+        </Group>
+        
+        {!(terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || kubernetesPanes.length > 0 || dockerPanes.length > 0 || claudePanes.length > 0) && (!isLoaded || isLoading ? (
+          <div
+            key="activating"
+            style={{
+              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexDirection: 'column', gap: 24, background: 'var(--bg-main)',
+              animation: 'fadeIn 0.3s ease-out'
+            }}
+          >
+            <div style={{ fontSize: 40, opacity: 0.8, filter: 'drop-shadow(0 0 12px rgba(232, 160, 69, 0.4))' }}>{workspace.emoji}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'loadingPulse 1.2s ease-in-out infinite' }} />
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'loadingPulse 1.2s ease-in-out infinite', animationDelay: '0.2s' }} />
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', animation: 'loadingPulse 1.2s ease-in-out infinite', animationDelay: '0.4s' }} />
+              </div>
+              <span style={{ color: 'var(--text-dim)', fontSize: 13, fontFamily: 'SF Mono, Menlo, monospace', letterSpacing: 2, textTransform: 'uppercase' }}>
+                Activating Workspace
+              </span>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div style={{
-          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          flexDirection: 'column', gap: 16, background: 'var(--bg-main)'
-        }}>
-          <div style={{ fontSize: 48, opacity: 0.5 }}>{workspace.emoji}</div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-            <span style={{ color: 'var(--text-inactive)', fontSize: 16, fontWeight: 500, letterSpacing: 0.2 }}>Workspace is empty</span>
-            <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>Spawn a terminal or browser to begin working</span>
+        ) : (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexDirection: 'column', gap: 16, background: 'var(--bg-main)'
+          }}>
+            <div style={{ fontSize: 48, opacity: 0.5 }}>{workspace.emoji}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+              <span style={{ color: 'var(--text-inactive)', fontSize: 16, fontWeight: 500, letterSpacing: 0.2 }}>Workspace is empty</span>
+              <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>Spawn a terminal or browser to begin working</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button 
+                onClick={() => handleAddTerminal()}
+                style={{
+                  marginTop: 8, padding: '10px 20px', background: 'transparent',
+                  border: '1px dashed var(--border-inactive)', borderRadius: 8, color: 'var(--text-inactive)',
+                  fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--text-active)'
+                  e.currentTarget.style.borderColor = 'var(--text-inactive)'
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--text-inactive)'
+                  e.currentTarget.style.borderColor = 'var(--border-inactive)'
+                  e.currentTarget.style.background = 'transparent'
+                }}
+              >
+                + New Terminal
+              </button>
+              <button 
+                onClick={() => handleAddBrowserPane()}
+                style={{
+                  marginTop: 8, padding: '10px 20px', background: 'transparent',
+                  border: '1px dashed var(--border-inactive)', borderRadius: 8, color: 'var(--text-inactive)',
+                  fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--text-active)'
+                  e.currentTarget.style.borderColor = 'var(--text-inactive)'
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--text-inactive)'
+                  e.currentTarget.style.borderColor = 'var(--border-inactive)'
+                  e.currentTarget.style.background = 'transparent'
+                }}
+              >
+                🌐 New Browser
+              </button>
+              <button
+                onClick={() => handleAddEditorPane()}
+                style={{
+                  marginTop: 8, padding: '10px 20px', background: 'transparent',
+                  border: '1px dashed var(--border-inactive)', borderRadius: 8, color: 'var(--text-inactive)',
+                  fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--text-active)'
+                  e.currentTarget.style.borderColor = 'var(--text-inactive)'
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--text-inactive)'
+                  e.currentTarget.style.borderColor = 'var(--border-inactive)'
+                  e.currentTarget.style.background = 'transparent'
+                }}
+              >
+                &lt;/&gt; New Editor
+              </button>
+              <button
+                onClick={() => handleAddKubernetesPane()}
+                style={{
+                  marginTop: 8, padding: '10px 20px', background: 'transparent',
+                  border: '1px dashed var(--border-inactive)', borderRadius: 8, color: 'var(--text-inactive)',
+                  fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#8b5cf6'
+                  e.currentTarget.style.borderColor = '#8b5cf6'
+                  e.currentTarget.style.background = 'rgba(139,92,246,0.05)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--text-inactive)'
+                  e.currentTarget.style.borderColor = 'var(--border-inactive)'
+                  e.currentTarget.style.background = 'transparent'
+                }}
+              >
+                ⎈ New Kubernetes Pane
+              </button>
+              <button
+                onClick={() => handleAddDockerPane()}
+                style={{
+                  marginTop: 8, padding: '10px 20px', background: 'transparent',
+                  border: '1px dashed var(--border-inactive)', borderRadius: 8, color: 'var(--text-inactive)',
+                  fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#0ea5e9'
+                  e.currentTarget.style.borderColor = '#0ea5e9'
+                  e.currentTarget.style.background = 'rgba(14,165,233,0.05)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--text-inactive)'
+                  e.currentTarget.style.borderColor = 'var(--border-inactive)'
+                  e.currentTarget.style.background = 'transparent'
+                }}
+              >
+                🐳 New Docker Pane
+              </button>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button 
-              onClick={() => handleAddTerminal()}
-              style={{
-                marginTop: 8, padding: '10px 20px', background: 'transparent',
-                border: '1px dashed var(--border-inactive)', borderRadius: 8, color: 'var(--text-inactive)',
-                fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'var(--text-active)'
-                e.currentTarget.style.borderColor = 'var(--text-inactive)'
-                e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--text-inactive)'
-                e.currentTarget.style.borderColor = 'var(--border-inactive)'
-                e.currentTarget.style.background = 'transparent'
-              }}
-            >
-              + New Terminal
-            </button>
-            <button 
-              onClick={() => handleAddBrowserPane()}
-              style={{
-                marginTop: 8, padding: '10px 20px', background: 'transparent',
-                border: '1px dashed var(--border-inactive)', borderRadius: 8, color: 'var(--text-inactive)',
-                fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'var(--text-active)'
-                e.currentTarget.style.borderColor = 'var(--text-inactive)'
-                e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--text-inactive)'
-                e.currentTarget.style.borderColor = 'var(--border-inactive)'
-                e.currentTarget.style.background = 'transparent'
-              }}
-            >
-              🌐 New Browser
-            </button>
-            <button
-              onClick={() => handleAddEditorPane()}
-              style={{
-                marginTop: 8, padding: '10px 20px', background: 'transparent',
-                border: '1px dashed var(--border-inactive)', borderRadius: 8, color: 'var(--text-inactive)',
-                fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'var(--text-active)'
-                e.currentTarget.style.borderColor = 'var(--text-inactive)'
-                e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--text-inactive)'
-                e.currentTarget.style.borderColor = 'var(--border-inactive)'
-                e.currentTarget.style.background = 'transparent'
-              }}
-            >
-              &lt;/&gt; New Editor
-            </button>
-            <button
-              onClick={() => handleAddKubernetesPane()}
-              style={{
-                marginTop: 8, padding: '10px 20px', background: 'transparent',
-                border: '1px dashed var(--border-inactive)', borderRadius: 8, color: 'var(--text-inactive)',
-                fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = '#8b5cf6'
-                e.currentTarget.style.borderColor = '#8b5cf6'
-                e.currentTarget.style.background = 'rgba(139,92,246,0.05)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--text-inactive)'
-                e.currentTarget.style.borderColor = 'var(--border-inactive)'
-                e.currentTarget.style.background = 'transparent'
-              }}
-            >
-              ⎈ New Kubernetes Pane
-            </button>
-            <button
-              onClick={() => handleAddDockerPane()}
-              style={{
-                marginTop: 8, padding: '10px 20px', background: 'transparent',
-                border: '1px dashed var(--border-inactive)', borderRadius: 8, color: 'var(--text-inactive)',
-                fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = '#0ea5e9'
-                e.currentTarget.style.borderColor = '#0ea5e9'
-                e.currentTarget.style.background = 'rgba(14,165,233,0.05)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'var(--text-inactive)'
-                e.currentTarget.style.borderColor = 'var(--border-inactive)'
-                e.currentTarget.style.background = 'transparent'
-              }}
-            >
-              🐳 New Docker Pane
-            </button>
-          </div>
-        </div>
-      )}
+        ))}
+      </div>
+
 
       {terminalToCloseId && terminalToCloseId.workspaceId === workspace.id && (
         <div style={{

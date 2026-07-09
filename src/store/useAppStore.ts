@@ -284,7 +284,16 @@ export const useAppStore = create<AppState>()(
 
       setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
       setActiveTabId: (workspaceId, tabId) => set((s) => ({ activeTabIds: { ...s.activeTabIds, [workspaceId]: tabId } })),
-      setTabs: (workspaceId, tabs) => set((s) => ({ tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceId]: tabs } })),
+      setTabs: (workspaceId, tabs) => set((s) => {
+        const currentActiveId = s.activeTabIds[workspaceId]
+        const activeTabExists = currentActiveId ? tabs.some((tab) => tab.id === currentActiveId) : false
+        const nextActiveId = activeTabExists ? currentActiveId : (tabs[0]?.id ?? '')
+
+        return {
+          tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceId]: tabs },
+          activeTabIds: { ...s.activeTabIds, [workspaceId]: nextActiveId },
+        }
+      }),
       createTab: async (workspaceId, name) => {
         const tab = await invoke<WorkspaceTab>('create_tab', { workspaceId, name })
         set((s) => {

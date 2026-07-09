@@ -11,6 +11,10 @@ export const WorkspaceTabBar: React.FC<{ workspaceId: string }> = ({ workspaceId
   const createTab = useAppStore(s => s.createTab)
   const removeTab = useAppStore(s => s.removeTab)
   const renameTab = useAppStore(s => s.renameTab)
+  const renderTabs = React.useMemo(() => {
+    if (!activeTabId || tabs.some((tab) => tab.id === activeTabId)) return tabs
+    return [{ id: activeTabId, workspaceId, name: 'Tab 1', position: 0, createdAt: 0 }]
+  }, [activeTabId, tabs, workspaceId])
   const [editingTabId, setEditingTabId] = React.useState<string | null>(null)
   const [editingName, setEditingName] = React.useState('')
 
@@ -24,7 +28,7 @@ export const WorkspaceTabBar: React.FC<{ workspaceId: string }> = ({ workspaceId
       gap: '8px',
       alignItems: 'center'
     }}>
-      {tabs.map(tab => {
+      {renderTabs.map(tab => {
         const isActive = tab.id === activeTabId
         return (
           <button 
@@ -91,7 +95,7 @@ export const WorkspaceTabBar: React.FC<{ workspaceId: string }> = ({ workspaceId
             ) : (
               tab.name
             )}
-            {tabs.length > 1 && (
+            {renderTabs.length > 1 && (
               <span
                 onClick={(e) => {
                   e.stopPropagation()
@@ -129,7 +133,7 @@ export const WorkspaceTabBar: React.FC<{ workspaceId: string }> = ({ workspaceId
       })}
       <button 
         onClick={() => {
-          const maxNum = tabs.reduce((max, tab) => {
+          const maxNum = renderTabs.reduce((max, tab) => {
             const match = tab.name.match(/^Tab (\d+)$/);
             return match ? Math.max(max, parseInt(match[1], 10)) : max;
           }, 0);

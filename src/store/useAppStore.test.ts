@@ -63,6 +63,21 @@ describe('useAppStore', () => {
     expect(useAppStore.getState().activeWorkspaceId).toBe('ws-1')
   })
 
+  it('keeps the active tab id inside the loaded workspace tabs', () => {
+    act(() => {
+      useAppStore.setState({
+        activeTabIds: { 'ws-1': 'missing-tab' },
+        tabsByWorkspace: {},
+      })
+      useAppStore.getState().setTabs('ws-1', [
+        { id: 'tab-1', workspaceId: 'ws-1', name: 'Tab 1', position: 0, createdAt: 1000 },
+        { id: 'tab-2', workspaceId: 'ws-1', name: 'Tab 2', position: 1, createdAt: 1001 },
+      ])
+    })
+
+    expect(useAppStore.getState().activeTabIds['ws-1']).toBe('tab-1')
+  })
+
   it('adds a terminal to a workspace', () => {
     act(() => useAppStore.getState().addTerminal('ws-1', t1))
     expect(useAppStore.getState().terminalsByTab['ws-1']).toHaveLength(1)

@@ -107,8 +107,6 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
 
   const flatNodes = useMemo(() => getFlatNodes(layout), [layout])
 
-  if (!layout) return null
-
   const isMaximized = maximizedTerminalId !== null
 
   const containsMaximized = (n: LayoutNode): boolean => {
@@ -399,6 +397,8 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
       </div>
     )
   }
+
+  if (!layout) return null
 
   return (
     <ErrorBoundary>

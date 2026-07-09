@@ -99,6 +99,27 @@ describe('WorkspaceView Claude integration', () => {
     expect(screen.queryByText('Workspace is empty')).not.toBeInTheDocument()
   })
 
+  it('renders active tab content when persisted tabs have not been reloaded yet', () => {
+    useAppStore.setState({
+      tabsByWorkspace: {
+        'ws-1': [],
+      },
+      activeTabIds: { 'ws-1': 'tab-1' },
+      terminalsByTab: {
+        'tab-1': [{ id: 'terminal-1', tabId: 'tab-1', shell: 'zsh', cwd: '/tmp', position: 0, sizePercent: 100, createdAt: 1 }],
+      },
+      layoutsByTab: {
+        'tab-1': { type: 'pane', id: 'terminal-layout-1', terminalId: 'terminal-1' },
+      },
+      claudePanesByTab: { 'tab-1': [] },
+    })
+
+    render(<WorkspaceView workspace={workspace} onEditWorkspace={vi.fn()} />)
+
+    expect(screen.getByTestId('terminal-grid')).toBeInTheDocument()
+    expect(screen.queryByText('Workspace is empty')).not.toBeInTheDocument()
+  })
+
   it('closes Claude panes without invoking terminal close flow', async () => {
     render(<WorkspaceView workspace={workspace} onEditWorkspace={vi.fn()} />)
 
