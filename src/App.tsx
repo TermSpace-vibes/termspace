@@ -231,8 +231,17 @@ export default function App() {
 
       const savedEditorPanes = useAppStore.getState().editorPanesByTab[tabId] ?? [];
       const savedKubernetesPanes = useAppStore.getState().kubernetesPanesByTab[tabId] ?? [];
+      const savedDockerPanes = useAppStore.getState().dockerPanesByTab[tabId] ?? [];
+      const savedClaudePanes = useAppStore.getState().claudePanesByTab[tabId] ?? [];
 
-      if (saved.length === 0 && savedBrowserPanes.length === 0 && savedEditorPanes.length === 0 && savedKubernetesPanes.length === 0) {
+      if (
+        saved.length === 0
+        && savedBrowserPanes.length === 0
+        && savedEditorPanes.length === 0
+        && savedKubernetesPanes.length === 0
+        && savedDockerPanes.length === 0
+        && savedClaudePanes.length === 0
+      ) {
         setTerminals(tabId, [])
         useAppStore.getState().setBrowserPanes(tabId, [])
         await spawnAndAddTerminal(workspaceId)
