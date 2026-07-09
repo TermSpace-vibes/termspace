@@ -4,7 +4,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub const OVERLAY_LABEL: &str = "dictation-overlay";
 pub const OVERLAY_URL: &str = "index.html?overlay=dictation";
-pub const OVERLAY_SIZE: f64 = 84.0;
+pub const OVERLAY_SIZE: f64 = 120.0;
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +19,13 @@ pub struct DictationOverlayPayload {
     pub is_listening: bool,
     pub is_processing: bool,
     pub interim_transcript: String,
+    /// Live per-band mic amplitude (0..1) driving the overlay's waveform bars.
+    #[serde(default)]
+    pub audio_levels: Vec<f64>,
+    /// Set briefly when a toggle attempt fails (e.g. mic permission denied)
+    /// so the overlay can flash feedback instead of looking unresponsive.
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 impl Default for DictationOverlayPayload {
@@ -27,6 +34,8 @@ impl Default for DictationOverlayPayload {
             is_listening: false,
             is_processing: false,
             interim_transcript: String::new(),
+            audio_levels: Vec::new(),
+            error: None,
         }
     }
 }
@@ -87,6 +96,12 @@ fn ensure_overlay_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String
         .title("Termspace Dictation")
         .decorations(false)
         .transparent(true)
+        // Without this, macOS draws its own drop-shadow hugging the
+        // window's alpha shape, which renders as a dotted/stippled ring
+        // around the circular button since the shadow can't anti-alias
+        // the transparent circle cleanly. We already render our own CSS
+        // box-shadow, so the native one is redundant anyway.
+        .shadow(false)
         .always_on_top(true)
         .resizable(false)
         .skip_taskbar(true)
@@ -173,7 +188,7 @@ mod tests {
             900.0,
         );
 
-        assert_eq!(pos, OverlayPosition { x: 0.0, y: 816.0 });
+        assert_eq!(pos, OverlayPosition { x: 0.0, y: 780.0 });
     }
 
     #[test]
@@ -185,6 +200,8 @@ mod tests {
                 is_listening: false,
                 is_processing: false,
                 interim_transcript: String::new(),
+                audio_levels: Vec::new(),
+                error: None,
             }
         );
     }

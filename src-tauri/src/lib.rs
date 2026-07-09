@@ -138,33 +138,44 @@ pub fn run() {
             app.manage(tray_service::TrayState::default());
             app.manage(dictation_overlay_service::DictationOverlayState::default());
 
-            let ctx = match dictation_model::selected_model_path(app.handle()) {
-                Ok(Some(path)) => {
-                    eprintln!(
-                        "Transcription backend selected at startup: local whisper; model path: {}; source: downloaded",
-                        path.display()
-                    );
-                    dictation_model::load_whisper_context_from_path(&path)
-                        .map_err(|error| {
-                            eprintln!(
-                                "Failed to load downloaded transcription model from {}: {}",
-                                path.display(),
-                                error
-                            );
-                            error
-                        })
-                        .ok()
-                }
-                Ok(None) => {
-                    eprintln!("Transcription backend selected at startup: none; downloaded model missing");
-                    None
-                }
-                Err(error) => {
-                    eprintln!("Failed to resolve downloaded transcription model path: {error}");
-                    None
-                }
-            };
-            app.manage(commands::WhisperState(Arc::new(Mutex::new(ctx))));
+            // Loading the whisper model (whisper_init_from_file_with_params_no_state
+            // on a ~150MB file) synchronously here blocked the window from appearing
+            // at all until it finished — several seconds in unoptimized dev builds.
+            // Manage empty state immediately and load in the background instead;
+            // toggleListening already handles "model not loaded yet" by loading it
+            // on demand, so an early toggle just takes that path once instead.
+            let whisper_state = Arc::new(Mutex::new(None));
+            app.manage(commands::WhisperState(whisper_state.clone()));
+            {
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || match dictation_model::selected_model_path(&app_handle) {
+                    Ok(Some(path)) => {
+                        eprintln!(
+                            "Transcription backend selected at startup: local whisper; model path: {}; source: downloaded",
+                            path.display()
+                        );
+                        match dictation_model::load_whisper_context_from_path(&path) {
+                            Ok(ctx) => {
+                                *whisper_state.lock() = Some(ctx);
+                                eprintln!("Local whisper model finished loading in the background");
+                            }
+                            Err(error) => {
+                                eprintln!(
+                                    "Failed to load downloaded transcription model from {}: {}",
+                                    path.display(),
+                                    error
+                                );
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        eprintln!("Transcription backend selected at startup: none; downloaded model missing");
+                    }
+                    Err(error) => {
+                        eprintln!("Failed to resolve downloaded transcription model path: {error}");
+                    }
+                });
+            }
 
             // Start local HTTP hook server
             agent_hook::start_server(app.handle().clone());

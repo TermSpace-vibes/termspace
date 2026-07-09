@@ -14,8 +14,12 @@ interface UseDictationProps {
   onResult: (text: string) => void;
   onError?: (error: string) => void;
   onStateChange?: (state: { isListening: boolean; isProcessing: boolean }) => void;
+  onAudioLevels?: (levels: number[]) => void;
   listenForGlobalToggle?: boolean;
 }
+
+const AUDIO_LEVEL_BAND_COUNT = 7;
+const AUDIO_LEVEL_UPDATE_INTERVAL_MS = 66;
 
 interface DictationModelStatus {
   state: string;
@@ -27,7 +31,7 @@ interface DictationModelStatus {
   error: string | null;
 }
 
-export function useDictation({ onResult, onError, onStateChange, listenForGlobalToggle = true }: UseDictationProps) {
+export function useDictation({ onResult, onError, onStateChange, onAudioLevels, listenForGlobalToggle = true }: UseDictationProps) {
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
@@ -36,9 +40,50 @@ export function useDictation({ onResult, onError, onStateChange, listenForGlobal
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
-  
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const levelsRafRef = useRef<number | null>(null);
+  const onAudioLevelsRef = useRef(onAudioLevels);
+  onAudioLevelsRef.current = onAudioLevels;
+
   const audioDataRef = useRef<number[]>([]);
   const isListeningRef = useRef(false);
+
+  const stopLevelMeter = useCallback(() => {
+    if (levelsRafRef.current != null) {
+      cancelAnimationFrame(levelsRafRef.current);
+      levelsRafRef.current = null;
+    }
+    analyserRef.current = null;
+    onAudioLevelsRef.current?.(new Array(AUDIO_LEVEL_BAND_COUNT).fill(0));
+  }, []);
+
+  const startLevelMeter = useCallback((analyser: AnalyserNode) => {
+    analyserRef.current = analyser;
+    const bins = new Uint8Array(analyser.frequencyBinCount);
+    const bandsPerBar = Math.max(1, Math.floor(bins.length / AUDIO_LEVEL_BAND_COUNT));
+    let lastUpdate = 0;
+
+    const tick = (time: number) => {
+      if (!analyserRef.current) return;
+      if (time - lastUpdate >= AUDIO_LEVEL_UPDATE_INTERVAL_MS) {
+        lastUpdate = time;
+        analyser.getByteFrequencyData(bins);
+        const levels: number[] = [];
+        for (let bar = 0; bar < AUDIO_LEVEL_BAND_COUNT; bar++) {
+          const start = bar * bandsPerBar;
+          let sum = 0;
+          for (let i = start; i < start + bandsPerBar; i++) {
+            sum += bins[i] ?? 0;
+          }
+          levels.push(Math.min(1, (sum / bandsPerBar) / 255));
+        }
+        onAudioLevelsRef.current?.(levels);
+      }
+      levelsRafRef.current = requestAnimationFrame(tick);
+    };
+
+    levelsRafRef.current = requestAnimationFrame(tick);
+  }, []);
 
   const stopRecordingAndTranscribe = useCallback(async () => {
     isListeningRef.current = false;
@@ -46,6 +91,7 @@ export function useDictation({ onResult, onError, onStateChange, listenForGlobal
     setIsProcessing(true);
     onStateChange?.({ isListening: false, isProcessing: true });
     setInterimTranscript('Processing transcription...');
+    stopLevelMeter();
 
     const currentRate = audioContextRef.current ? audioContextRef.current.sampleRate : 16000;
 
@@ -189,13 +235,21 @@ export function useDictation({ onResult, onError, onStateChange, listenForGlobal
     setIsProcessing(false);
     onStateChange?.({ isListening: false, isProcessing: false });
     audioDataRef.current = [];
-  }, [onResult, onError, onStateChange]);
+  }, [onResult, onError, onStateChange, stopLevelMeter]);
 
   const toggleListening = useCallback(async () => {
     if (isListeningRef.current) {
       await stopRecordingAndTranscribe();
       return;
     }
+
+    // Give immediate feedback the click registered — loading the local
+    // whisper model (or waiting on the mic permission prompt) can take a
+    // noticeable moment, and without this the button looked frozen/dead
+    // for that whole stretch instead of visibly "starting up".
+    setIsProcessing(true);
+    onStateChange?.({ isListening: false, isProcessing: true });
+    setInterimTranscript('Starting dictation...');
 
     try {
       const provider = useAppStore.getState().settings.dictationProvider || 'local';
@@ -247,7 +301,12 @@ export function useDictation({ onResult, onError, onStateChange, listenForGlobal
         }
       };
 
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 64;
+      analyser.smoothingTimeConstant = 0.6;
+
       source.connect(processor);
+      source.connect(analyser);
       processor.connect(gainNode);
       gainNode.connect(context.destination);
 
@@ -255,6 +314,7 @@ export function useDictation({ onResult, onError, onStateChange, listenForGlobal
       streamRef.current = stream;
       processorRef.current = processor;
       gainNodeRef.current = gainNode;
+      startLevelMeter(analyser);
 
       isListeningRef.current = true;
       setIsListening(true);
@@ -262,14 +322,17 @@ export function useDictation({ onResult, onError, onStateChange, listenForGlobal
       setInterimTranscript('Listening...');
       const providerName = provider === 'openai' ? 'OpenAI' : provider === 'groq' ? 'Groq' : 'Local';
       useAppStore.getState().addToast(`${providerName} Dictation started.`, 'success');
-      
+
     } catch (err: any) {
       console.error('Mic error:', err);
+      setIsProcessing(false);
+      setInterimTranscript('');
+      onStateChange?.({ isListening: false, isProcessing: false });
       const message = err instanceof Error ? err.message : String(err);
       const isModelError = /model|transcription/i.test(message);
       if (onError) onError(isModelError ? message : 'Microphone access denied or error occurred.');
     }
-  }, [stopRecordingAndTranscribe, onError, onStateChange]);
+  }, [stopRecordingAndTranscribe, onError, onStateChange, startLevelMeter]);
 
   useEffect(() => {
     if (!listenForGlobalToggle) return;

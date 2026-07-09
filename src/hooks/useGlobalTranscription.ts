@@ -181,8 +181,22 @@ export function useGlobalTranscription() {
     }
   }, [addToast])
 
+  const latestDictationRef = useRef({ isListening: false, isProcessing: false, interimTranscript: '' })
+
   const handleError = useCallback((error: string) => {
     addToast(error, 'error')
+    // The overlay button can't see why a toggle silently failed (e.g. mic
+    // permission denied) since the mic capture runs in this window, not
+    // the overlay's — flash it there too instead of only toasting here.
+    if (useAppStore.getState().settings.globalDictationEnabled) {
+      invoke('update_dictation_overlay_state', {
+        payload: {
+          ...latestDictationRef.current,
+          audioLevels: [],
+          error,
+        },
+      }).catch(console.error)
+    }
   }, [addToast])
 
   const syncTrayDictationState = useCallback((state: { isListening: boolean; isProcessing: boolean }) => {
@@ -195,12 +209,31 @@ export function useGlobalTranscription() {
     invoke('set_tray_dictation_state', { dictationState }).catch(console.error)
   }, [])
 
+  const handleAudioLevels = useCallback((levels: number[]) => {
+    if (!useAppStore.getState().settings.globalDictationEnabled) return
+    invoke('update_dictation_overlay_state', {
+      payload: {
+        ...latestDictationRef.current,
+        audioLevels: levels,
+      },
+    }).catch(console.error)
+  }, [])
+
   const dictation = useDictation({
     onResult: handleResult,
     onError: handleError,
     onStateChange: syncTrayDictationState,
+    onAudioLevels: handleAudioLevels,
     listenForGlobalToggle: false,
   })
+
+  useEffect(() => {
+    latestDictationRef.current = {
+      isListening: dictation.isListening,
+      isProcessing: dictation.isProcessing,
+      interimTranscript: dictation.interimTranscript,
+    }
+  }, [dictation.isListening, dictation.isProcessing, dictation.interimTranscript])
 
   const toggleListeningRef = useRef(dictation.toggleListening)
   const isProcessingRef = useRef(dictation.isProcessing)

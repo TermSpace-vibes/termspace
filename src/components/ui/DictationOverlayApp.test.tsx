@@ -5,6 +5,7 @@ import { DictationOverlayApp, isDictationOverlayEntry } from './DictationOverlay
 const invokeMock = vi.fn()
 const listenMock = vi.fn()
 const updateSettingsMock = vi.fn()
+const outerPositionMock = vi.fn()
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
@@ -12,6 +13,12 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: (...args: unknown[]) => listenMock(...args),
+}))
+
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => ({
+    outerPosition: (...args: unknown[]) => outerPositionMock(...args),
+  }),
 }))
 
 vi.mock('../../store/useAppStore', () => ({
@@ -36,6 +43,7 @@ describe('DictationOverlayApp', () => {
       return Promise.resolve(undefined)
     })
     listenMock.mockResolvedValue(() => {})
+    outerPositionMock.mockResolvedValue({ x: 120, y: 240 })
   })
 
   it('detects the overlay entry query string', () => {
@@ -81,13 +89,20 @@ describe('DictationOverlayApp', () => {
     expect(invokeMock).toHaveBeenCalledWith('toggle_global_dictation_from_overlay')
   })
 
-  it('persists overlay position when dragged', async () => {
+  it('persists overlay position when dragged across the screen', async () => {
     render(<DictationOverlayApp />)
 
     const button = await screen.findByTitle('Toggle dictation')
-    fireEvent.pointerDown(button, { clientX: 50, clientY: 50 })
-    fireEvent.pointerMove(button, { clientX: 90, clientY: 110 })
-    fireEvent.pointerUp(button, { clientX: 90, clientY: 110 })
+    // outerPosition() is fetched once on mount to seed the cached window
+    // position; pointerdown must not depend on an IPC round-trip itself.
+    await waitFor(() => expect(outerPositionMock).toHaveBeenCalled())
+    fireEvent.pointerDown(button, { button: 0, screenX: 50, screenY: 50 })
+
+    // Movement is dispatched on window, not the button, since the overlay
+    // window itself follows the cursor rather than a DOM element dragging
+    // within its own tiny viewport.
+    fireEvent.pointerMove(window, { screenX: 400, screenY: 300 })
+    fireEvent.pointerUp(window, { screenX: 400, screenY: 300 })
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('move_dictation_overlay', {
@@ -103,5 +118,22 @@ describe('DictationOverlayApp', () => {
         y: expect.any(Number),
       }),
     })
+  })
+
+  it('does not toggle dictation when the pointer moved past the drag threshold', async () => {
+    render(<DictationOverlayApp />)
+
+    const button = await screen.findByTitle('Toggle dictation')
+    // outerPosition() is fetched once on mount to seed the cached window
+    // position; pointerdown must not depend on an IPC round-trip itself.
+    await waitFor(() => expect(outerPositionMock).toHaveBeenCalled())
+    fireEvent.pointerDown(button, { button: 0, screenX: 50, screenY: 50 })
+
+    fireEvent.pointerMove(window, { screenX: 400, screenY: 300 })
+    fireEvent.pointerUp(window, { screenX: 400, screenY: 300 })
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('move_dictation_overlay', expect.anything()))
+
+    fireEvent.click(button)
+    expect(invokeMock).not.toHaveBeenCalledWith('toggle_global_dictation_from_overlay')
   })
 })
