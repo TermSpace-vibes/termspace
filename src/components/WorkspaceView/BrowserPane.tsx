@@ -303,6 +303,13 @@ export function BrowserPane({
         if (!discardTimersRef.current[tab.id]) {
           discardTimersRef.current[tab.id] = setTimeout(() => {
             setTabs(currentTabs => currentTabs.map(t => t.id === tab.id ? { ...t, isDiscarded: true } : t))
+
+            // Clear media sessions for this tab before destroying the webview,
+            // so stale sessions don't accumulate in the sidebar media widget.
+            const mediaStore = useBrowserMediaStore.getState()
+            mediaStore.removeSessionsForPane(tab.id)
+            mediaStore.unregisterPane(tab.id)
+
             if (tab.id === browserPaneId) {
               invoke('hide_browser_pane', { id: tab.id }).catch(() => {})
             } else {
@@ -579,6 +586,10 @@ export function BrowserPane({
         onFocus()
         if (showBookmarks) setShowBookmarks(false)
         if (showHistory) setShowHistory(false)
+        // Mark this pane focused so its media is allowed to play (mirrors
+        // clicking a browser tab). Clicks in the video hole also grant focus
+        // directly via the injected gesture listener in the webview.
+        invoke('browser_set_focused', { id: activeTabId }).catch(() => {})
       }}
     >
       {/* Tab Bar */}

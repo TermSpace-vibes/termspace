@@ -54,6 +54,10 @@ struct PaneEntry {
     /// reflow would visibly re-show a pane the user deliberately hid.
     is_hidden: bool,
     adblock_enabled: std::sync::Arc<std::sync::Mutex<bool>>,
+    /// True once the user has focused this pane. Survives full page reloads so
+    /// an actively-used tab keeps playing after a reload (see `on_page_load`).
+    /// Set by `set_focused` / `reload` and re-asserted into the webview on load.
+    granted: std::sync::Arc<std::sync::Mutex<bool>>,
 }
 
 static ADBLOCK_ENGINE: std::sync::OnceLock<std::sync::Arc<adblock::engine::Engine>> = std::sync::OnceLock::new();
@@ -210,6 +214,12 @@ impl BrowserPaneManager {
 
         let title_app_handle = app_handle.clone();
         let title_id = id_owned.clone();
+        // Per-pane autoplay-focus flag. Cloned into on_page_load so a reload can
+        // re-assert focus for panes the user has already interacted with.
+        let granted_state = std::sync::Arc::new(std::sync::Mutex::new(false));
+        // Cloned so on_page_load can re-assert autoplay focus after a reload
+        // for panes the user has already granted (see `granted`).
+        let granted_for_load = granted_state.clone();
 
         let download_app_handle = app_handle.clone();
         let download_id = id_owned.clone();
@@ -243,9 +253,59 @@ impl BrowserPaneManager {
         let cache_dir_clone = cache_dir.clone();
 
         let init_js = format!(r#"
-            window.__termspace_adblock_enabled = {};
-            
-            const adDomains = ['doubleclick.net', 'googleadservices.com', 'googlesyndication.com', 'ads.twitter.com', 'facebook.com/tr/', 'taboola.com', 'outbrain.com', 'criteo.com', 'adsystem.com', 'adserv.com', 'adnxs.com', 'ads-twitter.com'];
+        window.__termspace_adblock_enabled = {};
+
+        // ── Autoplay gate ──────────────────────────────────────────────────
+        // Mirror Firefox-style behavior: a restored/background tab must NOT
+        // start playing media until the user actually interacts with that
+        // specific webview. Without this, a YouTube tab restored on app launch
+        // (or a tab in a workspace you're not looking at) begins playing
+        // automatically. Once the user clicks/keys inside the pane, `play()`
+        // is allowed and background playback then works as usual.
+        window.__termspaceFocused = false;
+
+        (function() {{
+            const origPlay = HTMLMediaElement.prototype.play;
+            HTMLMediaElement.prototype.play = function(...args) {{
+                if (!window.__termspaceFocused) {{
+                    // Reject like the browser's real autoplay block so sites
+                    // (e.g. YouTube) show their own "click to play" overlay
+                    // instead of treating playback as successful.
+                    return Promise.reject(
+                        new DOMException('Autoplay blocked until the pane is focused', 'NotAllowedError')
+                    );
+                }}
+                return origPlay.apply(this, args);
+            }};
+
+            function grantFocus() {{
+                window.__termspaceFocused = true;
+                document.removeEventListener('pointerdown', grantFocus, true);
+                window.removeEventListener('keydown', grantFocus, true);
+            }}
+
+            // First real gesture inside this webview marks it focused.
+            // (Clicks in the video hole reach the native webview directly.)
+            document.addEventListener('pointerdown', grantFocus, true);
+            window.addEventListener('keydown', grantFocus, true);
+
+            // Declarative `<video autoplay>` (and any UA-initiated play that
+            // bypasses our `.play()` override) fires a real `play` event
+            // without going through the prototype. Catch it in capture phase
+            // while unfocused, pause it, and stop it reaching the media-tracking
+            // listener below so no ghost session is created.
+            function blockUnfocusedPlay(e) {{
+                if (window.__termspaceFocused) return;
+                const el = e.target;
+                if (el && typeof el.pause === 'function') el.pause();
+                if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+                e.preventDefault();
+            }}
+            document.addEventListener('play', blockUnfocusedPlay, true);
+            document.addEventListener('playing', blockUnfocusedPlay, true);
+        }})();
+
+        const adDomains = ['doubleclick.net', 'googleadservices.com', 'googlesyndication.com', 'ads.twitter.com', 'facebook.com/tr/', 'taboola.com', 'outbrain.com', 'criteo.com', 'adsystem.com', 'adserv.com', 'adnxs.com', 'ads-twitter.com'];
 
             const adSelectors = ['.ad', '.ads', '.advertisement', '#ads', 'ins.adsbygoogle', 'div[id^="google_ads_"]', 'div[class*="Sponsored"]', '.taboola', '.outbrain'];
             const style = document.createElement('style');
@@ -286,6 +346,22 @@ impl BrowserPaneManager {
                 if (navigator.mediaSession && origSetActionHandler) {{
                     navigator.mediaSession.setActionHandler = function(action, handler) {{
                         mediaHandlers[action] = handler;
+                        // When the page registers a previoustrack/nexttrack handler
+                        // (common in SPAs: YouTube, Spotify), push a capabilities
+                        // refresh for every tracked element that has ever played —
+                        // including currently-paused ones. Without this, switching to
+                        // a paused session in the widget shows no SkipBack/SkipForward
+                        // because the original play event fired before the handler was
+                        // registered and canPrev/canNext were false at that moment.
+                        if (action === 'previoustrack' || action === 'nexttrack') {{
+                            for (const mid in trackedElements) {{
+                                const tracked = trackedElements[mid];
+                                if (document.documentElement.contains(tracked) &&
+                                    tracked.__termspaceHasPlayed) {{
+                                    pushMediaUpdate(mid, tracked, false);
+                                }}
+                            }}
+                        }}
                         return origSetActionHandler.call(navigator.mediaSession, action, handler);
                     }};
                 }}
@@ -293,10 +369,18 @@ impl BrowserPaneManager {
 
                 function pushMediaUpdate(mediaId, el, ended) {{
                     const meta = (navigator.mediaSession && navigator.mediaSession.metadata) || null;
+                    // When ended is true the element may have been removed already;
+                    // isPlaying must always be false for ended events.
+                    // Force ended=true when the element itself reports ended, regardless
+                    // of what the event caller passed. This prevents a `pause` event
+                    // that fires after `ended` from recreating a zombie session with
+                    // ended=false in the payload.
+                    const actualEnded = !!(ended || el.ended);
+                    const isPlaying = actualEnded ? false : (!el.paused && !el.ended);
                     const payload = {{
                         mediaId: mediaId,
-                        isPlaying: !el.paused && !el.ended,
-                        ended: !!ended,
+                        isPlaying: isPlaying,
+                        ended: actualEnded,
                         mediaType: el.tagName.toLowerCase(),
                         mediaTitle: (meta && meta.title) || document.title || undefined,
                         thumbnailUrl: (meta && meta.artwork && meta.artwork[0] && meta.artwork[0].src) ||
@@ -313,6 +397,11 @@ impl BrowserPaneManager {
                     setTimeout(() => iframe.remove(), 100);
                 }}
 
+                // Map of mediaId -> element for all currently tracked media elements.
+                // Strong references so the MutationObserver can detect removals.
+                // Elements are evicted on removal and their sessions cleared.
+                const trackedElements = {{}};
+
                 function trackMediaElement(el) {{
                     if (el.__termspaceMediaTracked) return;
                     el.__termspaceMediaTracked = true;
@@ -320,20 +409,87 @@ impl BrowserPaneManager {
                         el.dataset.termspaceMediaId = 'm' + Math.random().toString(36).slice(2) + Date.now().toString(36);
                     }}
                     const id = el.dataset.termspaceMediaId;
-                    el.addEventListener('play', () => pushMediaUpdate(id, el, false));
-                    el.addEventListener('pause', () => pushMediaUpdate(id, el, false));
-                    el.addEventListener('ended', () => pushMediaUpdate(id, el, true));
-                    el.addEventListener('loadedmetadata', () => pushMediaUpdate(id, el, false));
+                    trackedElements[id] = el;
+
+                    // ── hasPlayed guard ───────────────────────────────────────────
+                    // A session is only created the first time the element actually
+                    // plays. This prevents ghost sessions from:
+                    //   • YouTube hover-preview <video> elements (loadedmetadata fires
+                    //     but play never does while the user just hovers a thumbnail)
+                    //   • Ad slot <video> elements loaded silently in the background
+                    //   • Any <audio>/<video> that loads but never starts
+                    // All other events (pause, ended, emptied, abort, loadedmetadata)
+                    // are gated behind hasPlayed so they only update an existing session,
+                    // never create a brand-new one.
+                    // ─────────────────────────────────────────────────────────────
+                    let hasPlayed = false;
+
+                    el.addEventListener('play', () => {{
+                        hasPlayed = true;
+                        el.__termspaceHasPlayed = true; // readable by setActionHandler
+                        pushMediaUpdate(id, el, false);
+                    }});
+                    el.addEventListener('playing', () => {{
+                        hasPlayed = true;
+                        el.__termspaceHasPlayed = true;
+                        pushMediaUpdate(id, el, false);
+                    }});
+
+                    // pause: only update if we already have a session (hasPlayed)
+                    el.addEventListener('pause', () => {{
+                        // Guard against the pause event that fires after ended on
+                        // natural completion. Without this check, pause re-creates
+                        // a zombie session with ended=false in the payload, even
+                        // though the element has already ended. pushMediaUpdate
+                        // also hardens this with the actualEnded check, but the
+                        // guard here prevents the iframe navigation entirely.
+                        if (hasPlayed && !el.ended) pushMediaUpdate(id, el, false);
+                    }});
+
+                    // ended / emptied / abort: only remove if we have a session
+                    el.addEventListener('ended',   () => {{ if (hasPlayed) pushMediaUpdate(id, el, true); }});
+                    // 'emptied' fires when src is cleared while element stays in DOM
+                    el.addEventListener('emptied', () => {{ if (hasPlayed) pushMediaUpdate(id, el, true); }});
+                    // 'abort' fires when loading is cancelled before the element is ready
+                    el.addEventListener('abort',   () => {{ if (hasPlayed) pushMediaUpdate(id, el, true); }});
+
+                    // loadedmetadata: only refresh an EXISTING playing session
+                    // (e.g. adaptive stream switches codec/quality).
+                    // Skipped entirely if never played — prevents ghost sessions from
+                    // hover-preview and ad elements that load metadata without playing.
+                    el.addEventListener('loadedmetadata', () => {{
+                        if (hasPlayed && !el.paused && !el.ended) pushMediaUpdate(id, el, false);
+                    }});
                 }}
 
                 function scanForMedia() {{
                     document.querySelectorAll('video, audio').forEach(trackMediaElement);
                 }}
 
+                // On every DOM mutation: (1) scan for newly added elements,
+                // (2) evict any tracked element that has left the document.
+                // Only elements that have played (hasPlayed) emit an ended:true
+                // event so ghost elements never pollute the sidebar store.
+                function onDomMutation() {{
+                    scanForMedia();
+                    for (const id in trackedElements) {{
+                        const el = trackedElements[id];
+                        if (!document.documentElement.contains(el)) {{
+                            // Only send the ended signal if this element ever played.
+                            // Ghost elements (preview/ad) that were never played get
+                            // silently evicted without touching the sidebar.
+                            if (el.__termspaceHasPlayed) {{
+                                pushMediaUpdate(id, el, true);
+                            }}
+                            delete trackedElements[id];
+                        }}
+                    }}
+                }}
+
                 document.addEventListener('DOMContentLoaded', scanForMedia);
                 scanForMedia();
 
-                const mediaObserver = new MutationObserver(() => scanForMedia());
+                const mediaObserver = new MutationObserver(onDomMutation);
                 mediaObserver.observe(document.documentElement, {{childList: true, subtree: true}});
             }})();
 
@@ -384,7 +540,7 @@ impl BrowserPaneManager {
         .initialization_script(format!("{}\nObject.defineProperty(navigator, 'webdriver', {{get: () => false}});", init_js))
         .on_navigation(move |nav_url| {
             if nav_url.scheme() == "termspace-media" {
-                if let Some(payload) = parse_media_update_url(&nav_url) {
+                if let Some(payload) = parse_media_update_url(nav_url) {
                     let _ = nav_app_handle.emit("browser-pane-media-update", serde_json::json!({
                         "id": nav_id,
                         "mediaId": payload.media_id,
@@ -428,12 +584,20 @@ impl BrowserPaneManager {
             println!(">>> BROWSER: Page load event: {:?}", url_str);
             let app = title_app_handle.clone();
             let id = title_id.clone();
-            
+
             if !url_str.contains("RotateCookiesPage") && url_str != "about:blank" {
                 let _ = app.emit("browser-pane-url-changed", serde_json::json!({
                     "id": id.clone(),
                     "url": url_str,
                 }));
+            }
+
+            // Re-assert autoplay focus across reloads/navigations: a pane the
+            // user has already interacted with keeps playing after a reload,
+            // instead of being silently re-gated by the init script.
+            let was_granted = *granted_for_load.lock().unwrap();
+            if was_granted {
+                let _ = webview.eval("window.__termspaceFocused = true;");
             }
             
             let js = r#"
@@ -482,7 +646,7 @@ impl BrowserPaneManager {
                     
                     if let Some(file_path) = app.dialog().file().set_file_name(&default_name).blocking_save_file() {
                         let path_str = file_path.to_string();
-                        if let Some(path) = file_path.into_path().ok() {
+                        if let Ok(path) = file_path.into_path() {
                             *destination = path.clone();
                         } else {
                             *destination = std::path::PathBuf::from(&path_str);
@@ -537,7 +701,6 @@ impl BrowserPaneManager {
                     if let Ok(data) = std::fs::read(&file_path) {
                         *response.status_mut() = tauri::http::StatusCode::OK;
                         *response.body_mut() = std::borrow::Cow::Owned(data);
-                        return;
                     }
                 } else {
                     let fetch_url = url_str.clone();
@@ -579,6 +742,7 @@ impl BrowserPaneManager {
                 h,
                 is_hidden: false,
                 adblock_enabled: adblock_state,
+                granted: granted_state,
             },
         );
         Ok(())
@@ -747,6 +911,7 @@ impl BrowserPaneManager {
             ),
             "play" => format!(
                 r#"(function() {{
+                    window.__termspaceFocused = true;
                     var el = document.querySelector('[data-termspace-media-id="{media_id}"]');
                     if (el) el.play();
                 }})();"#,
@@ -761,6 +926,20 @@ impl BrowserPaneManager {
             ),
         };
         let _ = entry.webview.eval(&js);
+    }
+
+    /// Marks a pane as user-focused so its media is allowed to autoplay/play.
+    /// Used when the user clicks the pane (e.g. its header) in the React layer,
+    /// which is a real "focus this tab" action even if the gesture landed on
+    /// the overlay rather than the native webview itself.
+    pub fn set_focused(&self, id: &str) {
+        let mut panes = self.panes.lock().unwrap();
+        if let Some(entry) = panes.get_mut(id) {
+            if let Ok(mut granted) = entry.granted.lock() {
+                *granted = true;
+            }
+            let _ = entry.webview.eval("window.__termspaceFocused = true;");
+        }
     }
 }
 
@@ -824,5 +1003,62 @@ mod tests {
     fn parse_media_update_url_rejects_missing_data_param() {
         let url: tauri::Url = "termspace-media://update".parse().unwrap();
         assert!(parse_media_update_url(&url).is_none());
+    }
+
+    #[test]
+    fn js_escape_with_special_chars() {
+        assert_eq!(js_escape("ends_with_backslash\\"), "ends_with_backslash\\\\");
+        assert_eq!(js_escape(""), "");
+        assert_eq!(js_escape("\""), "\\\"");
+    }
+
+    #[test]
+    fn js_escape_unicode_preserved() {
+        assert_eq!(js_escape("héllo 𝄞 world"), "héllo 𝄞 world");
+        assert_eq!(js_escape("emoji 🎵"), "emoji 🎵");
+    }
+
+    #[test]
+    fn parse_media_update_url_contradictory_ended_and_playing() {
+        let url: tauri::Url = "termspace-media://update?data=%7B%22mediaId%22%3A%22m1%22%2C%22isPlaying%22%3Atrue%2C%22ended%22%3Atrue%2C%22mediaType%22%3A%22video%22%7D".parse().unwrap();
+        let payload = parse_media_update_url(&url).expect("payload should parse despite contradiction");
+        assert_eq!(payload.media_id, "m1");
+        assert_eq!(payload.media_type, "video");
+        assert!(payload.ended);
+    }
+
+    #[test]
+    fn parse_media_update_url_extra_fields_ignored() {
+        let url: tauri::Url = "termspace-media://update?data=%7B%22mediaId%22%3A%22x%22%2C%22isPlaying%22%3Afalse%2C%22mediaType%22%3A%22audio%22%2C%22unknownField%22%3A%22ignored%22%2C%22nested%22%3A%7B%22foo%22%3A1%7D%7D".parse().unwrap();
+        let payload = parse_media_update_url(&url).expect("payload with extra fields should parse");
+        assert_eq!(payload.media_id, "x");
+    }
+
+    #[test]
+    fn parse_media_update_url_empty_values() {
+        let url: tauri::Url = "termspace-media://update?data=%7B%22mediaId%22%3A%22%22%2C%22isPlaying%22%3Afalse%2C%22ended%22%3Afalse%2C%22mediaType%22%3A%22%22%7D".parse().unwrap();
+        let payload = parse_media_update_url(&url).expect("empty-string values should parse");
+        assert_eq!(payload.media_id, "");
+        assert_eq!(payload.media_type, "");
+    }
+
+    #[test]
+    fn hidden_pane_bounds_zero_or_negative() {
+        let (x, y, w, h) = hidden_pane_bounds(0.0, 0.0);
+        assert_eq!(x, HIDDEN_X);
+        assert_eq!(y, HIDDEN_Y);
+        assert_eq!(w, 1.0);
+        assert_eq!(h, 1.0);
+
+        let (x, y, w, h) = hidden_pane_bounds(-100.0, -50.0);
+        assert_eq!(w, 1.0);
+        assert_eq!(h, 1.0);
+    }
+
+    #[test]
+    fn hidden_pane_bounds_fractional_sizes() {
+        let (x, y, w, h) = hidden_pane_bounds(0.5, 0.3);
+        assert_eq!(w, 1.0);
+        assert_eq!(h, 1.0);
     }
 }

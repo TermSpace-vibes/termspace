@@ -853,6 +853,9 @@ pub fn browser_go_forward(browser: State<BrowserPaneManager>, id: String) -> Res
 
 #[tauri::command]
 pub fn browser_reload(browser: State<BrowserPaneManager>, id: String) -> Result<(), String> {
+    // Reloading a tab is an intentional user/dev action on that pane, so keep
+    // it "granted" — on_page_load will re-assert autoplay focus afterwards.
+    browser.set_focused(&id);
     browser.reload(&id);
     Ok(())
 }
@@ -870,6 +873,12 @@ pub fn browser_toggle_adblock(
 #[tauri::command]
 pub fn browser_open_devtools(browser: State<BrowserPaneManager>, id: String) -> Result<(), String> {
     browser.open_devtools(&id);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn browser_set_focused(browser: State<BrowserPaneManager>, id: String) -> Result<(), String> {
+    browser.set_focused(&id);
     Ok(())
 }
 
