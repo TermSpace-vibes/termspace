@@ -83,6 +83,10 @@ impl ClaudeSessionManager {
         );
 
         let _ = app.emit(&format!("claude-ready-{session_id}"), "Claude session started");
+        let _ = app.emit(
+            "task-lifecycle",
+            serde_json::json!({ "id": &session_id, "source": "claude", "kind": "started" }),
+        );
         let handles = Arc::clone(&self.handles);
 
         std::thread::spawn(move || {
@@ -96,12 +100,20 @@ impl ClaudeSessionManager {
                     }
                     Err(e) => {
                         let _ = app.emit(&format!("claude-error-{session_id}"), e.to_string());
+                        let _ = app.emit(
+                            "task-lifecycle",
+                            serde_json::json!({ "id": &session_id, "source": "claude", "kind": "failed", "detail": e.to_string() }),
+                        );
                         break;
                     }
                 }
             }
             handles.lock().remove(&session_id);
             let _ = app.emit(&format!("claude-exit-{session_id}"), "Claude session exited");
+            let _ = app.emit(
+                "task-lifecycle",
+                serde_json::json!({ "id": &session_id, "source": "claude", "kind": "completed" }),
+            );
         });
 
         Ok(())
