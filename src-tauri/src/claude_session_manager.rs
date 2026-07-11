@@ -21,7 +21,13 @@ impl ClaudeSessionManager {
         }
     }
 
-    pub fn spawn(&self, session_id: String, app: AppHandle, cwd: &str) -> Result<(), String> {
+    pub fn spawn(
+        &self,
+        session_id: String,
+        claude_session_uuid: String,
+        app: AppHandle,
+        cwd: &str,
+    ) -> Result<(), String> {
         if self.handles.lock().contains_key(&session_id) {
             return Ok(());
         }
@@ -44,7 +50,7 @@ impl ClaudeSessionManager {
         let child_path = claude_child_path(&path_var, home.as_deref());
 
         let mut cmd = portable_pty::CommandBuilder::new(claude_binary);
-        for arg in claude_interactive_args() {
+        for arg in claude_interactive_args(&claude_session_uuid) {
             cmd.arg(arg);
         }
         cmd.cwd(resolved_cwd);
@@ -132,8 +138,8 @@ impl ClaudeSessionManager {
     }
 }
 
-fn claude_interactive_args() -> Vec<String> {
-    vec!["--ax-screen-reader".to_string()]
+fn claude_interactive_args(uuid: &str) -> Vec<String> {
+    vec!["--ax-screen-reader".to_string(), "--session-id".to_string(), uuid.to_string()]
 }
 
 fn resolved_working_directory(cwd: &str, home: Option<&Path>) -> PathBuf {
@@ -214,7 +220,14 @@ mod tests {
 
     #[test]
     fn builds_interactive_claude_args_for_embedded_plain_text_mode() {
-        assert_eq!(claude_interactive_args(), vec!["--ax-screen-reader".to_string()]);
+        assert_eq!(
+            claude_interactive_args("test-uuid"),
+            vec![
+                "--ax-screen-reader".to_string(),
+                "--session-id".to_string(),
+                "test-uuid".to_string()
+            ]
+        );
     }
 
     #[test]

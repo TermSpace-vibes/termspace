@@ -2038,9 +2038,10 @@ pub fn spawn_claude_session(
     claude: State<ClaudeSessionManager>,
     app: AppHandle,
     session_id: String,
+    claude_session_uuid: String,
     cwd: String,
 ) -> Result<(), String> {
-    claude.spawn(session_id, app, &cwd)
+    claude.spawn(session_id, claude_session_uuid, app, &cwd)
 }
 
 #[tauri::command]
