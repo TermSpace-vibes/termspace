@@ -150,6 +150,23 @@ export interface Settings {
   discardTabsAfterMs?: number | 'never'
   showWorkspaceDefaultPaths?: boolean
   toolPaneBehavior?: 'split' | 'tab' | 'workspace'
+  notificationsEnabled?: boolean
+  notifyOnComplete?: boolean
+  notifyOnPrompt?: boolean
+  notifyOnBell?: boolean
+  useOsNotification?: boolean
+}
+
+export type TaskEventKind = 'started' | 'completed' | 'failed' | 'needs-input' | 'attention'
+
+export interface TaskEvent {
+  id: string
+  source: 'claude' | 'native-terminal' | 'agent-hook' | 'osc' | 'bell'
+  kind: TaskEventKind
+  label?: string
+  detail?: string
+  exitCode?: number
+  userInitiated?: boolean
 }
 
 export type LayoutDirection = 'horizontal' | 'vertical'
