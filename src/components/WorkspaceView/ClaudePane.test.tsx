@@ -34,6 +34,7 @@ const store = vi.hoisted(() => {
       if (target) Object.assign(target, updates)
     }),
     addToast: vi.fn(),
+    setSessionToPane: vi.fn(),
   }
   return { pane, state }
 })
@@ -103,7 +104,9 @@ describe('ClaudePaneComponent', () => {
       expect(invoke).toHaveBeenCalledWith('spawn_claude_session', {
         sessionId: 'claude-1',
         cwd: '/tmp',
+        claudeSessionUuid: expect.any(String),
       })
+      expect(store.state.setSessionToPane).toHaveBeenCalledWith(expect.any(String), 'claude-1')
     })
   })
 
@@ -295,7 +298,9 @@ describe('ClaudePaneComponent', () => {
       expect(invoke).toHaveBeenCalledWith('spawn_claude_session', {
         sessionId: 'claude-1',
         cwd: '/tmp',
+        claudeSessionUuid: expect.any(String),
       })
+      expect(store.state.setSessionToPane).toHaveBeenCalledWith(expect.any(String), 'claude-1')
     })
   })
 
@@ -314,7 +319,9 @@ describe('ClaudePaneComponent', () => {
       expect(invoke).toHaveBeenCalledWith('spawn_claude_session', {
         sessionId: 'claude-1',
         cwd: '/tmp',
+        claudeSessionUuid: expect.any(String),
       })
+      expect(store.state.setSessionToPane).toHaveBeenCalledWith(expect.any(String), 'claude-1')
     })
 
     vi.mocked(invoke).mockClear()
@@ -375,6 +382,7 @@ describe('ClaudePaneComponent', () => {
       expect(invoke).toHaveBeenCalledWith('spawn_claude_session', {
         sessionId: 'claude-1',
         cwd: '/tmp',
+        claudeSessionUuid: expect.any(String),
       })
     })
   })

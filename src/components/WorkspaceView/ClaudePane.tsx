@@ -68,7 +68,9 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
     recentOutputRef.current = ''
     setTranscript((prev) => appendClaudeStatus(prev, 'Starting Claude session...'))
     try {
-      await invoke('spawn_claude_session', { sessionId: paneId, cwd: pane?.cwd || '' })
+      const claudeSessionUuid = crypto.randomUUID()
+      await invoke('spawn_claude_session', { sessionId: paneId, claudeSessionUuid, cwd: pane?.cwd || '' })
+      useAppStore.getState().setSessionToPane(claudeSessionUuid, paneId)
       updateClaudePane(tabId, paneId, { status: 'ready', error: null })
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err)

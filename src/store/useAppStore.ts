@@ -101,6 +101,9 @@ interface AppState {
   addToast: (message: string, type?: 'success' | 'error' | 'info', action?: { label: string; onClick: () => void }) => void
   removeToast: (id: string) => void
 
+  sessionToPane: Record<string, string>
+  setSessionToPane: (claudeSessionUuid: string, paneId: string) => void
+
   showCommandPalette: boolean
   setShowCommandPalette: (show: boolean) => void
 
@@ -162,6 +165,7 @@ export const useAppStore = create<AppState>()(
       bookmarks: [],
       recentProjects: [],
       toasts: [],
+      sessionToPane: {},
       showCommandPalette: false,
       isModalOpen: false,
       activatingWorkspaces: {},
@@ -927,6 +931,8 @@ export const useAppStore = create<AppState>()(
         }, 3000)
       },
       removeToast: (id) => set((s) => ({ toasts: s.toasts.filter(t => t.id !== id) })),
+      setSessionToPane: (claudeSessionUuid, paneId) =>
+        set((s) => ({ sessionToPane: { ...s.sessionToPane, [claudeSessionUuid]: paneId } })),
       setShowCommandPalette: (show) => set({ showCommandPalette: show }),
       setIsModalOpen: (open) => set({ isModalOpen: open }),
       setActivatingWorkspace: (id, activating) => set((s) => ({
