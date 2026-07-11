@@ -395,6 +395,10 @@ fn reader_thread(
             DaemonMsg::Exited { id, .. } => {
                 terms.lock().remove(&id);
                 let _ = app.emit(&format!("native-terminal-exited-{}", id), ());
+                let _ = app.emit(
+                    "task-lifecycle",
+                    serde_json::json!({ "id": &id, "source": "native-terminal", "kind": "completed" }),
+                );
             }
 
             DaemonMsg::Error { id, msg } => {
