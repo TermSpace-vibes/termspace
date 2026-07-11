@@ -123,6 +123,10 @@ impl EventListener for TermEventSender {
                 let _ = self
                     .app_handle
                     .emit(&format!("native-terminal-bell-{}", self.terminal_id), ());
+                let _ = self.app_handle.emit(
+                    "task-lifecycle",
+                    serde_json::json!({ "id": &self.terminal_id, "source": "bell", "kind": "attention" }),
+                );
             }
             _ => {}
         }
@@ -277,7 +281,13 @@ impl NativeTerminalManager {
                     // Block until the PTY produces something.
                     match rx.recv() {
                         Ok(chunk) => acc.extend_from_slice(&chunk),
-                        Err(_) => break,
+                        Err(_) => {
+                            let _ = app_clone.emit(
+                                "task-lifecycle",
+                                serde_json::json!({ "id": &id, "source": "native-terminal", "kind": "completed" }),
+                            );
+                            break;
+                        }
                     }
 
                     // Keep accumulating until the PTY goes quiet or the frame
@@ -294,6 +304,10 @@ impl NativeTerminalManager {
                             Err(RecvTimeoutError::Timeout) => break,
                             Err(RecvTimeoutError::Disconnected) => {
                                 if acc.is_empty() {
+                                    let _ = app_clone.emit(
+                                        "task-lifecycle",
+                                        serde_json::json!({ "id": &id, "source": "native-terminal", "kind": "completed" }),
+                                    );
                                     break 'outer;
                                 }
                                 break;
@@ -351,6 +365,11 @@ impl NativeTerminalManager {
                 }
             });
         }
+
+        let _ = app.emit(
+            "task-lifecycle",
+            serde_json::json!({ "id": &terminal_id, "source": "native-terminal", "kind": "started" }),
+        );
 
         self.handles.lock().insert(
             terminal_id,
@@ -593,6 +612,12 @@ pub fn scan_osc_sequences(
     }
     if let Some(n) = notification {
         let _ = app.emit(&format!("native-terminal-notification-{terminal_id}"), n);
+        if n == 1 {
+            let _ = app.emit(
+                "task-lifecycle",
+                serde_json::json!({ "id": terminal_id, "source": "osc", "kind": "attention" }),
+            );
+        }
     }
     if clear_buf {
         buf.clear();
