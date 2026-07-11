@@ -136,6 +136,12 @@ export function SettingsModal({ onClose }: Props) {
     toggleDictation: settings.keybindings?.toggleDictation || 'CmdOrCtrl+Shift+M',
   })
 
+  const [notificationsEnabled, setNotificationsEnabled] = useState(settings.notificationsEnabled !== false)
+  const [notifyOnComplete, setNotifyOnComplete] = useState(settings.notifyOnComplete !== false)
+  const [notifyOnPrompt, setNotifyOnPrompt] = useState(settings.notifyOnPrompt !== false)
+  const [notifyOnBell, setNotifyOnBell] = useState(settings.notifyOnBell ?? false)
+  const [useOsNotification, setUseOsNotification] = useState(settings.useOsNotification !== false)
+
   const [appVersion, setAppVersion] = useState<string>('Loading...')
   const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'downloading' | 'ready' | 'none'>('idle')
   const [updateProgress, setUpdateProgress] = useState(0)
@@ -280,6 +286,11 @@ export function SettingsModal({ onClose }: Props) {
       globalDictationRestoreClipboard,
       globalDictationShowFloatingButton,
       globalDictationPasteDelayMs,
+      notificationsEnabled,
+      notifyOnComplete,
+      notifyOnPrompt,
+      notifyOnBell,
+      useOsNotification,
     })
     useAppStore.getState().addToast('Settings saved', 'success')
     onClose()
@@ -946,6 +957,56 @@ export function SettingsModal({ onClose }: Props) {
                       </div>
                     </div>
                   </label>
+
+                  <section>
+                    <h3 style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-inactive)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '8px 0' }}>Notifications</h3>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={notificationsEnabled}
+                        onChange={(e) => setNotificationsEnabled(e.target.checked)}
+                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
+                      />
+                      <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Enable notifications</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={notifyOnComplete}
+                        onChange={(e) => setNotifyOnComplete(e.target.checked)}
+                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
+                      />
+                      <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Notify when a task completes</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={notifyOnPrompt}
+                        onChange={(e) => setNotifyOnPrompt(e.target.checked)}
+                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
+                      />
+                      <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Notify when a task needs input</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={notifyOnBell}
+                        onChange={(e) => setNotifyOnBell(e.target.checked)}
+                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
+                      />
+                      <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Allow terminal bell to alert</span>
+                    </label>
+                    <p style={{ opacity: 0.6, fontSize: 12 }}>Terminal bell can also trigger alerts.</p>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={useOsNotification}
+                        onChange={(e) => setUseOsNotification(e.target.checked)}
+                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
+                      />
+                      <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Use OS notifications (off = in-app toast only)</span>
+                    </label>
+                  </section>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
                     <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>File & Directory Icons</label>
