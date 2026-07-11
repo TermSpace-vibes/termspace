@@ -104,6 +104,13 @@ interface AppState {
   sessionToPane: Record<string, string>
   setSessionToPane: (claudeSessionUuid: string, paneId: string) => void
 
+  focusedPaneId: string | null
+  setFocusedPaneId: (id: string | null) => void
+
+  closingIds: string[]
+  markPaneClosing: (id: string) => void
+  unmarkPaneClosing: (id: string) => void
+
   showCommandPalette: boolean
   setShowCommandPalette: (show: boolean) => void
 
@@ -166,6 +173,8 @@ export const useAppStore = create<AppState>()(
       recentProjects: [],
       toasts: [],
       sessionToPane: {},
+      focusedPaneId: null,
+      closingIds: [],
       showCommandPalette: false,
       isModalOpen: false,
       activatingWorkspaces: {},
@@ -234,6 +243,11 @@ export const useAppStore = create<AppState>()(
         globalDictationRestoreClipboard: true,
         globalDictationShowFloatingButton: true,
         globalDictationPasteDelayMs: 120,
+        notificationsEnabled: true,
+        notifyOnComplete: true,
+        notifyOnPrompt: true,
+        notifyOnBell: false,
+        useOsNotification: true,
         keybindings: {
           newTerminal: 'CmdOrCtrl+T',
           closeTerminal: 'CmdOrCtrl+W',
@@ -933,6 +947,9 @@ export const useAppStore = create<AppState>()(
       removeToast: (id) => set((s) => ({ toasts: s.toasts.filter(t => t.id !== id) })),
       setSessionToPane: (claudeSessionUuid, paneId) =>
         set((s) => ({ sessionToPane: { ...s.sessionToPane, [claudeSessionUuid]: paneId } })),
+      setFocusedPaneId: (id) => set({ focusedPaneId: id }),
+      markPaneClosing: (id) => set((s) => ({ closingIds: [...new Set([...s.closingIds, id])] })),
+      unmarkPaneClosing: (id) => set((s) => ({ closingIds: s.closingIds.filter((x) => x !== id) })),
       setShowCommandPalette: (show) => set({ showCommandPalette: show }),
       setIsModalOpen: (open) => set({ isModalOpen: open }),
       setActivatingWorkspace: (id, activating) => set((s) => ({
@@ -944,7 +961,10 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: import.meta.env.DEV ? 'termspace-storage-dev' : 'termspace-storage',
-      partialize: (state) => ({ 
+      // partialize: only `settings` and other durable UI state are persisted.
+      // `focusedPaneId`, `closingIds`, and `sessionToPane` are runtime-only and
+      // intentionally NOT persisted — they reset on restart, which is correct.
+      partialize: (state) => ({
         settings: state.settings,
         toolingTerminalsByWorkspace: state.toolingTerminalsByWorkspace,
         activeToolingTerminalId: state.activeToolingTerminalId,
