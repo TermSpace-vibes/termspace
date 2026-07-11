@@ -5,6 +5,8 @@ import { Settings } from '../../types'
 import { check } from '@tauri-apps/plugin-updater'
 import { getVersion } from '@tauri-apps/api/app'
 import { invoke, listen } from '../../utils/tauri'
+import { isPermissionGranted } from '@tauri-apps/plugin-notification'
+import { openUrl } from '@tauri-apps/plugin-opener'
 
 interface Props {
   onClose: () => void
@@ -141,6 +143,8 @@ export function SettingsModal({ onClose }: Props) {
   const [notifyOnPrompt, setNotifyOnPrompt] = useState(settings.notifyOnPrompt !== false)
   const [notifyOnBell, setNotifyOnBell] = useState(settings.notifyOnBell ?? false)
   const [useOsNotification, setUseOsNotification] = useState(settings.useOsNotification !== false)
+  const [permGranted, setPermGranted] = useState<boolean | null>(null)
+  useEffect(() => { isPermissionGranted().then(setPermGranted) }, [])
 
   const [appVersion, setAppVersion] = useState<string>('Loading...')
   const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'downloading' | 'ready' | 'none'>('idle')
@@ -260,6 +264,11 @@ export function SettingsModal({ onClose }: Props) {
     } catch (error) {
       setGlobalPermissionError(error instanceof Error ? error.message : String(error))
     }
+  }
+
+  const openSettings = async () => {
+    try { await openUrl('x-apple.systempreferences:com.apple.Notifications-Settings.extension') }
+    catch { try { await openUrl('x-apple.systempreferences:') } catch { try { await openUrl('System Settings') } catch {} } }
   }
 
   function handleSave() {
@@ -1006,6 +1015,12 @@ export function SettingsModal({ onClose }: Props) {
                       />
                       <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Use OS notifications (off = in-app toast only)</span>
                     </label>
+                    {permGranted === false && (
+                      <div style={{ color: '#f87171' }}>
+                        Notifications blocked — enable in System Settings.{' '}
+                        <button onClick={openSettings}>Open System Settings</button>
+                      </div>
+                    )}
                   </section>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
