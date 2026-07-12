@@ -80,6 +80,7 @@ Expected: FAIL because typed questions, messages, and answer helpers do not exis
 ```ts
 export interface AgentQuestionChoice { id: string; label: string; input: string; description?: string }
 export type AgentRuntimeEvent =
+  | { kind: 'text'; text: string } // compatibility input, normalized before reduction
   | { kind: 'message'; markdown: string }
   | { kind: 'activity'; label: string; durationMs?: number }
   | { kind: 'command'; command: string; cwd: string; output?: string; exitCode?: number | null }

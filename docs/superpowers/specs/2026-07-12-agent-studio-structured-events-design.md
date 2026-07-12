@@ -44,6 +44,7 @@ The visual vocabulary follows the supplied reference: restrained dark panels, te
 
 ```ts
 type AgentRuntimeEvent =
+  | { kind: 'text'; text: string } // transitional PTY adapter input; never rendered directly
   | { kind: 'message'; markdown: string }
   | { kind: 'activity'; label: string; durationMs?: number }
   | { kind: 'command'; command: string; cwd: string; output?: string; exitCode?: number | null }
@@ -55,7 +56,7 @@ type AgentRuntimeEvent =
   | { kind: 'diagnostic'; rawOutputRef: string }
 ```
 
-The renderer receives only this normalized contract. Provider adapters own parsing, ANSI removal, and provider-specific patterns.
+The renderer receives only normalized rows; the transitional `text` event is accepted at the compatibility boundary, normalized, and never reduced directly into a visible transcript row. Provider adapters own parsing, ANSI removal, and provider-specific patterns.
 
 ## Provider Normalization
 
