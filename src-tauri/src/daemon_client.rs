@@ -35,11 +35,28 @@ enum DaemonMsg {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum AppMsg {
-    Spawn { id: String, shell: String, cwd: String, cols: u16, rows: u16 },
-    Input { id: String, data: String },
-    Resize { id: String, cols: u16, rows: u16 },
-    Detach { id: String },
-    Kill { id: String },
+    Spawn {
+        id: String,
+        shell: String,
+        cwd: String,
+        cols: u16,
+        rows: u16,
+    },
+    Input {
+        id: String,
+        data: String,
+    },
+    Resize {
+        id: String,
+        cols: u16,
+        rows: u16,
+    },
+    Detach {
+        id: String,
+    },
+    Kill {
+        id: String,
+    },
     List,
     Ping,
 }
@@ -76,13 +93,10 @@ impl DaemonClient {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
         let sock = format!("{}{}", home, SOCK_SUFFIX);
 
-        let stream =
-            UnixStream::connect(&sock).map_err(|e| format!("daemon connect: {e}"))?;
+        let stream = UnixStream::connect(&sock).map_err(|e| format!("daemon connect: {e}"))?;
 
-        let mut buf_reader =
-            BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
-        let mut buf_writer =
-            BufWriter::new(stream.try_clone().map_err(|e| e.to_string())?);
+        let mut buf_reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
+        let mut buf_writer = BufWriter::new(stream.try_clone().map_err(|e| e.to_string())?);
 
         // Synchronous handshake before reader thread starts
         write_json(&mut buf_writer, &AppMsg::Ping)?;
@@ -111,7 +125,12 @@ impl DaemonClient {
             });
         }
 
-        Ok(Self { writer: writer_arc, terms, sessions, app })
+        Ok(Self {
+            writer: writer_arc,
+            terms,
+            sessions,
+            app,
+        })
     }
 
     pub fn list_sessions(&self) -> Vec<SessionInfo> {
@@ -148,7 +167,10 @@ impl DaemonClient {
             title: Arc::clone(&title_arc),
         };
         let term = Arc::new(Mutex::new(Term::new(
-            Config { scrolling_history: 10_000, ..Default::default() },
+            Config {
+                scrolling_history: 10_000,
+                ..Default::default()
+            },
             &TermSize::new(cols as usize, rows as usize),
             listener,
         )));
@@ -162,22 +184,38 @@ impl DaemonClient {
         };
         self.terms.lock().insert(id.clone(), state);
 
-        self.send_msg(&AppMsg::Spawn { id, shell, cwd, cols, rows })
+        self.send_msg(&AppMsg::Spawn {
+            id,
+            shell,
+            cwd,
+            cols,
+            rows,
+        })
     }
 
     pub fn write(&self, id: &str, data: &str) -> Result<(), String> {
         let encoded = base64::engine::general_purpose::STANDARD.encode(data.as_bytes());
-        self.send_msg(&AppMsg::Input { id: id.to_string(), data: encoded })
+        self.send_msg(&AppMsg::Input {
+            id: id.to_string(),
+            data: encoded,
+        })
     }
 
     pub fn resize(&self, id: &str, cols: u16, rows: u16) -> Result<(), String> {
         {
             let terms = self.terms.lock();
             if let Some(state) = terms.get(id) {
-                state.term.lock().resize(TermSize::new(cols as usize, rows as usize));
+                state
+                    .term
+                    .lock()
+                    .resize(TermSize::new(cols as usize, rows as usize));
             }
         }
-        self.send_msg(&AppMsg::Resize { id: id.to_string(), cols, rows })
+        self.send_msg(&AppMsg::Resize {
+            id: id.to_string(),
+            cols,
+            rows,
+        })
     }
 
     pub fn detach(&self, id: &str) {
@@ -197,7 +235,11 @@ impl DaemonClient {
         let (term_arc, cwd_arc, title_arc) = {
             let terms = self.terms.lock();
             let s = terms.get(id).ok_or_else(|| format!("no terminal '{id}'"))?;
-            (Arc::clone(&s.term), Arc::clone(&s.cwd), Arc::clone(&s.title))
+            (
+                Arc::clone(&s.term),
+                Arc::clone(&s.cwd),
+                Arc::clone(&s.title),
+            )
         };
 
         let wheel_bytes = {
@@ -205,7 +247,12 @@ impl DaemonClient {
             let mode = *t.mode();
             if mode.contains(TermMode::ALT_SCREEN) {
                 let cursor = t.grid().cursor.point;
-                Some(alt_screen_wheel_bytes(mode, delta, cursor.column.0, cursor.line.0.max(0) as usize))
+                Some(alt_screen_wheel_bytes(
+                    mode,
+                    delta,
+                    cursor.column.0,
+                    cursor.line.0.max(0) as usize,
+                ))
             } else {
                 None
             }
@@ -225,10 +272,16 @@ impl DaemonClient {
             serialize_snapshot(
                 &*t,
                 Some(cwd_val),
-                if title_val.is_empty() { None } else { Some(title_val) },
+                if title_val.is_empty() {
+                    None
+                } else {
+                    Some(title_val)
+                },
             )
         };
-        let _ = self.app.emit(&format!("native-terminal-update-{id}"), snapshot);
+        let _ = self
+            .app
+            .emit(&format!("native-terminal-update-{id}"), snapshot);
         Ok(())
     }
 
@@ -236,7 +289,11 @@ impl DaemonClient {
         let (term_arc, cwd_arc, title_arc) = {
             let terms = self.terms.lock();
             let s = terms.get(id).ok_or_else(|| format!("no terminal '{id}'"))?;
-            (Arc::clone(&s.term), Arc::clone(&s.cwd), Arc::clone(&s.title))
+            (
+                Arc::clone(&s.term),
+                Arc::clone(&s.cwd),
+                Arc::clone(&s.title),
+            )
         };
 
         let snapshot = {
@@ -246,10 +303,16 @@ impl DaemonClient {
             serialize_snapshot(
                 &*t,
                 Some(cwd_val),
-                if title_val.is_empty() { None } else { Some(title_val) },
+                if title_val.is_empty() {
+                    None
+                } else {
+                    Some(title_val)
+                },
             )
         };
-        let _ = self.app.emit(&format!("native-terminal-update-{id}"), snapshot);
+        let _ = self
+            .app
+            .emit(&format!("native-terminal-update-{id}"), snapshot);
         Ok(())
     }
 
@@ -378,7 +441,11 @@ fn reader_thread(
                     serialize_snapshot(
                         &*t,
                         Some(cwd_val),
-                        if title_val.is_empty() { None } else { Some(title_val) },
+                        if title_val.is_empty() {
+                            None
+                        } else {
+                            Some(title_val)
+                        },
                     )
                 };
 

@@ -182,11 +182,7 @@ mod tests {
 
     #[test]
     fn overlay_position_is_clamped_to_visible_screen_area() {
-        let pos = clamp_overlay_position(
-            OverlayPosition { x: -20.0, y: 900.0 },
-            1440.0,
-            900.0,
-        );
+        let pos = clamp_overlay_position(OverlayPosition { x: -20.0, y: 900.0 }, 1440.0, 900.0);
 
         assert_eq!(pos, OverlayPosition { x: 0.0, y: 780.0 });
     }

@@ -124,7 +124,8 @@ pub fn set_tray_dictation_state(state: &TrayState, dictation_state: &str) -> Res
 
     let guard = state.icon.lock();
     if let Some(tray) = guard.as_ref() {
-        let image = Image::from_bytes(icon_bytes_for_state(normalized_state)).map_err(|e| e.to_string())?;
+        let image =
+            Image::from_bytes(icon_bytes_for_state(normalized_state)).map_err(|e| e.to_string())?;
         tray.set_icon_with_as_template(Some(image), true)
             .map_err(|e| e.to_string())?;
     }
@@ -181,8 +182,14 @@ mod tests {
     fn each_known_state_maps_to_a_distinct_icon() {
         assert_eq!(icon_bytes_for_state("listening"), LISTENING_ICON);
         assert_eq!(icon_bytes_for_state("processing"), PROCESSING_ICON);
-        assert_ne!(icon_bytes_for_state("listening"), icon_bytes_for_state("idle"));
-        assert_ne!(icon_bytes_for_state("processing"), icon_bytes_for_state("idle"));
+        assert_ne!(
+            icon_bytes_for_state("listening"),
+            icon_bytes_for_state("idle")
+        );
+        assert_ne!(
+            icon_bytes_for_state("processing"),
+            icon_bytes_for_state("idle")
+        );
     }
 
     #[test]

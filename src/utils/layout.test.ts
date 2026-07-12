@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { addClaudePaneToLayout, addTerminalToLayout } from './layout'
+import {
+  addAgentStudioPaneToLayout,
+  addClaudePaneToLayout,
+  addEditorPaneToLayout,
+  addTerminalToLayout,
+  removeAgentStudioPaneFromLayout,
+} from './layout'
 import { LayoutNode } from '../types'
 
 describe('layout utilities', () => {
@@ -41,5 +47,18 @@ describe('layout utilities', () => {
         { type: 'claude', claudePaneId: 'c1' },
       ],
     })
+  })
+
+  it('adds and removes an agent studio leaf without removing an editor leaf', () => {
+    const root = addEditorPaneToLayout(null, 'editor-1')
+    const withAgent = addAgentStudioPaneToLayout(root, 'agent-1')
+
+    expect(withAgent).toMatchObject({
+      type: 'split',
+      children: expect.arrayContaining([
+        expect.objectContaining({ type: 'agent-studio', agentStudioPaneId: 'agent-1' }),
+      ]),
+    })
+    expect(removeAgentStudioPaneFromLayout(withAgent, 'agent-1')).toEqual(root)
   })
 })

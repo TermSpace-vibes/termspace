@@ -12,13 +12,14 @@ interface Props {
   onAddKubernetesPane: () => void
   onAddDockerPane: () => void
   onAddClaudePane: () => void
+  onAddAgentStudioPane: () => void
   onEditWorkspace: () => void
   onSelectTerminal: (id: string) => void
   onCloseTerminal: (id: string) => void
   showTabBar?: boolean
 }
 
-export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, onAddBrowserPane, onAddEditorPane, onAddKubernetesPane, onAddDockerPane, onAddClaudePane, onSelectTerminal, onCloseTerminal, showTabBar = true }: Props) {
+export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, onAddBrowserPane, onAddEditorPane, onAddKubernetesPane, onAddDockerPane, onAddClaudePane, onAddAgentStudioPane, onSelectTerminal, onCloseTerminal, showTabBar = true }: Props) {
   return (
     <div
       data-tauri-drag-region
@@ -221,6 +222,7 @@ export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, on
         >
           <Sparkles size={10} /> Claude
         </button>
+        <button onClick={onAddAgentStudioPane} aria-label="Open Agent Studio" style={{ padding: '3px 8px', background: 'transparent', border: '1px solid var(--border-inactive)', borderRadius: 4, color: 'var(--accent)', fontSize: 10, cursor: 'pointer' }}>Agent Studio</button>
       </div>
     </div>
   )

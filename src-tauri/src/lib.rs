@@ -1,5 +1,7 @@
 #![allow(unexpected_cfgs)]
+mod agent_context;
 mod agent_hook;
+mod agent_runtime_manager;
 mod audio;
 mod browser_pane_manager;
 mod claude_session_manager;
@@ -7,14 +9,15 @@ mod clipboard_insertion_service;
 mod commands;
 mod daemon_client;
 mod db;
-mod dictation_overlay_service;
 mod dictation_model;
+mod dictation_overlay_service;
 mod global_shortcut_service;
 pub mod lsp_manager;
 mod native_terminal_manager;
 mod platform_permissions;
 mod tray_service;
 
+use agent_runtime_manager::AgentRuntimeManager;
 use browser_pane_manager::BrowserPaneManager;
 use claude_session_manager::ClaudeSessionManager;
 use commands::{DaemonClientState, DbState};
@@ -131,6 +134,7 @@ pub fn run() {
 
             app.manage(BrowserPaneManager::new());
             app.manage(ClaudeSessionManager::new());
+            app.manage(AgentRuntimeManager::new());
             app.manage(audio::AudioPlayer::new());
             app.manage(commands::WatcherState(std::sync::Mutex::new(
                 std::collections::HashMap::new(),
@@ -216,6 +220,12 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_system_stats,
+            commands::preview_agent_context,
+            commands::get_agent_provider_diagnostics,
+            commands::start_agent_session,
+            commands::write_agent_session,
+            commands::interrupt_agent_session,
+            commands::close_agent_session,
             commands::get_git_branch,
             commands::get_git_status,
             commands::get_git_blame,
@@ -223,6 +233,11 @@ pub fn run() {
             commands::git_commit,
             commands::get_workspaces,
             commands::create_workspace,
+            commands::create_agent_conversation,
+            commands::list_agent_conversations,
+            commands::append_agent_message,
+            commands::create_agent_context_bundle,
+            commands::get_agent_context_bundle,
             commands::update_workspace,
             commands::set_workspace_default_path,
             commands::delete_workspace,

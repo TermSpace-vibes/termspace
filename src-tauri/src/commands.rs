@@ -1,21 +1,17 @@
+use crate::agent_context::{self, ContextRequest};
+use crate::agent_runtime_manager::{AgentProviderDiagnostic, AgentProviderId, AgentRuntimeManager};
 use crate::browser_pane_manager::BrowserPaneManager;
 use crate::claude_session_manager::ClaudeSessionManager;
-use crate::clipboard_insertion_service::{
-    self, GlobalInsertionOptions, GlobalInsertionResult,
-};
+use crate::clipboard_insertion_service::{self, GlobalInsertionOptions, GlobalInsertionResult};
 use crate::db::{self, Terminal, Workspace};
+use crate::dictation_model::{self, DictationModelStatus, MODEL_PART_FILE_NAME, MODEL_URL};
 use crate::dictation_overlay_service::{
     self, DictationOverlayPayload, DictationOverlayState, OverlayPosition,
 };
-use crate::dictation_model::{
-    self, DictationModelStatus, MODEL_PART_FILE_NAME, MODEL_URL,
-};
-use crate::global_shortcut_service::{
-    self, GlobalShortcutState, GlobalShortcutStatus,
-};
-use crate::tray_service::{self, TrayState};
+use crate::global_shortcut_service::{self, GlobalShortcutState, GlobalShortcutStatus};
 use crate::native_terminal_manager::NativeTerminalManager;
 use crate::platform_permissions::{self, GlobalDictationPermissionStatus};
+use crate::tray_service::{self, TrayState};
 use notify_debouncer_mini::{
     new_debouncer,
     notify::{self, RecursiveMode},
@@ -42,6 +38,79 @@ pub struct WatcherState(
 );
 
 pub struct DaemonClientState(pub Arc<Mutex<Option<crate::daemon_client::DaemonClient>>>);
+
+fn validate_agent_id(id: &str) -> Result<(), String> {
+    if id.is_empty()
+        || id.len() > 128
+        || !id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+    {
+        return Err("Agent Studio received an invalid identifier.".into());
+    }
+    Ok(())
+}
+
+fn agent_data_error(operation: &str, error: rusqlite::Error) -> String {
+    eprintln!("Agent Studio {operation} failed: {error}");
+    format!("Agent Studio data could not be {operation}.")
+}
+
+#[tauri::command]
+pub fn preview_agent_context(
+    request: ContextRequest,
+) -> Result<agent_context::ContextBundle, String> {
+    if !matches!(request.provider.as_str(), "claude-code" | "codex") {
+        return Err("Agent Studio received an unsupported provider.".into());
+    }
+    agent_context::assemble_context(request).map_err(|error| {
+        eprintln!("Agent Studio context preview failed: {error}");
+        "Agent Studio context could not be prepared.".into()
+    })
+}
+
+#[tauri::command]
+pub fn get_agent_provider_diagnostics(
+    runtime: State<AgentRuntimeManager>,
+) -> Vec<AgentProviderDiagnostic> {
+    runtime.diagnostics()
+}
+#[tauri::command]
+pub fn start_agent_session(
+    runtime: State<AgentRuntimeManager>,
+    app: AppHandle,
+    session_id: String,
+    provider: AgentProviderId,
+    cwd: String,
+) -> Result<(), String> {
+    validate_agent_id(&session_id)?;
+    runtime.start(session_id, provider, &cwd, app)
+}
+#[tauri::command]
+pub fn write_agent_session(
+    runtime: State<AgentRuntimeManager>,
+    session_id: String,
+    data: String,
+) -> Result<(), String> {
+    validate_agent_id(&session_id)?;
+    runtime.write(&session_id, &data)
+}
+#[tauri::command]
+pub fn interrupt_agent_session(
+    runtime: State<AgentRuntimeManager>,
+    session_id: String,
+) -> Result<(), String> {
+    validate_agent_id(&session_id)?;
+    runtime.interrupt(&session_id)
+}
+#[tauri::command]
+pub fn close_agent_session(
+    runtime: State<AgentRuntimeManager>,
+    session_id: String,
+) -> Result<(), String> {
+    validate_agent_id(&session_id)?;
+    runtime.close(&session_id)
+}
 
 // macOS concurrent fork/posix_spawn workaround
 static SPAWN_LOCK: Mutex<()> = Mutex::new(());
@@ -120,7 +189,7 @@ fn get_mac_gpu_utilization() -> f32 {
                 }
             }
         }
-        
+
         // Try older Intel (IGAccel)
         let output_res2 = {
             let _lock = SPAWN_LOCK.lock();
@@ -156,7 +225,9 @@ pub async fn get_system_stats(state: State<'_, SysInfoState>) -> Result<SystemSt
     let latency_ms = if std::net::TcpStream::connect_timeout(
         &"1.1.1.1:53".parse().unwrap(),
         Duration::from_millis(500),
-    ).is_ok() {
+    )
+    .is_ok()
+    {
         start.elapsed().as_millis() as u32
     } else {
         999
@@ -219,6 +290,69 @@ pub fn create_workspace(
     #[cfg(debug_assertions)]
     println!(">>> RUST: create_workspace called for {}", name);
     db::create_workspace(&db.0.lock(), &name, &emoji, &color).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_agent_conversation(
+    db_state: State<DbState>,
+    input: db::AgentConversationInput,
+) -> Result<db::AgentConversation, String> {
+    validate_agent_id(&input.id)?;
+    validate_agent_id(&input.workspace_id)?;
+    db::create_agent_conversation(&db_state.0.lock(), input)
+        .map_err(|error| agent_data_error("created", error))
+}
+
+#[tauri::command]
+pub fn list_agent_conversations(
+    db_state: State<DbState>,
+    workspace_id: String,
+) -> Result<Vec<db::AgentConversation>, String> {
+    validate_agent_id(&workspace_id)?;
+    db::list_agent_conversations(&db_state.0.lock(), &workspace_id)
+        .map_err(|error| agent_data_error("loaded", error))
+}
+
+#[tauri::command]
+pub fn append_agent_message(
+    db_state: State<DbState>,
+    input: db::AgentMessageInput,
+) -> Result<db::AgentMessage, String> {
+    validate_agent_id(&input.id)?;
+    validate_agent_id(&input.conversation_id)?;
+    if let Some(session_id) = &input.runtime_session_id {
+        validate_agent_id(session_id)?;
+    }
+    db::append_agent_message(&db_state.0.lock(), input)
+        .map_err(|error| agent_data_error("saved", error))
+}
+
+#[tauri::command]
+pub fn create_agent_context_bundle(
+    db_state: State<DbState>,
+    input: db::AgentContextBundleInput,
+) -> Result<db::AgentContextBundle, String> {
+    validate_agent_id(&input.id)?;
+    validate_agent_id(&input.conversation_id)?;
+    if input
+        .items
+        .iter()
+        .any(|item| validate_agent_id(&item.id).is_err())
+    {
+        return Err("Agent Studio received an invalid context item identifier.".into());
+    }
+    db::create_agent_context_bundle(&db_state.0.lock(), input)
+        .map_err(|error| agent_data_error("saved", error))
+}
+
+#[tauri::command]
+pub fn get_agent_context_bundle(
+    db_state: State<DbState>,
+    bundle_id: String,
+) -> Result<db::AgentContextBundle, String> {
+    validate_agent_id(&bundle_id)?;
+    db::get_agent_context_bundle(&db_state.0.lock(), &bundle_id)
+        .map_err(|error| agent_data_error("loaded", error))
 }
 
 #[tauri::command]
@@ -303,7 +437,11 @@ pub fn get_tabs(db: State<DbState>, workspace_id: String) -> Result<Vec<db::Work
 }
 
 #[tauri::command]
-pub fn create_tab(db: State<DbState>, workspace_id: String, name: String) -> Result<db::WorkspaceTab, String> {
+pub fn create_tab(
+    db: State<DbState>,
+    workspace_id: String,
+    name: String,
+) -> Result<db::WorkspaceTab, String> {
     let id = uuid::Uuid::new_v4().to_string();
     db::create_tab(&db.0.lock(), &id, &workspace_id, &name).map_err(|e| e.to_string())
 }
@@ -420,7 +558,15 @@ pub fn spawn_terminal(
     let via_daemon = {
         let dc_guard = dc.0.lock();
         if let Some(ref client) = *dc_guard {
-            client.spawn(temp_id.clone(), resolved_shell.clone(), resolved_cwd.clone(), 80, 24).is_ok()
+            client
+                .spawn(
+                    temp_id.clone(),
+                    resolved_shell.clone(),
+                    resolved_cwd.clone(),
+                    80,
+                    24,
+                )
+                .is_ok()
         } else {
             false
         }
@@ -428,7 +574,14 @@ pub fn spawn_terminal(
 
     if !via_daemon {
         let _lock = SPAWN_LOCK.lock();
-        ntm.spawn(temp_id.clone(), app.clone(), &resolved_shell, &resolved_cwd, 80, 24)?;
+        ntm.spawn(
+            temp_id.clone(),
+            app.clone(),
+            &resolved_shell,
+            &resolved_cwd,
+            80,
+            24,
+        )?;
     }
 
     let terminal = {
@@ -476,7 +629,15 @@ pub fn respawn_terminal(
         if let Some(ref client) = *dc_guard {
             // Daemon spawn is idempotent: resubscribes to existing session,
             // or creates a new one if it exited. No kill needed — daemon keeps process alive.
-            client.spawn(id.clone(), resolved_shell.clone(), resolved_cwd.clone(), 80, 24).is_ok()
+            client
+                .spawn(
+                    id.clone(),
+                    resolved_shell.clone(),
+                    resolved_cwd.clone(),
+                    80,
+                    24,
+                )
+                .is_ok()
         } else {
             false
         }
@@ -485,7 +646,14 @@ pub fn respawn_terminal(
     if !via_daemon {
         ntm.kill(&id);
         let _lock = SPAWN_LOCK.lock();
-        ntm.spawn(id.clone(), app.clone(), &resolved_shell, &resolved_cwd, 80, 24)?;
+        ntm.spawn(
+            id.clone(),
+            app.clone(),
+            &resolved_shell,
+            &resolved_cwd,
+            80,
+            24,
+        )?;
     }
 
     #[cfg(debug_assertions)]
@@ -520,7 +688,11 @@ pub fn is_terminal_busy(
 ) -> Result<bool, String> {
     let shell_pid = {
         let dc_guard = dc.0.lock();
-        if let Some(ref client) = *dc_guard { client.get_pid(&id) } else { ntm.get_pid(&id) }
+        if let Some(ref client) = *dc_guard {
+            client.get_pid(&id)
+        } else {
+            ntm.get_pid(&id)
+        }
     };
     let shell_pid = match shell_pid {
         Some(pid) => pid,
@@ -556,7 +728,11 @@ pub fn get_terminal_remote_status(
 ) -> Result<Option<String>, String> {
     let shell_pid = {
         let dc_guard = dc.0.lock();
-        if let Some(ref client) = *dc_guard { client.get_pid(&id) } else { ntm.get_pid(&id) }
+        if let Some(ref client) = *dc_guard {
+            client.get_pid(&id)
+        } else {
+            ntm.get_pid(&id)
+        }
     };
     let shell_pid = match shell_pid {
         Some(pid) => pid,
@@ -568,7 +744,8 @@ pub fn get_terminal_remote_status(
     // Refresh process list at most once per 2s across all terminals
     let entries = {
         let mut cache = process_cache().lock();
-        let needs_refresh = cache.as_ref()
+        let needs_refresh = cache
+            .as_ref()
             .map(|s| s.captured_at.elapsed() >= CACHE_TTL)
             .unwrap_or(true);
 
@@ -583,11 +760,17 @@ pub fn get_terminal_remote_status(
                         pid.as_u32(),
                         p.parent().map(|pp| pp.as_u32()),
                         p.name().to_string_lossy().to_lowercase(),
-                        p.cmd().iter().map(|s| s.to_string_lossy().into_owned()).collect(),
+                        p.cmd()
+                            .iter()
+                            .map(|s| s.to_string_lossy().into_owned())
+                            .collect(),
                     )
                 })
                 .collect();
-            let snapshot = ProcessSnapshot { entries, captured_at: Instant::now() };
+            let snapshot = ProcessSnapshot {
+                entries,
+                captured_at: Instant::now(),
+            };
             let entries = snapshot.entries.clone();
             *cache = Some(snapshot);
             entries
@@ -602,9 +785,15 @@ pub fn get_terminal_remote_status(
         let mut curr_parent = *parent_pid;
         for _ in 0..10 {
             match curr_parent {
-                Some(ppid) if ppid == shell_pid => { is_descendant = true; break; }
+                Some(ppid) if ppid == shell_pid => {
+                    is_descendant = true;
+                    break;
+                }
                 Some(ppid) => {
-                    curr_parent = entries.iter().find(|(p, ..)| *p == ppid).and_then(|(_, pp, ..)| *pp);
+                    curr_parent = entries
+                        .iter()
+                        .find(|(p, ..)| *p == ppid)
+                        .and_then(|(_, pp, ..)| *pp);
                 }
                 None => break,
             }
@@ -616,12 +805,18 @@ pub fn get_terminal_remote_status(
                 return Ok(Some("SSH".to_string()));
             } else if name.contains("kubectl") {
                 let full_cmd = cmd.join(" ");
-                if full_cmd.contains("exec") || full_cmd.contains("attach") || full_cmd.contains("port-forward") {
+                if full_cmd.contains("exec")
+                    || full_cmd.contains("attach")
+                    || full_cmd.contains("port-forward")
+                {
                     return Ok(Some("K8S".to_string()));
                 }
             } else if name.contains("docker") {
                 let full_cmd = cmd.join(" ");
-                if full_cmd.contains("exec") || full_cmd.contains("run") || full_cmd.contains("attach") {
+                if full_cmd.contains("exec")
+                    || full_cmd.contains("run")
+                    || full_cmd.contains("attach")
+                {
                     return Ok(Some("DOCKER".to_string()));
                 }
             }
@@ -889,7 +1084,10 @@ pub fn browser_media_control(
     media_id: String,
     action: String,
 ) -> Result<(), String> {
-    if !matches!(action.as_str(), "play" | "pause" | "previoustrack" | "nexttrack") {
+    if !matches!(
+        action.as_str(),
+        "play" | "pause" | "previoustrack" | "nexttrack"
+    ) {
         return Err(format!("unsupported media action '{}'", action));
     }
     browser.media_control(&id, &media_id, &action);
@@ -1435,8 +1633,7 @@ pub fn open_accessibility_settings() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_global_dictation_permission_status(
-) -> Result<GlobalDictationPermissionStatus, String> {
+pub fn get_global_dictation_permission_status() -> Result<GlobalDictationPermissionStatus, String> {
     Ok(platform_permissions::get_global_dictation_permission_status())
 }
 
@@ -2001,11 +2198,13 @@ pub async fn get_docker_resources(resource: String) -> Result<String, String> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     // JSON-lines to JSON Array
     let mut items = Vec::new();
     for line in stdout.lines() {
-        if line.trim().is_empty() { continue; }
+        if line.trim().is_empty() {
+            continue;
+        }
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(line) {
             items.push(parsed);
         }

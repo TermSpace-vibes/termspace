@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
-import { Workspace, Terminal, BrowserPane, EditorPane, ClaudePane, LayoutNode, LayoutDirection, Settings, GitStatus, WorkspaceTab } from '../types'
+import { AgentStudioPane, Workspace, Terminal, BrowserPane, EditorPane, ClaudePane, LayoutNode, LayoutDirection, Settings, GitStatus, WorkspaceTab } from '../types'
 import { useBrowserMediaStore } from './useBrowserMediaStore'
 import {
   addTerminalToLayout, removeTerminalFromLayout, swapTerminalsInLayout,
@@ -11,6 +11,7 @@ import {
   addKubernetesPaneToLayout, removeKubernetesPaneFromLayout,
   addDockerPaneToLayout, removeDockerPaneFromLayout,
   addClaudePaneToLayout, removeClaudePaneFromLayout,
+  addAgentStudioPaneToLayout, removeAgentStudioPaneFromLayout,
 } from '../utils/layout'
 
 interface AppState {
@@ -32,6 +33,7 @@ interface AppState {
   kubernetesPanesByTab: Record<string, import('../types').KubernetesPane[]>
   dockerPanesByTab: Record<string, import('../types').DockerPane[]>
   claudePanesByTab: Record<string, ClaudePane[]>
+  agentStudioPanesByTab: Record<string, AgentStudioPane[]>
   layoutsByTab: Record<string, LayoutNode | null>
   gitStatusByWorkspace: Record<string, GitStatus>
   activeFileByTab: Record<string, string | null>
@@ -81,6 +83,9 @@ interface AppState {
   addClaudePane: (tabId: string, pane: ClaudePane, targetId?: string, direction?: LayoutDirection) => void
   removeClaudePane: (tabId: string, claudePaneId: string) => void
   updateClaudePane: (tabId: string, claudePaneId: string, updates: Partial<ClaudePane>) => void
+  addAgentStudioPane: (tabId: string, pane: AgentStudioPane, targetId?: string, direction?: LayoutDirection) => void
+  removeAgentStudioPane: (tabId: string, paneId: string) => void
+  updateAgentStudioPane: (tabId: string, paneId: string, updates: Partial<AgentStudioPane>) => void
   updateEditorPaneFile: (tabId: string, editorPaneId: string, openFilePath: string | null, lineNumber?: number) => void
   closeEditorFile: (tabId: string, editorPaneId: string, filePath: string) => void
   updateEditorPaneLayout: (tabId: string, editorPaneId: string, layout: Partial<EditorPane>) => void
@@ -146,6 +151,7 @@ export interface DurableWorkspaceUiState {
   kubernetesPanesByTab?: Record<string, import('../types').KubernetesPane[]>
   dockerPanesByTab?: Record<string, import('../types').DockerPane[]>
   claudePanesByTab?: Record<string, ClaudePane[]>
+  agentStudioPanesByTab?: Record<string, AgentStudioPane[]>
 }
 
 export const useAppStore = create<AppState>()(
@@ -164,6 +170,7 @@ export const useAppStore = create<AppState>()(
       kubernetesPanesByTab: {},
       dockerPanesByTab: {},
       claudePanesByTab: {},
+      agentStudioPanesByTab: {},
       layoutsByTab: {},
       gitStatusByWorkspace: {},
       activeFileByTab: {},
@@ -194,6 +201,7 @@ export const useAppStore = create<AppState>()(
         kubernetesPanesByTab: durableState.kubernetesPanesByTab ?? s.kubernetesPanesByTab,
         dockerPanesByTab: durableState.dockerPanesByTab ?? s.dockerPanesByTab,
         claudePanesByTab: durableState.claudePanesByTab ?? s.claudePanesByTab,
+        agentStudioPanesByTab: durableState.agentStudioPanesByTab ?? s.agentStudioPanesByTab,
       })),
       setUsername: (name) => set({ username: name }),
       addRecentProject: (path) => set((s) => ({
@@ -332,6 +340,7 @@ export const useAppStore = create<AppState>()(
             browserPanesByTab: { ...s.browserPanesByTab, [tab.id]: [] },
             editorPanesByTab: { ...s.editorPanesByTab, [tab.id]: [] },
             claudePanesByTab: { ...s.claudePanesByTab, [tab.id]: [] },
+            agentStudioPanesByTab: { ...s.agentStudioPanesByTab, [tab.id]: [] },
           }
         })
         return tab
@@ -782,6 +791,46 @@ export const useAppStore = create<AppState>()(
           }
         }),
 
+      addAgentStudioPane: (tabId, pane, targetId, direction) =>
+        set((s) => {
+          const layout = s.layoutsByTab[tabId] ?? null
+          return {
+            agentStudioPanesByTab: {
+              ...s.agentStudioPanesByTab,
+              [tabId]: [...(s.agentStudioPanesByTab[tabId] ?? []), pane],
+            },
+            layoutsByTab: {
+              ...s.layoutsByTab,
+              [tabId]: addAgentStudioPaneToLayout(layout, pane.id, targetId, direction),
+            },
+          }
+        }),
+
+      removeAgentStudioPane: (tabId, paneId) =>
+        set((s) => {
+          const layout = s.layoutsByTab[tabId] ?? null
+          return {
+            agentStudioPanesByTab: {
+              ...s.agentStudioPanesByTab,
+              [tabId]: (s.agentStudioPanesByTab[tabId] ?? []).filter((pane) => pane.id !== paneId),
+            },
+            layoutsByTab: {
+              ...s.layoutsByTab,
+              [tabId]: removeAgentStudioPaneFromLayout(layout, paneId),
+            },
+          }
+        }),
+
+      updateAgentStudioPane: (tabId, paneId, updates) =>
+        set((s) => ({
+          agentStudioPanesByTab: {
+            ...s.agentStudioPanesByTab,
+            [tabId]: (s.agentStudioPanesByTab[tabId] ?? []).map((pane) =>
+              pane.id === paneId ? { ...pane, ...updates } : pane,
+            ),
+          },
+        })),
+
       updateEditorPaneFile: (tabId: string, editorPaneId: string, openFilePath: string | null, lineNumber?: number) =>
         set((s) => ({
           activeFileByTab: {
@@ -996,6 +1045,7 @@ export const useAppStore = create<AppState>()(
         kubernetesPanesByTab: state.kubernetesPanesByTab,
         dockerPanesByTab: state.dockerPanesByTab,
         claudePanesByTab: state.claudePanesByTab,
+        agentStudioPanesByTab: state.agentStudioPanesByTab,
         gitStatusByWorkspace: state.gitStatusByWorkspace,
         tasksCollapsed: state.tasksCollapsed,
         dictationButtonPosition: state.dictationButtonPosition,

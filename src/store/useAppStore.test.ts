@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { act } from '@testing-library/react'
 import { useAppStore } from './useAppStore'
-import { Workspace, Terminal, BrowserPane, EditorPane, WorkspaceTab, ClaudePane } from '../types'
+import { AgentStudioPane, Workspace, Terminal, BrowserPane, EditorPane, WorkspaceTab, ClaudePane } from '../types'
 
 const ws1: Workspace = { id: 'ws-1', name: 'Work', emoji: '🔥', color: '#e8a045', position: 0, createdAt: 1000 }
 const t1: Terminal = { id: 't-1', workspaceId: 'ws-1', shell: 'zsh', cwd: '/tmp', position: 0, sizePercent: 50, createdAt: 1001 }
@@ -14,6 +14,7 @@ beforeEach(() => {
     terminalsByTab: {},
     browserPanesByTab: {},
     editorPanesByTab: {},
+    agentStudioPanesByTab: {},
     layoutsByTab: {},
   })
 })
@@ -276,5 +277,27 @@ describe('editor pane store', () => {
         expect(subSplit.children).toHaveLength(2)
       }
     }
+  })
+})
+
+describe('agent studio pane store', () => {
+  it('removes an agent studio pane from its tab state and layout', () => {
+    const pane: AgentStudioPane = {
+      id: 'agent-1',
+      tabId: 'tab-1',
+      title: 'Agent Studio',
+      cwd: '/tmp',
+      conversationId: null,
+      position: 0,
+      createdAt: 1000,
+    }
+
+    act(() => {
+      useAppStore.getState().addAgentStudioPane('tab-1', pane)
+      useAppStore.getState().removeAgentStudioPane('tab-1', pane.id)
+    })
+
+    expect(useAppStore.getState().agentStudioPanesByTab['tab-1']).toEqual([])
+    expect(useAppStore.getState().layoutsByTab['tab-1']).toBeNull()
   })
 })

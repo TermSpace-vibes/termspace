@@ -104,6 +104,86 @@ export interface ClaudePane {
   error?: string | null
 }
 
+export type AgentProviderId = 'claude-code' | 'codex'
+
+export type AgentSessionStatus =
+  | 'starting'
+  | 'ready'
+  | 'running'
+  | 'blocked'
+  | 'error'
+  | 'exited'
+
+export interface AgentProviderCapabilities {
+  structuredOutput: boolean
+  sessionResume: boolean
+  modelSelection: boolean
+  reasoningEffort: boolean
+  permissionRequests: boolean
+  fileChangeEvents: boolean
+  toolEvents: boolean
+  contextContinuation: boolean
+}
+
+export type AgentMessagePart =
+  | { type: 'text'; text: string }
+  | { type: 'activity'; label: string; detail?: string }
+  | { type: 'question'; prompt: string; choices?: string[] }
+  | { type: 'file_reference'; referenceId: string }
+  | { type: 'command'; command: string; cwd: string }
+  | { type: 'command_result'; exitCode: number | null; outputRef: string }
+  | { type: 'permission_request'; requestId: string; capability: string }
+  | { type: 'diagnostic'; rawOutputRef: string }
+  | { type: 'artifact_reference'; artifactId: string }
+  | { type: 'verification_result'; verificationId: string }
+
+export interface AgentConversation {
+  id: string
+  workspaceId: string
+  title: string
+  defaultCwd: string
+  createdAt: number
+  updatedAt: number
+  archivedAt: number | null
+}
+
+export interface AgentRuntimeSession {
+  id: string
+  conversationId: string
+  provider: AgentProviderId
+  providerSessionId: string | null
+  contextSnapshotId: string
+  status: AgentSessionStatus
+  parentSessionId: string | null
+  createdAt: number
+}
+
+export type AgentRuntimeEvent =
+  | { kind: 'text'; text: string }
+  | { kind: 'activity'; label: string; detail?: string }
+  | { kind: 'question'; prompt: string; choices?: string[] }
+  | { kind: 'ready' }
+  | { kind: 'error'; message: string; rawOutputRef?: string }
+  | { kind: 'status'; status: AgentSessionStatus }
+  | { kind: 'diagnostic'; rawOutputRef: string }
+
+export interface AgentRuntimeEnvelope {
+  sessionId: string
+  sequence: number
+  timestamp: number
+  event: AgentRuntimeEvent
+}
+
+export interface AgentStudioPane {
+  id: string
+  tabId: string
+  title: string
+  cwd: string
+  conversationId: string | null
+  position: number
+  createdAt: number
+}
+
 export interface Keybindings {
   newTerminal: string
   closeTerminal: string
@@ -178,6 +258,7 @@ export type LayoutNode =
   | { type: 'kubernetes'; id: string; kubernetesPaneId: string }
   | { type: 'docker'; id: string; dockerPaneId: string }
   | { type: 'claude'; id: string; claudePaneId: string }
+  | { type: 'agent-studio'; id: string; agentStudioPaneId: string }
   | { type: 'split';   id: string; direction: LayoutDirection; sizes: number[]; children: LayoutNode[] }
 
 export interface GitStatus {

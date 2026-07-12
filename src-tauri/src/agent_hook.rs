@@ -28,8 +28,13 @@ pub fn start_server(app: AppHandle) {
             },
         };
 
-        let port = server.server_addr().to_ip().map(|a| a.port()).unwrap_or(PREFERRED_PORT);
-        #[cfg(debug_assertions)] println!(">>> RUST: Agent hook server listening on 127.0.0.1:{port}");
+        let port = server
+            .server_addr()
+            .to_ip()
+            .map(|a| a.port())
+            .unwrap_or(PREFERRED_PORT);
+        #[cfg(debug_assertions)]
+        println!(">>> RUST: Agent hook server listening on 127.0.0.1:{port}");
         let _ = app.emit("agent-hook-port", port);
 
         for mut request in server.incoming_requests() {
@@ -41,7 +46,8 @@ pub fn start_server(app: AppHandle) {
                     let response = Response::from_string("OK").with_status_code(StatusCode(200));
                     let _ = request.respond(response);
                 } else {
-                    let response = Response::from_string("Bad Request").with_status_code(StatusCode(400));
+                    let response =
+                        Response::from_string("Bad Request").with_status_code(StatusCode(400));
                     let _ = request.respond(response);
                 }
             } else {

@@ -21,6 +21,7 @@ const EMPTY_EDITOR_PANES: EditorPaneType[] = []
 const EMPTY_KUBERNETES_PANES: import('../../types').KubernetesPane[] = []
 const EMPTY_DOCKER_PANES: import('../../types').DockerPane[] = []
 const EMPTY_CLAUDE_PANES: import('../../types').ClaudePane[] = []
+const EMPTY_AGENT_STUDIO_PANES: import('../../types').AgentStudioPane[] = []
 const EMPTY_TABS: WorkspaceTab[] = []
 
 const SystemStats = memo(() => {
@@ -71,6 +72,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
   const isLoaded = rawTerminals !== undefined
   const isLoading = useAppStore((s) => s.activatingWorkspaces[workspace.id] === true)
   const activeTerminalId = useAppStore((s) => s.activeTerminalId)
+  const agentStudioPanes = useAppStore((s) => activeTabId ? s.agentStudioPanesByTab[activeTabId] : undefined) ?? EMPTY_AGENT_STUDIO_PANES
   const setActiveTerminalId = useAppStore((s) => s.setActiveTerminalId)
   const terminalToCloseId = useAppStore((s) => s.terminalToCloseId)
   const setTerminalToCloseId = useAppStore((s) => s.setTerminalToCloseId)
@@ -319,6 +321,8 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
     }
   }, [activeTabId])
 
+  const handleCloseAgentStudioPane = useCallback(async (paneId: string) => { if (!activeTabId) return; await invoke('close_agent_session', { sessionId: paneId }).catch(() => {}); const state = useAppStore.getState(); state.removeAgentStudioPane(activeTabId, paneId); if (state.activeTerminalId === paneId) state.setActiveTerminalId(null) }, [activeTabId])
+
   const handleAddEditorPane = useCallback(async (targetId?: string, direction?: 'horizontal' | 'vertical') => {
     if (!activeTabId) return;
     try {
@@ -414,6 +418,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
     state.setActiveTerminalId(pane.id)
     state.addToast('Claude Code pane opened', 'info')
   }, [activeTabId])
+  const handleAddAgentStudioPane = useCallback(() => { if (!activeTabId) return; const state = useAppStore.getState(); const pane = { id: crypto.randomUUID(), tabId: activeTabId, title: 'Agent Studio', cwd: '', conversationId: null, position: (state.agentStudioPanesByTab[activeTabId] ?? []).length, createdAt: Date.now() }; state.addAgentStudioPane(activeTabId, pane); state.setActiveTerminalId(pane.id) }, [activeTabId])
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -427,6 +432,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
         onAddKubernetesPane={() => handleAddKubernetesPane()}
         onAddDockerPane={() => handleAddDockerPane()}
         onAddClaudePane={() => handleAddClaudePane()}
+        onAddAgentStudioPane={handleAddAgentStudioPane}
         onEditWorkspace={() => onEditWorkspace(workspace)}
         onSelectTerminal={setActiveTerminalId}
         onCloseTerminal={handleCloseTerminal}
@@ -434,7 +440,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
       />
       <WorkspaceTabBar workspaceId={workspace.id} />
       <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
-        <Group orientation="vertical" style={{ flex: 1, minHeight: 0, display: (terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || kubernetesPanes.length > 0 || dockerPanes.length > 0 || claudePanes.length > 0) ? 'flex' : 'none' }}>
+        <Group orientation="vertical" style={{ flex: 1, minHeight: 0, display: (terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || kubernetesPanes.length > 0 || dockerPanes.length > 0 || claudePanes.length > 0 || agentStudioPanes.length > 0) ? 'flex' : 'none' }}>
           <Panel defaultSize={75} minSize={20}>
             <div style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, height: '100%' }}>
               {renderTabs.map((tab) => (
@@ -449,6 +455,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
                     onCloseBrowserPane={handleCloseBrowserPane}
                     onSplitBrowserPane={handleAddBrowserPane}
                     onCloseClaudePane={handleCloseClaudePane}
+                    onCloseAgentStudioPane={handleCloseAgentStudioPane}
                   />
                 </div>
               ))}

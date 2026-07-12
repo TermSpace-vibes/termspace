@@ -20,11 +20,28 @@ fn next_conn_id() -> ConnId {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum AppMessage {
-    Spawn { id: String, shell: String, cwd: String, cols: u16, rows: u16 },
-    Input { id: String, data: String },
-    Resize { id: String, cols: u16, rows: u16 },
-    Detach { id: String },
-    Kill { id: String },
+    Spawn {
+        id: String,
+        shell: String,
+        cwd: String,
+        cols: u16,
+        rows: u16,
+    },
+    Input {
+        id: String,
+        data: String,
+    },
+    Resize {
+        id: String,
+        cols: u16,
+        rows: u16,
+    },
+    Detach {
+        id: String,
+    },
+    Kill {
+        id: String,
+    },
     List,
     Ping,
 }
@@ -137,9 +154,13 @@ fn dispatch(
     match msg {
         AppMessage::Ping => send(tx, &DaemonMessage::Pong),
         AppMessage::List => handle_list(registry, tx),
-        AppMessage::Spawn { id, shell, cwd, cols, rows } => {
-            handle_spawn(&id, &shell, &cwd, cols, rows, registry, conn_id, tx)
-        }
+        AppMessage::Spawn {
+            id,
+            shell,
+            cwd,
+            cols,
+            rows,
+        } => handle_spawn(&id, &shell, &cwd, cols, rows, registry, conn_id, tx),
         AppMessage::Input { id, data } => handle_input(&id, &data, registry),
         AppMessage::Resize { id, cols, rows } => handle_resize(&id, cols, rows, registry),
         AppMessage::Detach { id } => handle_detach(&id, registry, conn_id),
@@ -194,12 +215,21 @@ fn handle_spawn(
 
     // Create new PTY session
     let pty_system = portable_pty::native_pty_system();
-    let pair = match pty_system
-        .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-    {
+    let pair = match pty_system.openpty(PtySize {
+        rows,
+        cols,
+        pixel_width: 0,
+        pixel_height: 0,
+    }) {
         Ok(p) => p,
         Err(e) => {
-            send(tx, &DaemonMessage::Error { id: id.to_string(), msg: e.to_string() });
+            send(
+                tx,
+                &DaemonMessage::Error {
+                    id: id.to_string(),
+                    msg: e.to_string(),
+                },
+            );
             return;
         }
     };
@@ -224,7 +254,13 @@ fn handle_spawn(
     let child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
         Err(e) => {
-            send(tx, &DaemonMessage::Error { id: id.to_string(), msg: e.to_string() });
+            send(
+                tx,
+                &DaemonMessage::Error {
+                    id: id.to_string(),
+                    msg: e.to_string(),
+                },
+            );
             return;
         }
     };
@@ -234,14 +270,26 @@ fn handle_spawn(
     let pty_reader = match pair.master.try_clone_reader() {
         Ok(r) => r,
         Err(e) => {
-            send(tx, &DaemonMessage::Error { id: id.to_string(), msg: e.to_string() });
+            send(
+                tx,
+                &DaemonMessage::Error {
+                    id: id.to_string(),
+                    msg: e.to_string(),
+                },
+            );
             return;
         }
     };
     let pty_writer = Arc::new(Mutex::new(match pair.master.take_writer() {
         Ok(w) => w,
         Err(e) => {
-            send(tx, &DaemonMessage::Error { id: id.to_string(), msg: e.to_string() });
+            send(
+                tx,
+                &DaemonMessage::Error {
+                    id: id.to_string(),
+                    msg: e.to_string(),
+                },
+            );
             return;
         }
     }));
@@ -263,7 +311,13 @@ fn handle_spawn(
     // Start PTY reader thread
     start_pty_reader(id.to_string(), pty_reader, Arc::clone(registry));
 
-    send(tx, &DaemonMessage::Spawned { id: id.to_string(), pid });
+    send(
+        tx,
+        &DaemonMessage::Spawned {
+            id: id.to_string(),
+            pid,
+        },
+    );
 }
 
 fn handle_input(id: &str, data_b64: &str, registry: &Registry) {
@@ -280,7 +334,12 @@ fn handle_input(id: &str, data_b64: &str, registry: &Registry) {
 fn handle_resize(id: &str, cols: u16, rows: u16, registry: &Registry) {
     let reg = registry.lock().unwrap();
     if let Some(h) = reg.get(id) {
-        let _ = h.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
+        let _ = h.master.resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        });
     }
 }
 
@@ -312,11 +371,7 @@ fn handle_kill(id: &str, registry: &Registry) {
     }
 }
 
-fn start_pty_reader(
-    id: String,
-    mut reader: Box<dyn Read + Send>,
-    registry: Registry,
-) {
+fn start_pty_reader(id: String, mut reader: Box<dyn Read + Send>, registry: Registry) {
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
         loop {
@@ -329,16 +384,14 @@ fn start_pty_reader(
                             .map(|h| h.subscribers.into_values().collect())
                             .unwrap_or_default()
                     };
-                    let msg =
-                        format!("{{\"type\":\"exited\",\"id\":\"{}\",\"code\":null}}\n", id);
+                    let msg = format!("{{\"type\":\"exited\",\"id\":\"{}\",\"code\":null}}\n", id);
                     for s in senders {
                         let _ = s.send(msg.clone());
                     }
                     break;
                 }
                 Ok(n) => {
-                    let encoded =
-                        base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
+                    let encoded = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
                     let msg = format!(
                         "{{\"type\":\"output\",\"id\":\"{}\",\"data\":\"{}\"}}\n",
                         id, encoded
@@ -348,9 +401,7 @@ fn start_pty_reader(
                     let conn_senders: Vec<(ConnId, std::sync::mpsc::Sender<String>)> = {
                         let reg = registry.lock().unwrap();
                         match reg.get(&id) {
-                            Some(h) => {
-                                h.subscribers.iter().map(|(k, v)| (*k, v.clone())).collect()
-                            }
+                            Some(h) => h.subscribers.iter().map(|(k, v)| (*k, v.clone())).collect(),
                             None => break,
                         }
                     };
@@ -391,7 +442,10 @@ mod tests {
 
     #[test]
     fn spawned_serializes_with_pid() {
-        let msg = DaemonMessage::Spawned { id: "t-1".into(), pid: 1234 };
+        let msg = DaemonMessage::Spawned {
+            id: "t-1".into(),
+            pid: 1234,
+        };
         let s = serde_json::to_string(&msg).unwrap();
         assert!(s.contains("\"pid\":1234"));
         assert!(s.contains("\"type\":\"spawned\""));
@@ -406,9 +460,17 @@ mod tests {
 
     #[test]
     fn spawn_deserializes_all_fields() {
-        let json = r#"{"type":"spawn","id":"t-1","shell":"/bin/zsh","cwd":"/home","cols":80,"rows":24}"#;
+        let json =
+            r#"{"type":"spawn","id":"t-1","shell":"/bin/zsh","cwd":"/home","cols":80,"rows":24}"#;
         let msg: AppMessage = serde_json::from_str(json).unwrap();
-        if let AppMessage::Spawn { id, shell, cwd, cols, rows } = msg {
+        if let AppMessage::Spawn {
+            id,
+            shell,
+            cwd,
+            cols,
+            rows,
+        } = msg
+        {
             assert_eq!(id, "t-1");
             assert_eq!(shell, "/bin/zsh");
             assert_eq!(cwd, "/home");
@@ -455,14 +517,22 @@ mod tests {
         writer.flush().unwrap();
         let mut line = String::new();
         reader.read_line(&mut line).unwrap();
-        assert!(line.contains("\"type\":\"pong\""), "expected pong, got: {}", line);
+        assert!(
+            line.contains("\"type\":\"pong\""),
+            "expected pong, got: {}",
+            line
+        );
 
         // List (empty) → sessions: []
         line.clear();
         writeln!(writer, r#"{{"type":"list"}}"#).unwrap();
         writer.flush().unwrap();
         reader.read_line(&mut line).unwrap();
-        assert!(line.contains("\"sessions\":[]"), "expected empty sessions, got: {}", line);
+        assert!(
+            line.contains("\"sessions\":[]"),
+            "expected empty sessions, got: {}",
+            line
+        );
 
         let _ = std::fs::remove_file(&sock_path);
     }
