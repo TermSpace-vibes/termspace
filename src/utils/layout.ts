@@ -3,7 +3,7 @@ import { LayoutNode, LayoutDirection } from '../types'
 const ROOT_SPLIT_ID = 'root'
 
 function isLeafNode(node: LayoutNode): boolean {
-  return node.type === 'pane' || node.type === 'browser' || node.type === 'editor' || node.type === 'kubernetes' || node.type === 'docker' || node.type === 'claude'
+  return node.type === 'pane' || node.type === 'browser' || node.type === 'editor' || node.type === 'kubernetes' || node.type === 'docker' || node.type === 'claude' || node.type === 'agent-studio'
 }
 
 function addToSplit(root: LayoutNode & { type: 'split' }, newPane: LayoutNode): LayoutNode {
@@ -43,6 +43,7 @@ function addToExistingSplitOrWrap(root: LayoutNode, newPane: LayoutNode, directi
     if (node.type === 'kubernetes') return node.kubernetesPaneId === targetId
     if (node.type === 'docker') return node.dockerPaneId === targetId
     if (node.type === 'claude') return node.claudePaneId === targetId
+    if (node.type === 'agent-studio') return node.agentStudioPaneId === targetId
     return false
   }
 
@@ -261,6 +262,44 @@ export function removeClaudePaneFromLayout(root: LayoutNode | null, claudePaneId
       const total = survivingOriginalSizes.reduce((a, b) => a + b, 0)
       const normalizedSizes = survivingOriginalSizes.map(s => total > 0 ? (s / total) * 100 : 100 / newChildren.length)
       return { ...node, children: newChildren, sizes: normalizedSizes }
+    }
+    return node
+  }
+  return traverseAndRemove(root)
+}
+
+// ---- Agent Studio ----
+
+export function addAgentStudioPaneToLayout(
+  root: LayoutNode | null,
+  agentStudioPaneId: string,
+  targetId?: string,
+  direction: LayoutDirection = 'horizontal',
+): LayoutNode {
+  const newNode: LayoutNode = {
+    type: 'agent-studio',
+    id: `agent-studio-${agentStudioPaneId}`,
+    agentStudioPaneId,
+  }
+  if (!root) return { type: 'split', id: ROOT_SPLIT_ID, direction: 'horizontal', sizes: [100], children: [newNode] }
+  return addToExistingSplitOrWrap(root, newNode, direction, targetId)
+}
+
+export function removeAgentStudioPaneFromLayout(root: LayoutNode | null, agentStudioPaneId: string): LayoutNode | null {
+  if (!root) return null
+  function traverseAndRemove(node: LayoutNode): LayoutNode | null {
+    if (node.type === 'agent-studio') return node.agentStudioPaneId === agentStudioPaneId ? null : node
+    if (isLeafNode(node)) return node
+    if (node.type === 'split') {
+      const newChildren = node.children.map(traverseAndRemove).filter(Boolean) as LayoutNode[]
+      if (newChildren.length === 0) return null
+      const removedCount = node.children.length - newChildren.length
+      if (removedCount === 0) return { ...node, children: newChildren }
+      const removedIndices = new Set(node.children.map((_, index) => index).filter(index => !newChildren.includes(node.children[index])))
+      const survivingOriginalSizes = node.sizes.filter((_, index) => !removedIndices.has(index))
+      const total = survivingOriginalSizes.reduce((sum, size) => sum + size, 0)
+      const sizes = survivingOriginalSizes.map(size => total > 0 ? (size / total) * 100 : 100 / newChildren.length)
+      return { ...node, children: newChildren, sizes }
     }
     return node
   }
