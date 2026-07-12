@@ -95,7 +95,7 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
           <p className="agent-studio__eyebrow">LOCAL AGENT WORKSPACE</p>
           <h2>Ready when you are.</h2>
           <p>Shape the task, choose exactly what the agent can access, and keep the work grounded in this workspace.</p>
-        </div> : transcript.rows.map((row) => <p key={row.id} className={`agent-studio__row agent-studio__row--${row.kind}`}>{'text' in row ? row.text : 'message' in row ? row.message : 'status' in row ? row.status : 'label' in row ? row.label : row.prompt}</p>)}
+        </div> : transcript.rows.map((row) => <p key={row.id} className={`agent-studio__row agent-studio__row--${row.kind}`}>{row.kind === 'user' ? row.text : row.kind === 'message' ? row.markdown : row.kind === 'status' ? row.status : row.kind === 'activity' ? row.label : row.kind === 'question' ? row.prompt : row.kind === 'answer' ? row.answer : row.kind === 'command' ? row.command : 'message' in row ? row.message : ''}</p>)}
       </div>
       <footer className="agent-studio__composer-wrap">
         <div className="agent-studio__composer">

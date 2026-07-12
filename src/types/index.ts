@@ -160,12 +160,21 @@ export interface AgentRuntimeSession {
 
 export type AgentRuntimeEvent =
   | { kind: 'text'; text: string }
+  | { kind: 'message'; markdown: string }
   | { kind: 'activity'; label: string; detail?: string }
-  | { kind: 'question'; prompt: string; choices?: string[] }
+  | { kind: 'command'; command: string; cwd: string; output?: string; exitCode?: number | null }
+  | { kind: 'question'; id: string; prompt: string; choices: AgentQuestionChoice[]; allowCustom: boolean }
   | { kind: 'ready' }
   | { kind: 'error'; message: string; rawOutputRef?: string }
   | { kind: 'status'; status: AgentSessionStatus }
   | { kind: 'diagnostic'; rawOutputRef: string }
+
+export interface AgentQuestionChoice {
+  id: string
+  label: string
+  input: string
+  description?: string
+}
 
 export interface AgentRuntimeEnvelope {
   sessionId: string
