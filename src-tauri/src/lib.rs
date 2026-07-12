@@ -12,7 +12,6 @@ mod commands;
 mod daemon_client;
 mod db;
 mod dictation_model;
-mod dictation_overlay_service;
 mod global_shortcut_service;
 pub mod lsp_manager;
 mod native_terminal_manager;
