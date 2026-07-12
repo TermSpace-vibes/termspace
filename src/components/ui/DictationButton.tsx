@@ -1,6 +1,6 @@
 import React, { useCallback, useRef } from 'react';
-import { MicOff } from 'lucide-react';
-import { useDictation } from '../../hooks/useDictation';
+import { AudioLines } from 'lucide-react';
+import { useDictation, type DictationError } from '../../hooks/useDictation';
 import { useAppStore } from '../../store/useAppStore';
 import { invoke } from '@tauri-apps/api/core';
 import { motion, PanInfo } from 'framer-motion';
@@ -54,7 +54,8 @@ export const DictationButton: React.FC = () => {
     }
   }, [activeTerminalId, addToast]);
 
-  const handleError = useCallback((errorStr: string) => {
+  const handleError = useCallback((error: DictationError) => {
+    const errorStr = error.message;
     if (errorStr.toLowerCase().includes('denied') || errorStr.toLowerCase().includes('not-allowed')) {
       addToast(
         'Microphone permission denied.',
@@ -89,10 +90,6 @@ export const DictationButton: React.FC = () => {
   const isActive = isListening || isProcessing;
   const statusText = isProcessing ? 'Processing transcription...' : interimTranscript;
   const waveformBars = [12, 24, 16, 30, 20, 26, 14];
-
-  if (settings.globalDictationEnabled) {
-    return null;
-  }
 
   return (
     <motion.div
@@ -195,7 +192,7 @@ export const DictationButton: React.FC = () => {
             ))}
           </motion.div>
         ) : (
-          <MicOff size={24} />
+          <AudioLines size={22} strokeWidth={2.25} />
         )}
       </button>
 

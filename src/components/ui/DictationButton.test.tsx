@@ -38,7 +38,6 @@ describe('DictationButton', () => {
       setDictationButtonPosition: vi.fn(),
       settings: {
         globalDictationEnabled: false,
-        globalDictationShowFloatingButton: true,
       },
     }
   })
@@ -68,27 +67,15 @@ describe('DictationButton', () => {
     expect(screen.getByTestId('dictation-processing-spinner')).toBeInTheDocument()
   })
 
-  it('hides when the global floating button setting is disabled', () => {
+  it('shows the in-app button when global dictation is enabled', () => {
     storeState.settings = {
       ...storeState.settings,
       globalDictationEnabled: true,
-      globalDictationShowFloatingButton: false,
     }
 
     const { container } = render(<DictationButton />)
 
-    expect(container).toBeEmptyDOMElement()
-  })
-
-  it('hides the in-app button whenever global dictation is enabled', () => {
-    storeState.settings = {
-      ...storeState.settings,
-      globalDictationEnabled: true,
-      globalDictationShowFloatingButton: true,
-    }
-
-    const { container } = render(<DictationButton />)
-
-    expect(container).toBeEmptyDOMElement()
+    expect(container).not.toBeEmptyDOMElement()
+    expect(screen.getByRole('button')).toBeInTheDocument()
   })
 })

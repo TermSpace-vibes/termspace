@@ -1,21 +1,12 @@
 use crate::browser_pane_manager::BrowserPaneManager;
 use crate::claude_session_manager::ClaudeSessionManager;
-use crate::clipboard_insertion_service::{
-    self, GlobalInsertionOptions, GlobalInsertionResult,
-};
+use crate::clipboard_insertion_service::{self, GlobalInsertionOptions, GlobalInsertionResult};
 use crate::db::{self, Terminal, Workspace};
-use crate::dictation_overlay_service::{
-    self, DictationOverlayPayload, DictationOverlayState, OverlayPosition,
-};
-use crate::dictation_model::{
-    self, DictationModelStatus, MODEL_PART_FILE_NAME, MODEL_URL,
-};
-use crate::global_shortcut_service::{
-    self, GlobalShortcutState, GlobalShortcutStatus,
-};
-use crate::tray_service::{self, TrayState};
+use crate::dictation_model::{self, DictationModelStatus, MODEL_PART_FILE_NAME, MODEL_URL};
+use crate::global_shortcut_service::{self, GlobalShortcutState, GlobalShortcutStatus};
 use crate::native_terminal_manager::NativeTerminalManager;
 use crate::platform_permissions::{self, GlobalDictationPermissionStatus};
+use crate::tray_service::{self, TrayState};
 use notify_debouncer_mini::{
     new_debouncer,
     notify::{self, RecursiveMode},
@@ -24,6 +15,7 @@ use parking_lot::Mutex;
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -31,7 +23,72 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use whisper_rs::{FullParams, WhisperContext};
 pub struct DbState(pub Mutex<Connection>);
 pub struct SysInfoState(pub Mutex<(sysinfo::System, sysinfo::Networks)>);
-pub struct WhisperState(pub Arc<Mutex<Option<WhisperContext>>>);
+pub struct WhisperState(pub Arc<(std::sync::Mutex<WhisperLoad>, std::sync::Condvar)>);
+
+/// Tracks the in-memory whisper context and any load currently in flight. The
+/// `Loading` variant lets concurrent callers (the startup preload thread and an
+/// on-demand `load_dictation_model` triggered by the first dictation toggle)
+/// coordinate so the ~150MB `whisper_init` runs at most once — the second
+/// caller waits on the condvar instead of starting a duplicate synchronous
+/// load, which is what previously made the first toggle hang on a spinner.
+pub enum WhisperLoad {
+    Idle,
+    Loading,
+    Loaded(WhisperContext),
+    Failed(String),
+}
+
+/// Loads the whisper model into shared state, coordinating with any in-flight
+/// load so the heavy model init happens at most once. Returns once a context
+/// is available (or errors if loading failed / no model exists).
+pub fn ensure_whisper_loaded(state: &WhisperState, app: &AppHandle) -> Result<(), String> {
+    ensure_whisper_loaded_with_selected_path(state, || dictation_model::selected_model_path(app))
+}
+
+fn ensure_whisper_loaded_with_selected_path<F>(
+    state: &WhisperState,
+    mut selected_model_path: F,
+) -> Result<(), String>
+where
+    F: FnMut() -> Result<Option<PathBuf>, String>,
+{
+    let (lock, cvar) = &*state.0;
+    let mut guard = lock.lock().unwrap();
+    loop {
+        match &*guard {
+            WhisperLoad::Loaded(_) => return Ok(()),
+            WhisperLoad::Failed(e) => return Err(e.clone()),
+            WhisperLoad::Loading => {
+                // Another load owns this; wait for it to finish, then re-check.
+                guard = cvar.wait(guard).unwrap();
+            }
+            WhisperLoad::Idle => {
+                // Single winner: take ownership of the load, then release the
+                // lock while the (slow) model init runs so awaiters can wait.
+                *guard = WhisperLoad::Loading;
+                drop(guard);
+                let result = selected_model_path()
+                    .and_then(|opt| {
+                        opt.ok_or_else(|| "Download the transcription model first.".to_string())
+                    })
+                    .and_then(|path| dictation_model::load_whisper_context_from_path(&path));
+                let mut g2 = lock.lock().unwrap();
+                let outcome = match result {
+                    Ok(ctx) => {
+                        *g2 = WhisperLoad::Loaded(ctx);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        *g2 = WhisperLoad::Failed(e.clone());
+                        Err(e)
+                    }
+                };
+                cvar.notify_all();
+                return outcome;
+            }
+        }
+    }
+}
 pub struct WatcherState(
     pub  std::sync::Mutex<
         std::collections::HashMap<
@@ -1245,10 +1302,21 @@ pub fn get_dictation_model_status(
     state: State<'_, WhisperState>,
 ) -> Result<DictationModelStatus, String> {
     let status = dictation_model::inspect_app_model_files(&app)?;
-    if state.0.lock().is_some() {
-        Ok(dictation_model::loaded_status(status))
-    } else {
-        Ok(status)
+    let guard = state.0 .0.lock().unwrap();
+    match &*guard {
+        WhisperLoad::Loaded(_) => Ok(dictation_model::loaded_status(status)),
+        WhisperLoad::Loading => {
+            let mut s = status;
+            s.state = "loading".to_string();
+            Ok(s)
+        }
+        WhisperLoad::Failed(e) => {
+            let mut s = status;
+            s.state = "error".to_string();
+            s.error = Some(e.clone());
+            Ok(s)
+        }
+        WhisperLoad::Idle => Ok(status),
     }
 }
 
@@ -1257,14 +1325,10 @@ pub fn load_dictation_model(
     app: AppHandle,
     state: State<'_, WhisperState>,
 ) -> Result<DictationModelStatus, String> {
-    let path = dictation_model::selected_model_path(&app)?
-        .ok_or_else(|| "Download the transcription model first.".to_string())?;
-    eprintln!(
-        "Transcription backend selected: local whisper; model path: {}; source: downloaded",
-        path.display()
-    );
-    let context = dictation_model::load_whisper_context_from_path(&path)?;
-    *state.0.lock() = Some(context);
+    // Coordinate with any in-flight load (e.g. the startup preload thread) so
+    // we never kick off a second ~150MB model init. If the model is already
+    // loading, this just waits for it to finish — no duplicate work.
+    ensure_whisper_loaded(&state, &app)?;
     get_dictation_model_status(app, state)
 }
 
@@ -1339,10 +1403,10 @@ pub async fn transcribe_chunk(
     audio_samples: Vec<f32>,
     prompt: Option<String>,
 ) -> Result<String, String> {
-    let context_opt = state.0.lock();
+    let context_opt = state.0 .0.lock().unwrap();
     let ctx = match &*context_opt {
-        Some(c) => c,
-        None => return Err("Download the transcription model first.".into()),
+        WhisperLoad::Loaded(c) => c,
+        _ => return Err("Download the transcription model first.".into()),
     };
 
     let mut state = ctx.create_state().map_err(|e| e.to_string())?;
@@ -1372,6 +1436,45 @@ pub async fn transcribe_chunk(
     }
 
     Ok(result.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Condvar, Mutex};
+
+    fn whisper_state() -> WhisperState {
+        WhisperState(Arc::new((Mutex::new(WhisperLoad::Idle), Condvar::new())))
+    }
+
+    #[test]
+    fn dictation_ensure_whisper_loaded_records_failed_state_when_model_path_lookup_errors() {
+        let state = whisper_state();
+        let error = "app data dir unavailable".to_string();
+
+        let result = ensure_whisper_loaded_with_selected_path(&state, || Err(error.clone()));
+
+        assert_eq!(result, Err(error.clone()));
+        {
+            let (lock, _) = &*state.0;
+            let guard = lock.lock().unwrap();
+            match &*guard {
+                WhisperLoad::Failed(stored) => assert_eq!(stored, &error),
+                WhisperLoad::Loading => panic!("model load must not remain stuck in Loading"),
+                WhisperLoad::Idle => panic!("model load failure must not return to Idle"),
+                WhisperLoad::Loaded(_) => panic!("model path lookup error must not load a context"),
+            }
+        }
+
+        let mut selected_path_called = false;
+        let retry = ensure_whisper_loaded_with_selected_path(&state, || {
+            selected_path_called = true;
+            Ok(None)
+        });
+
+        assert_eq!(retry, Err(error));
+        assert!(!selected_path_called, "failed state should return promptly");
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -1435,8 +1538,7 @@ pub fn open_accessibility_settings() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_global_dictation_permission_status(
-) -> Result<GlobalDictationPermissionStatus, String> {
+pub fn get_global_dictation_permission_status() -> Result<GlobalDictationPermissionStatus, String> {
     Ok(platform_permissions::get_global_dictation_permission_status())
 }
 
@@ -1485,53 +1587,6 @@ pub fn set_tray_dictation_state(
     dictation_state: String,
 ) -> Result<(), String> {
     tray_service::set_tray_dictation_state(&state, &dictation_state)
-}
-
-#[tauri::command]
-pub fn show_dictation_overlay(
-    app: AppHandle,
-    state: State<'_, DictationOverlayState>,
-    position: Option<OverlayPosition>,
-) -> Result<(), String> {
-    dictation_overlay_service::show_overlay(&app, &state, position)
-}
-
-#[tauri::command]
-pub fn hide_dictation_overlay(
-    app: AppHandle,
-    state: State<'_, DictationOverlayState>,
-) -> Result<(), String> {
-    dictation_overlay_service::hide_overlay(&app, &state)
-}
-
-#[tauri::command]
-pub fn move_dictation_overlay(
-    app: AppHandle,
-    state: State<'_, DictationOverlayState>,
-    position: OverlayPosition,
-) -> Result<(), String> {
-    dictation_overlay_service::move_overlay(&app, &state, position)
-}
-
-#[tauri::command]
-pub fn toggle_global_dictation_from_overlay(app: AppHandle) -> Result<(), String> {
-    dictation_overlay_service::toggle_from_overlay(&app)
-}
-
-#[tauri::command]
-pub fn update_dictation_overlay_state(
-    app: AppHandle,
-    state: State<'_, DictationOverlayState>,
-    payload: DictationOverlayPayload,
-) -> Result<(), String> {
-    dictation_overlay_service::update_state(&app, &state, payload)
-}
-
-#[tauri::command]
-pub fn get_dictation_overlay_state(
-    state: State<'_, DictationOverlayState>,
-) -> Result<DictationOverlayPayload, String> {
-    Ok(dictation_overlay_service::get_state(&state))
 }
 
 #[derive(serde::Serialize)]

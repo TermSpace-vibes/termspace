@@ -10,9 +10,25 @@ declare global {
   }
 }
 
+export type DictationErrorKind =
+  | 'micBlocked'
+  | 'modelNeeded'
+  | 'apiKeyNeeded'
+  | 'transient'
+  | 'unknown'
+
+export interface DictationError {
+  kind: DictationErrorKind;
+  message: string;
+}
+
+export type DictationLifecycleStatus = 'starting' | 'listening' | 'processing' | 'idle'
+
 interface UseDictationProps {
-  onResult: (text: string) => void;
-  onError?: (error: string) => void;
+  onResult: (text: string) => void | Promise<void>;
+  onEmpty?: () => void;
+  onError?: (error: DictationError) => void;
+  onLifecycleChange?: (status: DictationLifecycleStatus) => void;
   onStateChange?: (state: { isListening: boolean; isProcessing: boolean }) => void;
   onAudioLevels?: (levels: number[]) => void;
   listenForGlobalToggle?: boolean;
@@ -31,7 +47,31 @@ interface DictationModelStatus {
   error: string | null;
 }
 
-export function useDictation({ onResult, onError, onStateChange, onAudioLevels, listenForGlobalToggle = true }: UseDictationProps) {
+function classifyDictationError(message: string, fallback: DictationErrorKind = 'unknown'): DictationErrorKind {
+  if (/api key/i.test(message)) return 'apiKeyNeeded';
+  if (/model|transcription model|download the transcription/i.test(message)) return 'modelNeeded';
+  if (/microphone|mic|permission|denied|not-allowed|notallowed/i.test(message)) return 'micBlocked';
+  if (/network|timeout|temporar|try again|provider|request/i.test(message)) return 'transient';
+  return fallback;
+}
+
+function toDictationError(error: unknown, fallback: DictationErrorKind = 'unknown'): DictationError {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    kind: classifyDictationError(message, fallback),
+    message,
+  };
+}
+
+export function useDictation({
+  onResult,
+  onEmpty,
+  onError,
+  onLifecycleChange,
+  onStateChange,
+  onAudioLevels,
+  listenForGlobalToggle = true,
+}: UseDictationProps) {
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
@@ -47,6 +87,7 @@ export function useDictation({ onResult, onError, onStateChange, onAudioLevels, 
 
   const audioDataRef = useRef<number[]>([]);
   const isListeningRef = useRef(false);
+  const startGenerationRef = useRef(0);
 
   const stopLevelMeter = useCallback(() => {
     if (levelsRafRef.current != null) {
@@ -90,6 +131,7 @@ export function useDictation({ onResult, onError, onStateChange, onAudioLevels, 
     setIsListening(false);
     setIsProcessing(true);
     onStateChange?.({ isListening: false, isProcessing: true });
+    onLifecycleChange?.('processing');
     setInterimTranscript('Processing transcription...');
     stopLevelMeter();
 
@@ -117,7 +159,10 @@ export function useDictation({ onResult, onError, onStateChange, onAudioLevels, 
     if (audioDataRef.current.length === 0) {
       setInterimTranscript('');
       setIsProcessing(false);
+      audioDataRef.current = [];
+      onEmpty?.();
       onStateChange?.({ isListening: false, isProcessing: false });
+      onLifecycleChange?.('idle');
       return;
     }
 
@@ -225,17 +270,31 @@ export function useDictation({ onResult, onError, onStateChange, onAudioLevels, 
         formatted = formatted + ' '; // trailing space for continuous dictation
       }
 
-      onResult(formatted);
+      if (!formatted.trim()) {
+        onEmpty?.();
+      } else {
+        await onResult(formatted);
+      }
     } catch (e: any) {
       console.error('Transcription error', e);
-      if (onError) onError(e.toString());
+      onError?.(toDictationError(e, 'transient'));
     }
     
     setInterimTranscript('');
     setIsProcessing(false);
     onStateChange?.({ isListening: false, isProcessing: false });
+    onLifecycleChange?.('idle');
     audioDataRef.current = [];
-  }, [onResult, onError, onStateChange, stopLevelMeter]);
+  }, [onResult, onEmpty, onError, onLifecycleChange, onStateChange, stopLevelMeter]);
+
+  const cancelPendingStart = useCallback(() => {
+    if (isListeningRef.current) return;
+    startGenerationRef.current += 1;
+    setIsProcessing(false);
+    setInterimTranscript('');
+    onStateChange?.({ isListening: false, isProcessing: false });
+    onLifecycleChange?.('idle');
+  }, [onLifecycleChange, onStateChange]);
 
   const toggleListening = useCallback(async () => {
     if (isListeningRef.current) {
@@ -243,13 +302,16 @@ export function useDictation({ onResult, onError, onStateChange, onAudioLevels, 
       return;
     }
 
+    const startGeneration = ++startGenerationRef.current;
+
     // Give immediate feedback the click registered — loading the local
     // whisper model (or waiting on the mic permission prompt) can take a
     // noticeable moment, and without this the button looked frozen/dead
     // for that whole stretch instead of visibly "starting up".
     setIsProcessing(true);
     onStateChange?.({ isListening: false, isProcessing: true });
-    setInterimTranscript('Starting dictation...');
+    onLifecycleChange?.('starting');
+    setInterimTranscript('Warming up model…');
 
     try {
       const provider = useAppStore.getState().settings.dictationProvider || 'local';
@@ -280,9 +342,14 @@ export function useDictation({ onResult, onError, onStateChange, onAudioLevels, 
             modelLoaded: loadedStatus.state === 'loaded',
           });
         }
+        if (startGeneration !== startGenerationRef.current) return;
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (startGeneration !== startGenerationRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
       const context = new window.AudioContext({ sampleRate: 16000 });
       const source = context.createMediaStreamSource(stream);
       
@@ -319,20 +386,28 @@ export function useDictation({ onResult, onError, onStateChange, onAudioLevels, 
       isListeningRef.current = true;
       setIsListening(true);
       onStateChange?.({ isListening: true, isProcessing: false });
+      onLifecycleChange?.('listening');
       setInterimTranscript('Listening...');
       const providerName = provider === 'openai' ? 'OpenAI' : provider === 'groq' ? 'Groq' : 'Local';
       useAppStore.getState().addToast(`${providerName} Dictation started.`, 'success');
 
     } catch (err: any) {
+      if (startGeneration !== startGenerationRef.current) return;
       console.error('Mic error:', err);
       setIsProcessing(false);
       setInterimTranscript('');
       onStateChange?.({ isListening: false, isProcessing: false });
-      const message = err instanceof Error ? err.message : String(err);
-      const isModelError = /model|transcription/i.test(message);
-      if (onError) onError(isModelError ? message : 'Microphone access denied or error occurred.');
+      const dictationError = toDictationError(err, 'micBlocked');
+      if (dictationError.kind === 'micBlocked') {
+        onError?.({
+          kind: 'micBlocked',
+          message: 'Microphone access denied or error occurred.',
+        });
+      } else {
+        onError?.(dictationError);
+      }
     }
-  }, [stopRecordingAndTranscribe, onError, onStateChange, startLevelMeter]);
+  }, [stopRecordingAndTranscribe, onError, onLifecycleChange, onStateChange, startLevelMeter]);
 
   useEffect(() => {
     if (!listenForGlobalToggle) return;
@@ -342,5 +417,5 @@ export function useDictation({ onResult, onError, onStateChange, onAudioLevels, 
     return () => window.removeEventListener('termspace:toggle-dictation', handleGlobalToggle as EventListener);
   }, [toggleListening, listenForGlobalToggle]);
 
-  return { isListening, isProcessing, toggleListening, mediaStream: streamRef.current, interimTranscript };
+  return { isListening, isProcessing, toggleListening, cancelPendingStart, mediaStream: streamRef.current, interimTranscript };
 }

@@ -118,10 +118,9 @@ export function SettingsModal({ onClose }: Props) {
   )
   const [smoothCaret, setSmoothCaret] = useState(settings.smoothCaret ?? true)
   const [globalDictationEnabled, setGlobalDictationEnabled] = useState(settings.globalDictationEnabled ?? false)
-  const [globalDictationHotkey, setGlobalDictationHotkey] = useState(settings.globalDictationHotkey || 'CmdOrCtrl+Shift+M')
+  const [globalDictationHotkey, setGlobalDictationHotkey] = useState(settings.globalDictationHotkey || '`')
   const [globalDictationAutoPaste, setGlobalDictationAutoPaste] = useState(settings.globalDictationAutoPaste ?? true)
   const [globalDictationRestoreClipboard, setGlobalDictationRestoreClipboard] = useState(settings.globalDictationRestoreClipboard ?? true)
-  const [globalDictationShowFloatingButton, setGlobalDictationShowFloatingButton] = useState(settings.globalDictationShowFloatingButton ?? true)
   const [globalDictationPasteDelayMs, setGlobalDictationPasteDelayMs] = useState(settings.globalDictationPasteDelayMs ?? 120)
   const [keybindings, setKeybindings] = useState<Settings['keybindings']>({
     newTerminal: settings.keybindings?.newTerminal || 'CmdOrCtrl+T',
@@ -293,7 +292,6 @@ export function SettingsModal({ onClose }: Props) {
       globalDictationHotkey,
       globalDictationAutoPaste,
       globalDictationRestoreClipboard,
-      globalDictationShowFloatingButton,
       globalDictationPasteDelayMs,
       notificationsEnabled,
       notifyOnComplete,
@@ -760,7 +758,7 @@ export function SettingsModal({ onClose }: Props) {
                       <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Enable system-wide dictation</span>
                     </label>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <label htmlFor="global-dictation-hotkey" style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Global hotkey</label>
+                      <label htmlFor="global-dictation-hotkey" style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Hold-to-dictate key</label>
                       <input
                         id="global-dictation-hotkey"
                         value={globalDictationHotkey}
@@ -868,15 +866,6 @@ export function SettingsModal({ onClose }: Props) {
                         style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
                       />
                       <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Restore clipboard after paste</span>
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={globalDictationShowFloatingButton}
-                        onChange={(e) => setGlobalDictationShowFloatingButton(e.target.checked)}
-                        style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }}
-                      />
-                      <span style={{ fontSize: 14, color: 'var(--text-active)', fontWeight: 500 }}>Show floating dictation button</span>
                     </label>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <label htmlFor="global-dictation-paste-delay" style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Paste delay</label>

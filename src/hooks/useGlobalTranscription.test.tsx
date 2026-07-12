@@ -6,6 +6,7 @@ import { useAppStore } from '../store/useAppStore'
 const invokeMock = vi.fn()
 const listenMock = vi.fn()
 const toggleListeningMock = vi.fn()
+const cancelPendingStartMock = vi.fn()
 const writeTextMock = vi.fn()
 let capturedOnResult: ((text: string) => void | Promise<void>) | null = null
 let capturedOnStateChange: ((state: { isListening: boolean; isProcessing: boolean }) => void) | null = null
@@ -38,6 +39,7 @@ vi.mock('./useDictation', () => ({
       isProcessing: dictationMockState.isProcessing,
       interimTranscript: '',
       toggleListening: toggleListeningMock,
+      cancelPendingStart: cancelPendingStartMock,
     }
   },
 }))
@@ -79,6 +81,23 @@ describe('useGlobalTranscription', () => {
       shortcut: 'CmdOrCtrl+Shift+M',
     })
     expect(listenMock).toHaveBeenCalledWith('global-dictation-toggle', expect.any(Function))
+  })
+
+  it('starts on global dictation press and cancels startup on release', async () => {
+    const handlers = new Map<string, () => void>()
+    listenMock.mockImplementation((event: string, handler: () => void) => {
+      handlers.set(event, handler)
+      return Promise.resolve(() => {})
+    })
+
+    renderHook(() => useGlobalTranscription())
+    await act(async () => {})
+
+    act(() => handlers.get('global-dictation-press')?.())
+    expect(toggleListeningMock).toHaveBeenCalledTimes(1)
+
+    act(() => handlers.get('global-dictation-release')?.())
+    expect(cancelPendingStartMock).toHaveBeenCalledTimes(1)
   })
 
   it('inserts non-empty transcript into the active app', async () => {
@@ -158,7 +177,7 @@ describe('useGlobalTranscription', () => {
   })
 
   it('writes into the last-focused terminal after focus moves to the mic button', async () => {
-    // Mirrors clicking the floating dictation button: it steals DOM focus
+    // Mirrors clicking the in-app dictation button: it steals DOM focus
     // away from the terminal canvas, but the user still means "dictate into
     // the terminal I was just using."
     const canvas = document.createElement('canvas')
@@ -187,7 +206,6 @@ describe('useGlobalTranscription', () => {
       },
     })
 
-    // Focus events must happen after the hook's focusin listener is mounted.
     renderHook(() => useGlobalTranscription())
 
     canvas.focus()
@@ -207,6 +225,7 @@ describe('useGlobalTranscription', () => {
   })
 
   it('copies to clipboard instead of writing to a terminal in a background tab', async () => {
+    const hasFocusSpy = vi.spyOn(document, 'hasFocus').mockReturnValue(true)
     document.body.focus()
     useAppStore.setState({
       activeWorkspaceId: 'workspace-1',
@@ -236,6 +255,8 @@ describe('useGlobalTranscription', () => {
     expect(invokeMock).not.toHaveBeenCalledWith('write_terminal', expect.anything())
     expect(invokeMock).not.toHaveBeenCalledWith('insert_text_into_active_app', expect.anything())
     expect(writeTextMock).toHaveBeenCalledWith('ls ')
+
+    hasFocusSpy.mockRestore()
   })
 
   it('does not insert an empty transcript', async () => {
@@ -246,6 +267,7 @@ describe('useGlobalTranscription', () => {
     })
 
     expect(invokeMock).not.toHaveBeenCalledWith('insert_text_into_active_app', expect.anything())
+    expect(writeTextMock).not.toHaveBeenCalled()
   })
 
   it('shows the tray icon when global dictation is enabled', async () => {
@@ -254,32 +276,6 @@ describe('useGlobalTranscription', () => {
     await act(async () => {})
 
     expect(invokeMock).toHaveBeenCalledWith('show_tray_icon')
-  })
-
-  it('shows the overlay window when global dictation floating button is enabled', async () => {
-    renderHook(() => useGlobalTranscription())
-
-    await act(async () => {})
-
-    expect(invokeMock).toHaveBeenCalledWith('show_dictation_overlay', {
-      position: null,
-    })
-  })
-
-  it('hides the overlay window when global floating button is disabled', async () => {
-    useAppStore.setState({
-      settings: {
-        ...useAppStore.getState().settings,
-        globalDictationEnabled: true,
-        globalDictationShowFloatingButton: false,
-      },
-    })
-
-    renderHook(() => useGlobalTranscription())
-
-    await act(async () => {})
-
-    expect(invokeMock).toHaveBeenCalledWith('hide_dictation_overlay')
   })
 
   it('hides the tray icon when global dictation is disabled', async () => {
@@ -315,22 +311,6 @@ describe('useGlobalTranscription', () => {
 
     expect(invokeMock).toHaveBeenCalledWith('set_tray_dictation_state', {
       dictationState: 'processing',
-    })
-  })
-
-  it('publishes global dictation state to the overlay window', async () => {
-    dictationMockState = { isListening: true, isProcessing: false }
-
-    renderHook(() => useGlobalTranscription())
-
-    await act(async () => {})
-
-    expect(invokeMock).toHaveBeenCalledWith('update_dictation_overlay_state', {
-      payload: {
-        isListening: true,
-        isProcessing: false,
-        interimTranscript: '',
-      },
     })
   })
 
