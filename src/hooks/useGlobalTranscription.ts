@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { useAppStore } from '../store/useAppStore'
+import { GLOBAL_DICTATION_AUDIO_LEVELS_EVENT } from '../utils/constants'
 import {
   useDictation,
   type DictationError,
@@ -202,11 +203,16 @@ export function useGlobalTranscription() {
     invoke('set_tray_dictation_state', { dictationState }).catch(console.error)
   }, [])
 
+  const handleAudioLevels = useCallback((levels: number[]) => {
+    window.dispatchEvent(new CustomEvent(GLOBAL_DICTATION_AUDIO_LEVELS_EVENT, { detail: levels }))
+  }, [])
+
   const dictation = useDictation({
     onResult: handleResult,
     onEmpty: handleEmpty,
     onError: handleError,
     onStateChange: syncTrayDictationState,
+    onAudioLevels: handleAudioLevels,
     listenForGlobalToggle: false,
   })
 

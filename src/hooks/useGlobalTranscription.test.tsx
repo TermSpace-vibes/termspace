@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGlobalTranscription } from './useGlobalTranscription'
 import { useAppStore } from '../store/useAppStore'
+import { GLOBAL_DICTATION_AUDIO_LEVELS_EVENT } from '../utils/constants'
 
 const invokeMock = vi.fn()
 const listenMock = vi.fn()
@@ -10,6 +11,7 @@ const cancelPendingStartMock = vi.fn()
 const writeTextMock = vi.fn()
 let capturedOnResult: ((text: string) => void | Promise<void>) | null = null
 let capturedOnStateChange: ((state: { isListening: boolean; isProcessing: boolean }) => void) | null = null
+let capturedOnAudioLevels: ((levels: number[]) => void) | null = null
 let dictationMockState = { isListening: false, isProcessing: false }
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -28,12 +30,15 @@ vi.mock('./useDictation', () => ({
   useDictation: ({
     onResult,
     onStateChange,
+    onAudioLevels,
   }: {
     onResult: (text: string) => void | Promise<void>
     onStateChange?: (state: { isListening: boolean; isProcessing: boolean }) => void
+    onAudioLevels?: (levels: number[]) => void
   }) => {
     capturedOnResult = onResult
     capturedOnStateChange = onStateChange ?? null
+    capturedOnAudioLevels = onAudioLevels ?? null
     return {
       isListening: dictationMockState.isListening,
       isProcessing: dictationMockState.isProcessing,
@@ -49,6 +54,7 @@ describe('useGlobalTranscription', () => {
     vi.clearAllMocks()
     capturedOnResult = null
     capturedOnStateChange = null
+    capturedOnAudioLevels = null
     dictationMockState = { isListening: false, isProcessing: false }
     listenMock.mockResolvedValue(() => {})
     writeTextMock.mockResolvedValue(undefined)
@@ -352,6 +358,26 @@ describe('useGlobalTranscription', () => {
 
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'termspace:open-settings' })
+    )
+
+    dispatchSpy.mockRestore()
+  })
+
+  it('forwards audio levels from global dictation as a window event', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+
+    renderHook(() => useGlobalTranscription())
+    await act(async () => {})
+
+    act(() => {
+      capturedOnAudioLevels?.([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+    })
+
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: GLOBAL_DICTATION_AUDIO_LEVELS_EVENT,
+        detail: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+      })
     )
 
     dispatchSpy.mockRestore()
