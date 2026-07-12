@@ -10,6 +10,7 @@ import { EditorPaneComponent } from '../EditorPane'
 import { KubernetesPaneComponent } from './KubernetesPaneComponent'
 import { DockerPaneComponent } from './DockerPaneComponent'
 import { ClaudePaneComponent } from './ClaudePane'
+import { AgentStudioPane } from './AgentStudioPane'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import { useAppStore } from '../../store/useAppStore'
 import { ErrorBoundary } from '../ui/ErrorBoundary'
@@ -24,6 +25,7 @@ interface Props {
   onCloseBrowserPane: (browserPaneId: string) => void
   onSplitBrowserPane: (browserPaneId: string, direction: 'horizontal' | 'vertical', initialUrl?: string) => void
   onCloseClaudePane: (claudePaneId: string) => void
+  onCloseAgentStudioPane: (paneId: string) => void
 }
 
 const getFlatNodes = (node: LayoutNode | null): LayoutNode[] => {
@@ -50,7 +52,7 @@ const MemoizedSplitGroup = React.memo(({ node, onLayoutChange, children }: any) 
   )
 })
 
-export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabId, activeTerminalId, onFocus, onClose, onSplit, onCloseBrowserPane, onSplitBrowserPane, onCloseClaudePane }: Props) {
+export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabId, activeTerminalId, onFocus, onClose, onSplit, onCloseBrowserPane, onSplitBrowserPane, onCloseClaudePane, onCloseAgentStudioPane }: Props) {
   const [maximizedTerminalId, setMaximizedTerminalId] = useState<string | null>(null)
   const reorderTerminals = useAppStore((s) => s.reorderTerminals)
   const updateLayoutSizes = useAppStore((s) => s.updateLayoutSizes)
@@ -270,9 +272,10 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
       </div>
     )
   }
+  const renderAgentStudioPane = (paneId: string) => <div onMouseDownCapture={() => onFocus(paneId)} style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}><AgentStudioPane tabId={tabId} paneId={paneId} isActive={paneId === activeTerminalId} onFocus={onFocus} onClose={onCloseAgentStudioPane} /></div>
 
   const renderLayoutPlaceholder = (node: LayoutNode): React.ReactNode => {
-    if (node.type === 'pane' || node.type === 'browser' || node.type === 'editor' || node.type === 'kubernetes' || node.type === 'docker' || node.type === 'claude') {
+    if (node.type === 'pane' || node.type === 'browser' || node.type === 'editor' || node.type === 'kubernetes' || node.type === 'docker' || node.type === 'claude' || node.type === 'agent-studio') {
       return (
         <div
           data-node-id={node.id}
@@ -394,6 +397,7 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
         {node.type === 'kubernetes' && renderKubernetesPane(node.kubernetesPaneId)}
         {node.type === 'docker' && renderDockerPane(node.dockerPaneId)}
         {node.type === 'claude' && renderClaudePane(node.claudePaneId)}
+        {node.type === 'agent-studio' && renderAgentStudioPane(node.agentStudioPaneId)}
       </div>
     )
   }
