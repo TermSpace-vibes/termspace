@@ -1,6 +1,7 @@
 #![allow(unexpected_cfgs)]
 mod agent_hook;
 mod agent_context;
+mod agent_runtime_manager;
 mod audio;
 mod browser_pane_manager;
 mod claude_session_manager;
@@ -18,6 +19,7 @@ mod tray_service;
 
 use browser_pane_manager::BrowserPaneManager;
 use claude_session_manager::ClaudeSessionManager;
+use agent_runtime_manager::AgentRuntimeManager;
 use commands::{DaemonClientState, DbState};
 use daemon_client::{ensure_daemon_running, DaemonClient};
 use native_terminal_manager::NativeTerminalManager;
@@ -132,6 +134,7 @@ pub fn run() {
 
             app.manage(BrowserPaneManager::new());
             app.manage(ClaudeSessionManager::new());
+            app.manage(AgentRuntimeManager::new());
             app.manage(audio::AudioPlayer::new());
             app.manage(commands::WatcherState(std::sync::Mutex::new(
                 std::collections::HashMap::new(),
@@ -218,6 +221,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_system_stats,
             commands::preview_agent_context,
+            commands::get_agent_provider_diagnostics,
+            commands::start_agent_session,
+            commands::write_agent_session,
+            commands::interrupt_agent_session,
+            commands::close_agent_session,
             commands::get_git_branch,
             commands::get_git_status,
             commands::get_git_blame,

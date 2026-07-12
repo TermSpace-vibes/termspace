@@ -1,5 +1,6 @@
 use crate::browser_pane_manager::BrowserPaneManager;
 use crate::agent_context::{self, ContextRequest};
+use crate::agent_runtime_manager::{AgentProviderDiagnostic, AgentProviderId, AgentRuntimeManager};
 use crate::claude_session_manager::ClaudeSessionManager;
 use crate::clipboard_insertion_service::{
     self, GlobalInsertionOptions, GlobalInsertionResult,
@@ -74,6 +75,17 @@ pub fn preview_agent_context(
             "Agent Studio context could not be prepared.".into()
         })
 }
+
+#[tauri::command]
+pub fn get_agent_provider_diagnostics(runtime: State<AgentRuntimeManager>) -> Vec<AgentProviderDiagnostic> { runtime.diagnostics() }
+#[tauri::command]
+pub fn start_agent_session(runtime: State<AgentRuntimeManager>, app: AppHandle, session_id: String, provider: AgentProviderId, cwd: String) -> Result<(), String> { validate_agent_id(&session_id)?; runtime.start(session_id, provider, &cwd, app) }
+#[tauri::command]
+pub fn write_agent_session(runtime: State<AgentRuntimeManager>, session_id: String, data: String) -> Result<(), String> { validate_agent_id(&session_id)?; runtime.write(&session_id, &data) }
+#[tauri::command]
+pub fn interrupt_agent_session(runtime: State<AgentRuntimeManager>, session_id: String) -> Result<(), String> { validate_agent_id(&session_id)?; runtime.interrupt(&session_id) }
+#[tauri::command]
+pub fn close_agent_session(runtime: State<AgentRuntimeManager>, session_id: String) -> Result<(), String> { validate_agent_id(&session_id)?; runtime.close(&session_id) }
 
 // macOS concurrent fork/posix_spawn workaround
 static SPAWN_LOCK: Mutex<()> = Mutex::new(());
