@@ -35,7 +35,7 @@
 | `src/components/WorkspaceSidebar/WorkspaceSidebar.tsx` | `src/components/WorkspaceSidebar/AddWorkspaceButton.tsx`, `src/components/WorkspaceSidebar/MediaWidget.tsx`, `src/components/WorkspaceSidebar/ProjectTasks.tsx`, `src/components/WorkspaceSidebar/WorkspaceItem.tsx`, `src/store/useAppStore.ts`, `src/types/index.ts` |
 | `src/components/WorkspaceView/AgentContextInspector.tsx` | — |
 | `src/components/WorkspaceView/AgentProviderDiagnostics.tsx` | `src/utils/tauri.ts` |
-| `src/components/WorkspaceView/AgentStudioPane.tsx` | `src/components/WorkspaceView/AgentContextInspector.tsx`, `src/components/WorkspaceView/AgentProviderDiagnostics.tsx`, `src/components/WorkspaceView/agentTranscript.ts`, `src/store/useAppStore.ts`, `src/types/index.ts`, `src/utils/tauri.ts` |
+| `src/components/WorkspaceView/AgentStudioPane.tsx` | `src/components/WorkspaceView/AgentContextInspector.tsx`, `src/components/WorkspaceView/AgentProviderDiagnostics.tsx`, `src/components/WorkspaceView/agentTranscript.ts`, `src/components/WorkspaceView/claudeOutputParser.ts`, `src/store/useAppStore.ts`, `src/types/index.ts`, `src/utils/tauri.ts` |
 | `src/components/WorkspaceView/BrowserPane.tsx` | `src/store/useAppStore.ts`, `src/store/useBrowserMediaStore.ts`, `src/utils/browserPaneTabsState.ts`, `src/utils/sqliteUiState.ts`, `src/utils/tauri.ts` |
 | `src/components/WorkspaceView/ClaudePane.tsx` | `src/components/WorkspaceView/ClaudeRawStream.tsx`, `src/components/WorkspaceView/claudeOutputParser.ts`, `src/components/WorkspaceView/claudeTranscript.ts`, `src/store/useAppStore.ts`, `src/utils/tauri.ts` |
 | `src/components/WorkspaceView/ClaudeRawStream.tsx` | — |
@@ -61,8 +61,7 @@
 | `src/components/WorkspaceView/selectionUtils.ts` | `src/components/WorkspaceView/renderers/types.ts` |
 | `src/components/WorkspaceView/useTerminalWorker.ts` | `src/components/WorkspaceView/renderers/types.ts`, `src/components/WorkspaceView/renderers/worker-protocol.ts` |
 | `src/components/ui/ContextMenu.tsx` | — |
-| `src/components/ui/DictationButton.tsx` | `src/hooks/useDictation.ts`, `src/store/useAppStore.ts` |
-| `src/components/ui/DictationOverlayApp.tsx` | `src/store/useAppStore.ts` |
+| `src/components/ui/DictationButton.tsx` | `src/hooks/useDictation.ts`, `src/store/useAppStore.ts`, `src/utils/constants.ts` |
 | `src/components/ui/ErrorBoundary.tsx` | — |
 | `src/components/ui/ToastContainer.tsx` | `src/store/useAppStore.ts` |
 | `src/hooks/useBrowserMediaBridge.ts` | `src/store/useBrowserMediaStore.ts`, `src/utils/tauri.ts` |
@@ -70,10 +69,10 @@
 | `src/hooks/useFileTreeContextMenu.ts` | `src/hooks/useFileTreeOperations.ts` |
 | `src/hooks/useFileTreeOperations.ts` | `src/store/useAppStore.ts`, `src/types/index.ts`, `src/utils/tauri.ts` |
 | `src/hooks/useGlobalKeybindings.ts` | `src/store/useAppStore.ts`, `src/types/index.ts`, `src/utils/shortcuts.ts`, `src/utils/tauri.ts` |
-| `src/hooks/useGlobalTranscription.ts` | `src/hooks/useDictation.ts`, `src/store/useAppStore.ts` |
+| `src/hooks/useGlobalTranscription.ts` | `src/hooks/useDictation.ts`, `src/store/useAppStore.ts`, `src/utils/constants.ts` |
 | `src/hooks/useNotifications.ts` | `src/store/useAppStore.ts`, `src/types/index.ts`, `src/utils/tauri.ts` |
 | `src/hooks/useSqliteUiStateSync.ts` | `src/store/useAppStore.ts`, `src/utils/sqliteUiState.ts` |
-| `src/main.tsx` | `src/App.tsx`, `src/components/ui/DictationOverlayApp.tsx`, `src/components/ui/ErrorBoundary.tsx` |
+| `src/main.tsx` | `src/App.tsx`, `src/components/ui/ErrorBoundary.tsx` |
 | `src/store/useAppStore.ts` | `src/store/useBrowserMediaStore.ts`, `src/types/index.ts`, `src/utils/layout.ts` |
 | `src/store/useBrowserMediaStore.ts` | `src/types/index.ts` |
 | `src/test-setup.ts` | — |
@@ -97,19 +96,20 @@
 
 | File | Dependent Count | Imported By |
 |------|----------------|-------------|
-| `src/store/useAppStore.ts` | 34 | `src/App.tsx`, `src/components/CommandPalette/CommandPalette.tsx`, `src/components/EditorPane.tsx`, `src/components/EditorWelcomeScreen.tsx`, `src/components/FileTree.tsx`, `src/components/GitPanel.tsx`, `src/components/MarkdownModal/MarkdownModal.tsx`, `src/components/MarkdownPreview.tsx`, `src/components/SearchPanel.tsx`, `src/components/SettingsModal/SettingsModal.tsx`, `src/components/WorkspaceSidebar/ProjectTasks.tsx`, `src/components/WorkspaceSidebar/WorkspaceItem.tsx`, `src/components/WorkspaceSidebar/WorkspaceSidebar.tsx`, `src/components/WorkspaceView/AgentStudioPane.tsx`, `src/components/WorkspaceView/BrowserPane.tsx`, `src/components/WorkspaceView/ClaudePane.tsx`, `src/components/WorkspaceView/DockerPaneComponent.tsx`, `src/components/WorkspaceView/KubernetesPaneComponent.tsx`, `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/TerminalGrid.tsx`, `src/components/WorkspaceView/TerminalPane.tsx`, `src/components/WorkspaceView/ToolingPane.tsx`, `src/components/WorkspaceView/WorkspaceHeader.tsx`, `src/components/WorkspaceView/WorkspaceTabBar.tsx`, `src/components/WorkspaceView/WorkspaceView.tsx`, `src/components/ui/DictationButton.tsx`, `src/components/ui/DictationOverlayApp.tsx`, `src/components/ui/ToastContainer.tsx`, `src/hooks/useDictation.ts`, `src/hooks/useFileTreeOperations.ts`, `src/hooks/useGlobalKeybindings.ts`, `src/hooks/useGlobalTranscription.ts`, `src/hooks/useNotifications.ts`, `src/hooks/useSqliteUiStateSync.ts` |
+| `src/store/useAppStore.ts` | 33 | `src/App.tsx`, `src/components/CommandPalette/CommandPalette.tsx`, `src/components/EditorPane.tsx`, `src/components/EditorWelcomeScreen.tsx`, `src/components/FileTree.tsx`, `src/components/GitPanel.tsx`, `src/components/MarkdownModal/MarkdownModal.tsx`, `src/components/MarkdownPreview.tsx`, `src/components/SearchPanel.tsx`, `src/components/SettingsModal/SettingsModal.tsx`, `src/components/WorkspaceSidebar/ProjectTasks.tsx`, `src/components/WorkspaceSidebar/WorkspaceItem.tsx`, `src/components/WorkspaceSidebar/WorkspaceSidebar.tsx`, `src/components/WorkspaceView/AgentStudioPane.tsx`, `src/components/WorkspaceView/BrowserPane.tsx`, `src/components/WorkspaceView/ClaudePane.tsx`, `src/components/WorkspaceView/DockerPaneComponent.tsx`, `src/components/WorkspaceView/KubernetesPaneComponent.tsx`, `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/TerminalGrid.tsx`, `src/components/WorkspaceView/TerminalPane.tsx`, `src/components/WorkspaceView/ToolingPane.tsx`, `src/components/WorkspaceView/WorkspaceHeader.tsx`, `src/components/WorkspaceView/WorkspaceTabBar.tsx`, `src/components/WorkspaceView/WorkspaceView.tsx`, `src/components/ui/DictationButton.tsx`, `src/components/ui/ToastContainer.tsx`, `src/hooks/useDictation.ts`, `src/hooks/useFileTreeOperations.ts`, `src/hooks/useGlobalKeybindings.ts`, `src/hooks/useGlobalTranscription.ts`, `src/hooks/useNotifications.ts`, `src/hooks/useSqliteUiStateSync.ts` |
 | `src/types/index.ts` | 22 | `src/App.tsx`, `src/components/SettingsModal/SettingsModal.tsx`, `src/components/WorkspaceModal/WorkspaceModal.tsx`, `src/components/WorkspaceSidebar/MediaWidget.tsx`, `src/components/WorkspaceSidebar/ProjectTasks.tsx`, `src/components/WorkspaceSidebar/WorkspaceItem.tsx`, `src/components/WorkspaceSidebar/WorkspaceSidebar.tsx`, `src/components/WorkspaceView/AgentStudioPane.tsx`, `src/components/WorkspaceView/DockerPaneComponent.tsx`, `src/components/WorkspaceView/KubernetesPaneComponent.tsx`, `src/components/WorkspaceView/TerminalGrid.tsx`, `src/components/WorkspaceView/ToolingPane.tsx`, `src/components/WorkspaceView/WorkspaceHeader.tsx`, `src/components/WorkspaceView/WorkspaceTabBar.tsx`, `src/components/WorkspaceView/WorkspaceView.tsx`, `src/components/WorkspaceView/agentTranscript.ts`, `src/hooks/useFileTreeOperations.ts`, `src/hooks/useGlobalKeybindings.ts`, `src/hooks/useNotifications.ts`, `src/store/useAppStore.ts`, `src/store/useBrowserMediaStore.ts`, `src/utils/layout.ts` |
 | `src/utils/tauri.ts` | 16 | `src/App.tsx`, `src/components/SettingsModal/SettingsModal.tsx`, `src/components/WorkspaceSidebar/MediaWidget.tsx`, `src/components/WorkspaceView/AgentProviderDiagnostics.tsx`, `src/components/WorkspaceView/AgentStudioPane.tsx`, `src/components/WorkspaceView/BrowserPane.tsx`, `src/components/WorkspaceView/ClaudePane.tsx`, `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/TerminalPane.tsx`, `src/components/WorkspaceView/ToolingPane.tsx`, `src/components/WorkspaceView/WorkspaceView.tsx`, `src/hooks/useBrowserMediaBridge.ts`, `src/hooks/useFileTreeOperations.ts`, `src/hooks/useGlobalKeybindings.ts`, `src/hooks/useNotifications.ts`, `src/utils/sqliteUiState.ts` |
 | `src/components/WorkspaceView/renderers/types.ts` | 7 | `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/renderers/CanvasRenderer.ts`, `src/components/WorkspaceView/renderers/WebGLRenderer.ts`, `src/components/WorkspaceView/renderers/terminal.worker.ts`, `src/components/WorkspaceView/renderers/worker-protocol.ts`, `src/components/WorkspaceView/selectionUtils.ts`, `src/components/WorkspaceView/useTerminalWorker.ts` |
 | `src/components/ConfirmModal/ConfirmModal.tsx` | 5 | `src/App.tsx`, `src/components/EditorPane.tsx`, `src/components/FileTree.tsx`, `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/TerminalPane.tsx` |
 | `src/store/useBrowserMediaStore.ts` | 4 | `src/components/WorkspaceSidebar/MediaWidget.tsx`, `src/components/WorkspaceView/BrowserPane.tsx`, `src/hooks/useBrowserMediaBridge.ts`, `src/store/useAppStore.ts` |
+| `src/utils/constants.ts` | 4 | `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/TerminalPane.tsx`, `src/components/ui/DictationButton.tsx`, `src/hooks/useGlobalTranscription.ts` |
+| `src/components/WorkspaceView/claudeOutputParser.ts` | 3 | `src/components/WorkspaceView/AgentStudioPane.tsx`, `src/components/WorkspaceView/ClaudePane.tsx`, `src/components/WorkspaceView/claudeTranscript.ts` |
 | `src/hooks/useGlobalKeybindings.ts` | 3 | `src/App.tsx`, `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/TerminalPane.tsx` |
 | `src/utils/fs.ts` | 3 | `src/components/EditorPane.tsx`, `src/components/FileTree.tsx`, `src/components/MarkdownModal/MarkdownModal.tsx` |
 | `src/utils/sqliteUiState.ts` | 3 | `src/App.tsx`, `src/components/WorkspaceView/BrowserPane.tsx`, `src/hooks/useSqliteUiStateSync.ts` |
 | `src/components/MarkdownPreview.tsx` | 2 | `src/components/EditorPane.tsx`, `src/components/MarkdownModal/MarkdownModal.tsx` |
 | `src/components/WorkspaceView/NativeTerminalPane.tsx` | 2 | `src/components/WorkspaceView/TerminalGrid.tsx`, `src/components/WorkspaceView/ToolingPane.tsx` |
 | `src/components/WorkspaceView/TerminalPane.tsx` | 2 | `src/components/WorkspaceView/TerminalGrid.tsx`, `src/components/WorkspaceView/ToolingPane.tsx` |
-| `src/components/WorkspaceView/claudeOutputParser.ts` | 2 | `src/components/WorkspaceView/ClaudePane.tsx`, `src/components/WorkspaceView/claudeTranscript.ts` |
 | `src/components/WorkspaceView/claudeTranscript.ts` | 2 | `src/components/WorkspaceView/ClaudePane.tsx`, `src/components/WorkspaceView/ClaudeTranscriptView.tsx` |
 | `src/components/WorkspaceView/renderers/CanvasRenderer.ts` | 2 | `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/renderers/terminal.worker.ts` |
 | `src/components/WorkspaceView/renderers/WebGLRenderer.ts` | 2 | `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/renderers/terminal.worker.ts` |
@@ -118,7 +118,6 @@
 | `src/hooks/useDictation.ts` | 2 | `src/components/ui/DictationButton.tsx`, `src/hooks/useGlobalTranscription.ts` |
 | `src/hooks/useFileTreeContextMenu.ts` | 2 | `src/components/FileTree.tsx`, `src/components/FileTreeContextMenu.tsx` |
 | `src/hooks/useFileTreeOperations.ts` | 2 | `src/components/FileTree.tsx`, `src/hooks/useFileTreeContextMenu.ts` |
-| `src/utils/constants.ts` | 2 | `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/TerminalPane.tsx` |
 | `src/App.tsx` | 1 | `src/main.tsx` |
 | `src/components/CommandPalette/CommandPalette.tsx` | 1 | `src/App.tsx` |
 | `src/components/EditorPane.tsx` | 1 | `src/components/WorkspaceView/TerminalGrid.tsx` |
@@ -155,7 +154,6 @@
 | `src/components/WorkspaceView/useTerminalWorker.ts` | 1 | `src/components/WorkspaceView/NativeTerminalPane.tsx` |
 | `src/components/ui/ContextMenu.tsx` | 1 | `src/App.tsx` |
 | `src/components/ui/DictationButton.tsx` | 1 | `src/App.tsx` |
-| `src/components/ui/DictationOverlayApp.tsx` | 1 | `src/main.tsx` |
 | `src/components/ui/ToastContainer.tsx` | 1 | `src/App.tsx` |
 | `src/hooks/useBrowserMediaBridge.ts` | 1 | `src/App.tsx` |
 | `src/hooks/useGlobalTranscription.ts` | 1 | `src/App.tsx` |
@@ -182,12 +180,14 @@
 
 Changes here have a wide blast radius — check all dependents before editing.
 
-- `src/store/useAppStore.ts` — **34 dependents**
+- `src/store/useAppStore.ts` — **33 dependents**
 - `src/types/index.ts` — **22 dependents**
 - `src/utils/tauri.ts` — **16 dependents**
 - `src/components/WorkspaceView/renderers/types.ts` — **7 dependents**
 - `src/components/ConfirmModal/ConfirmModal.tsx` — **5 dependents**
 - `src/store/useBrowserMediaStore.ts` — **4 dependents**
+- `src/utils/constants.ts` — **4 dependents**
+- `src/components/WorkspaceView/claudeOutputParser.ts` — **3 dependents**
 - `src/hooks/useGlobalKeybindings.ts` — **3 dependents**
 - `src/utils/fs.ts` — **3 dependents**
 - `src/utils/sqliteUiState.ts` — **3 dependents**

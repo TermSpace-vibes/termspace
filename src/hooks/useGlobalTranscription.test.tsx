@@ -2,13 +2,16 @@ import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useGlobalTranscription } from './useGlobalTranscription'
 import { useAppStore } from '../store/useAppStore'
+import { GLOBAL_DICTATION_AUDIO_LEVELS_EVENT } from '../utils/constants'
 
 const invokeMock = vi.fn()
 const listenMock = vi.fn()
 const toggleListeningMock = vi.fn()
+const cancelPendingStartMock = vi.fn()
 const writeTextMock = vi.fn()
 let capturedOnResult: ((text: string) => void | Promise<void>) | null = null
 let capturedOnStateChange: ((state: { isListening: boolean; isProcessing: boolean }) => void) | null = null
+let capturedOnAudioLevels: ((levels: number[]) => void) | null = null
 let dictationMockState = { isListening: false, isProcessing: false }
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -27,17 +30,21 @@ vi.mock('./useDictation', () => ({
   useDictation: ({
     onResult,
     onStateChange,
+    onAudioLevels,
   }: {
     onResult: (text: string) => void | Promise<void>
     onStateChange?: (state: { isListening: boolean; isProcessing: boolean }) => void
+    onAudioLevels?: (levels: number[]) => void
   }) => {
     capturedOnResult = onResult
     capturedOnStateChange = onStateChange ?? null
+    capturedOnAudioLevels = onAudioLevels ?? null
     return {
       isListening: dictationMockState.isListening,
       isProcessing: dictationMockState.isProcessing,
       interimTranscript: '',
       toggleListening: toggleListeningMock,
+      cancelPendingStart: cancelPendingStartMock,
     }
   },
 }))
@@ -47,6 +54,7 @@ describe('useGlobalTranscription', () => {
     vi.clearAllMocks()
     capturedOnResult = null
     capturedOnStateChange = null
+    capturedOnAudioLevels = null
     dictationMockState = { isListening: false, isProcessing: false }
     listenMock.mockResolvedValue(() => {})
     writeTextMock.mockResolvedValue(undefined)
@@ -79,6 +87,23 @@ describe('useGlobalTranscription', () => {
       shortcut: 'CmdOrCtrl+Shift+M',
     })
     expect(listenMock).toHaveBeenCalledWith('global-dictation-toggle', expect.any(Function))
+  })
+
+  it('starts on global dictation press and cancels startup on release', async () => {
+    const handlers = new Map<string, () => void>()
+    listenMock.mockImplementation((event: string, handler: () => void) => {
+      handlers.set(event, handler)
+      return Promise.resolve(() => {})
+    })
+
+    renderHook(() => useGlobalTranscription())
+    await act(async () => {})
+
+    act(() => handlers.get('global-dictation-press')?.())
+    expect(toggleListeningMock).toHaveBeenCalledTimes(1)
+
+    act(() => handlers.get('global-dictation-release')?.())
+    expect(cancelPendingStartMock).toHaveBeenCalledTimes(1)
   })
 
   it('inserts non-empty transcript into the active app', async () => {
@@ -158,7 +183,7 @@ describe('useGlobalTranscription', () => {
   })
 
   it('writes into the last-focused terminal after focus moves to the mic button', async () => {
-    // Mirrors clicking the floating dictation button: it steals DOM focus
+    // Mirrors clicking the in-app dictation button: it steals DOM focus
     // away from the terminal canvas, but the user still means "dictate into
     // the terminal I was just using."
     const canvas = document.createElement('canvas')
@@ -187,7 +212,6 @@ describe('useGlobalTranscription', () => {
       },
     })
 
-    // Focus events must happen after the hook's focusin listener is mounted.
     renderHook(() => useGlobalTranscription())
 
     canvas.focus()
@@ -207,6 +231,7 @@ describe('useGlobalTranscription', () => {
   })
 
   it('copies to clipboard instead of writing to a terminal in a background tab', async () => {
+    const hasFocusSpy = vi.spyOn(document, 'hasFocus').mockReturnValue(true)
     document.body.focus()
     useAppStore.setState({
       activeWorkspaceId: 'workspace-1',
@@ -236,6 +261,8 @@ describe('useGlobalTranscription', () => {
     expect(invokeMock).not.toHaveBeenCalledWith('write_terminal', expect.anything())
     expect(invokeMock).not.toHaveBeenCalledWith('insert_text_into_active_app', expect.anything())
     expect(writeTextMock).toHaveBeenCalledWith('ls ')
+
+    hasFocusSpy.mockRestore()
   })
 
   it('does not insert an empty transcript', async () => {
@@ -246,6 +273,7 @@ describe('useGlobalTranscription', () => {
     })
 
     expect(invokeMock).not.toHaveBeenCalledWith('insert_text_into_active_app', expect.anything())
+    expect(writeTextMock).not.toHaveBeenCalled()
   })
 
   it('shows the tray icon when global dictation is enabled', async () => {
@@ -254,32 +282,6 @@ describe('useGlobalTranscription', () => {
     await act(async () => {})
 
     expect(invokeMock).toHaveBeenCalledWith('show_tray_icon')
-  })
-
-  it('shows the overlay window when global dictation floating button is enabled', async () => {
-    renderHook(() => useGlobalTranscription())
-
-    await act(async () => {})
-
-    expect(invokeMock).toHaveBeenCalledWith('show_dictation_overlay', {
-      position: null,
-    })
-  })
-
-  it('hides the overlay window when global floating button is disabled', async () => {
-    useAppStore.setState({
-      settings: {
-        ...useAppStore.getState().settings,
-        globalDictationEnabled: true,
-        globalDictationShowFloatingButton: false,
-      },
-    })
-
-    renderHook(() => useGlobalTranscription())
-
-    await act(async () => {})
-
-    expect(invokeMock).toHaveBeenCalledWith('hide_dictation_overlay')
   })
 
   it('hides the tray icon when global dictation is disabled', async () => {
@@ -315,22 +317,6 @@ describe('useGlobalTranscription', () => {
 
     expect(invokeMock).toHaveBeenCalledWith('set_tray_dictation_state', {
       dictationState: 'processing',
-    })
-  })
-
-  it('publishes global dictation state to the overlay window', async () => {
-    dictationMockState = { isListening: true, isProcessing: false }
-
-    renderHook(() => useGlobalTranscription())
-
-    await act(async () => {})
-
-    expect(invokeMock).toHaveBeenCalledWith('update_dictation_overlay_state', {
-      payload: {
-        isListening: true,
-        isProcessing: false,
-        interimTranscript: '',
-      },
     })
   })
 
@@ -372,6 +358,26 @@ describe('useGlobalTranscription', () => {
 
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'termspace:open-settings' })
+    )
+
+    dispatchSpy.mockRestore()
+  })
+
+  it('forwards audio levels from global dictation as a window event', async () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
+
+    renderHook(() => useGlobalTranscription())
+    await act(async () => {})
+
+    act(() => {
+      capturedOnAudioLevels?.([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+    })
+
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: GLOBAL_DICTATION_AUDIO_LEVELS_EVENT,
+        detail: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+      })
     )
 
     dispatchSpy.mockRestore()

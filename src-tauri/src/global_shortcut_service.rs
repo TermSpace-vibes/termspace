@@ -39,9 +39,21 @@ pub fn unregister(
     state: &GlobalShortcutState,
 ) -> Result<GlobalShortcutStatus, String> {
     if let Some(shortcut) = state.status.lock().shortcut.clone() {
-        let normalized = normalize_shortcut(&shortcut);
-        if let Ok(parsed) = normalized.parse::<Shortcut>() {
-            let _ = app.global_shortcut().unregister(parsed);
+        #[cfg(target_os = "macos")]
+        if shortcut.trim() == "`" {
+            crate::bare_key_tap::stop();
+        } else {
+            let normalized = normalize_shortcut(&shortcut);
+            if let Ok(parsed) = normalized.parse::<Shortcut>() {
+                let _ = app.global_shortcut().unregister(parsed);
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let normalized = normalize_shortcut(&shortcut);
+            if let Ok(parsed) = normalized.parse::<Shortcut>() {
+                let _ = app.global_shortcut().unregister(parsed);
+            }
         }
     }
 
@@ -56,6 +68,18 @@ pub fn register(
     shortcut: String,
 ) -> Result<GlobalShortcutStatus, String> {
     unregister(app, state)?;
+
+    #[cfg(target_os = "macos")]
+    if shortcut.trim() == "`" {
+        crate::bare_key_tap::start(app)?;
+        let status = GlobalShortcutStatus {
+            registered: true,
+            shortcut: Some(shortcut),
+            error: None,
+        };
+        *state.status.lock() = status.clone();
+        return Ok(status);
+    }
 
     let normalized = normalize_shortcut(&shortcut);
     let parsed = normalized

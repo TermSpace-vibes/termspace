@@ -1,11 +1,13 @@
 import React, { useCallback, useRef } from 'react';
-import { MicOff } from 'lucide-react';
-import { useDictation } from '../../hooks/useDictation';
+import { AudioLines } from 'lucide-react';
+import { useDictation, type DictationError } from '../../hooks/useDictation';
 import { useAppStore } from '../../store/useAppStore';
 import { invoke } from '@tauri-apps/api/core';
 import { motion, PanInfo } from 'framer-motion';
+import { GLOBAL_DICTATION_AUDIO_LEVELS_EVENT } from '../../utils/constants';
 
-
+const BAR_MAX_HEIGHTS = [12, 24, 16, 30, 20, 26, 14] as const;
+const EMPTY_AUDIO_LEVELS = [0, 0, 0, 0, 0, 0, 0] as const;
 
 export const DictationButton: React.FC = () => {
   const activeTerminalId = useAppStore((state) => state.activeTerminalId);
@@ -22,6 +24,7 @@ export const DictationButton: React.FC = () => {
     interimTranscript: string;
     toggleListening: () => void;
   } | null>(null);
+  const [audioLevels, setAudioLevels] = React.useState<number[]>(() => [...EMPTY_AUDIO_LEVELS]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -54,7 +57,8 @@ export const DictationButton: React.FC = () => {
     }
   }, [activeTerminalId, addToast]);
 
-  const handleError = useCallback((errorStr: string) => {
+  const handleError = useCallback((error: DictationError) => {
+    const errorStr = error.message;
     if (errorStr.toLowerCase().includes('denied') || errorStr.toLowerCase().includes('not-allowed')) {
       addToast(
         'Microphone permission denied.',
@@ -75,6 +79,9 @@ export const DictationButton: React.FC = () => {
     onResult: handleResult,
     onError: handleError,
     listenForGlobalToggle: !settings.globalDictationEnabled,
+    onAudioLevels: (levels) => {
+      if (!settings.globalDictationEnabled) setAudioLevels(levels);
+    },
   });
   const fallbackGlobalDictation = React.useMemo(() => ({
     isListening: false,
@@ -88,11 +95,26 @@ export const DictationButton: React.FC = () => {
   const { isListening, isProcessing, toggleListening, interimTranscript } = activeDictation;
   const isActive = isListening || isProcessing;
   const statusText = isProcessing ? 'Processing transcription...' : interimTranscript;
-  const waveformBars = [12, 24, 16, 30, 20, 26, 14];
 
-  if (settings.globalDictationEnabled) {
-    return null;
-  }
+  React.useEffect(() => {
+    if (!isListening) setAudioLevels([...EMPTY_AUDIO_LEVELS]);
+  }, [isListening]);
+
+  React.useEffect(() => {
+    const handleGlobalAudioLevels = (event: Event) => {
+      if (!settings.globalDictationEnabled) return;
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (!Array.isArray(detail)) return;
+      setAudioLevels(
+        Array.from({ length: BAR_MAX_HEIGHTS.length }, (_, index) => {
+          const value = Number(detail[index] ?? 0);
+          return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
+        })
+      );
+    };
+    window.addEventListener(GLOBAL_DICTATION_AUDIO_LEVELS_EVENT, handleGlobalAudioLevels);
+    return () => window.removeEventListener(GLOBAL_DICTATION_AUDIO_LEVELS_EVENT, handleGlobalAudioLevels);
+  }, [settings.globalDictationEnabled]);
 
   return (
     <motion.div
@@ -171,31 +193,29 @@ export const DictationButton: React.FC = () => {
               height: 30,
             }}
           >
-            {waveformBars.map((height, index) => (
-              <motion.span
-                key={`${height}-${index}`}
-                aria-hidden="true"
-                animate={{
-                  height: [Math.max(7, height * 0.45), height, Math.max(8, height * 0.62)],
-                  opacity: [0.55, 1, 0.72],
-                }}
-                transition={{
-                  repeat: Infinity,
-                  duration: 0.68 + index * 0.045,
-                  delay: index * 0.055,
-                  ease: 'easeInOut',
-                }}
-                style={{
-                  width: 3,
-                  borderRadius: 999,
-                  background: 'currentColor',
-                  boxShadow: '0 0 8px color-mix(in srgb, var(--accent) 65%, transparent)',
-                }}
-              />
-            ))}
+            {BAR_MAX_HEIGHTS.map((maxHeight, index) => {
+              const level = audioLevels[index] ?? 0;
+              return (
+                <motion.span
+                  key={index}
+                  aria-hidden="true"
+                  animate={{
+                    height: Math.max(4, maxHeight * level),
+                    opacity: 0.35 + 0.65 * level,
+                  }}
+                  transition={{ duration: 0.09, ease: 'easeOut' }}
+                  style={{
+                    width: 3,
+                    borderRadius: 999,
+                    background: 'currentColor',
+                    boxShadow: '0 0 8px color-mix(in srgb, var(--accent) 65%, transparent)',
+                  }}
+                />
+              );
+            })}
           </motion.div>
         ) : (
-          <MicOff size={24} />
+          <AudioLines size={22} strokeWidth={2.25} />
         )}
       </button>
 

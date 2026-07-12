@@ -155,7 +155,6 @@ describe('SettingsModal dictation model controls', () => {
         globalDictationHotkey: 'CmdOrCtrl+Shift+M',
         globalDictationAutoPaste: true,
         globalDictationRestoreClipboard: true,
-        globalDictationShowFloatingButton: true,
         globalDictationPasteDelayMs: 120,
       },
     })
@@ -164,7 +163,7 @@ describe('SettingsModal dictation model controls', () => {
     await openApplicationTab()
 
     fireEvent.click(screen.getByLabelText('Enable system-wide dictation'))
-    fireEvent.change(screen.getByLabelText('Global hotkey'), {
+    fireEvent.change(screen.getByLabelText('Hold-to-dictate key'), {
       target: { value: 'CmdOrCtrl+Shift+D' },
     })
     fireEvent.click(screen.getByLabelText('Auto-paste into active app'))
@@ -175,7 +174,6 @@ describe('SettingsModal dictation model controls', () => {
       globalDictationHotkey: 'CmdOrCtrl+Shift+D',
       globalDictationAutoPaste: false,
       globalDictationRestoreClipboard: true,
-      globalDictationShowFloatingButton: true,
       globalDictationPasteDelayMs: 120,
     })
   })

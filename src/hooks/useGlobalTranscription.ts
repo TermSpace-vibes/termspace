@@ -3,7 +3,11 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { useAppStore } from '../store/useAppStore'
-import { useDictation } from './useDictation'
+import { GLOBAL_DICTATION_AUDIO_LEVELS_EVENT } from '../utils/constants'
+import {
+  useDictation,
+  type DictationError,
+} from './useDictation'
 
 interface GlobalInsertionResult {
   inserted: boolean
@@ -126,11 +130,11 @@ export function useGlobalTranscription() {
 
         // Fall back to the last-focused terminal the same way the editable
         // branch above falls back to lastEditableElementRef — clicking the
-        // floating dictation button (or the tray hotkey path) moves DOM focus
-        // to that button/nothing, so requiring literal current focus here
-        // would break the common "focus terminal, then dictate" flow. Still
-        // scoped to the active tab so a background tab's terminal can't be
-        // silently targeted (see isTerminalInActiveTab).
+        // in-app dictation button moves DOM focus to that button/nothing, so
+        // requiring literal current focus here would break the common "focus
+        // terminal, then dictate" flow. Still scoped to the active tab so a
+        // background tab's terminal can't be silently targeted (see
+        // isTerminalInActiveTab).
         const targetTerminalId = focusedTerminalId(activeElement) ?? lastFocusedTerminalIdRef.current
         if (targetTerminalId && isTerminalInActiveTab(targetTerminalId)) {
           await invoke('write_terminal', {
@@ -181,22 +185,12 @@ export function useGlobalTranscription() {
     }
   }, [addToast])
 
-  const latestDictationRef = useRef({ isListening: false, isProcessing: false, interimTranscript: '' })
+  const handleEmpty = useCallback(() => {
+    addToast('Dictation was empty.', 'info')
+  }, [addToast])
 
-  const handleError = useCallback((error: string) => {
-    addToast(error, 'error')
-    // The overlay button can't see why a toggle silently failed (e.g. mic
-    // permission denied) since the mic capture runs in this window, not
-    // the overlay's — flash it there too instead of only toasting here.
-    if (useAppStore.getState().settings.globalDictationEnabled) {
-      invoke('update_dictation_overlay_state', {
-        payload: {
-          ...latestDictationRef.current,
-          audioLevels: [],
-          error,
-        },
-      }).catch(console.error)
-    }
+  const handleError = useCallback((error: DictationError) => {
+    addToast(error.message, 'error')
   }, [addToast])
 
   const syncTrayDictationState = useCallback((state: { isListening: boolean; isProcessing: boolean }) => {
@@ -210,38 +204,29 @@ export function useGlobalTranscription() {
   }, [])
 
   const handleAudioLevels = useCallback((levels: number[]) => {
-    if (!useAppStore.getState().settings.globalDictationEnabled) return
-    invoke('update_dictation_overlay_state', {
-      payload: {
-        ...latestDictationRef.current,
-        audioLevels: levels,
-      },
-    }).catch(console.error)
+    window.dispatchEvent(new CustomEvent(GLOBAL_DICTATION_AUDIO_LEVELS_EVENT, { detail: levels }))
   }, [])
 
   const dictation = useDictation({
     onResult: handleResult,
+    onEmpty: handleEmpty,
     onError: handleError,
     onStateChange: syncTrayDictationState,
     onAudioLevels: handleAudioLevels,
     listenForGlobalToggle: false,
   })
 
-  useEffect(() => {
-    latestDictationRef.current = {
-      isListening: dictation.isListening,
-      isProcessing: dictation.isProcessing,
-      interimTranscript: dictation.interimTranscript,
-    }
-  }, [dictation.isListening, dictation.isProcessing, dictation.interimTranscript])
-
   const toggleListeningRef = useRef(dictation.toggleListening)
+  const cancelPendingStartRef = useRef(dictation.cancelPendingStart)
+  const isListeningRef = useRef(dictation.isListening)
   const isProcessingRef = useRef(dictation.isProcessing)
 
   useEffect(() => {
     toggleListeningRef.current = dictation.toggleListening
+    cancelPendingStartRef.current = dictation.cancelPendingStart
+    isListeningRef.current = dictation.isListening
     isProcessingRef.current = dictation.isProcessing
-  }, [dictation.toggleListening, dictation.isProcessing])
+  }, [dictation.cancelPendingStart, dictation.isListening, dictation.toggleListening, dictation.isProcessing])
 
   useEffect(() => {
     if (!settings.globalDictationEnabled) {
@@ -251,7 +236,7 @@ export function useGlobalTranscription() {
     }
 
     invoke('register_global_dictation_shortcut', {
-      shortcut: settings.globalDictationHotkey || 'CmdOrCtrl+Shift+M',
+      shortcut: settings.globalDictationHotkey || '`',
     }).catch((error) => {
       addToast(`Global dictation hotkey failed: ${error}`, 'error')
     })
@@ -259,28 +244,6 @@ export function useGlobalTranscription() {
       addToast(`Tray icon failed: ${error}`, 'error')
     })
   }, [addToast, settings.globalDictationEnabled, settings.globalDictationHotkey])
-
-  useEffect(() => {
-    const shouldShowOverlay =
-      settings.globalDictationEnabled &&
-      settings.globalDictationShowFloatingButton !== false
-
-    if (!shouldShowOverlay) {
-      invoke('hide_dictation_overlay').catch(console.error)
-      return
-    }
-
-    invoke('show_dictation_overlay', {
-      position: settings.globalDictationOverlayPosition ?? null,
-    }).catch((error) => {
-      addToast(`Dictation overlay failed: ${error}`, 'error')
-    })
-  }, [
-    addToast,
-    settings.globalDictationEnabled,
-    settings.globalDictationOverlayPosition,
-    settings.globalDictationShowFloatingButton,
-  ])
 
   useEffect(() => {
     if (!settings.globalDictationEnabled) return
@@ -292,31 +255,36 @@ export function useGlobalTranscription() {
     invoke('set_tray_dictation_state', { dictationState: state }).catch(console.error)
   }, [dictation.isListening, dictation.isProcessing, settings.globalDictationEnabled])
 
-  useEffect(() => {
-    if (!settings.globalDictationEnabled) return
-    invoke('update_dictation_overlay_state', {
-      payload: {
-        isListening: dictation.isListening,
-        isProcessing: dictation.isProcessing,
-        interimTranscript: dictation.interimTranscript,
-      },
-    }).catch(console.error)
-  }, [
-    dictation.interimTranscript,
-    dictation.isListening,
-    dictation.isProcessing,
-    settings.globalDictationEnabled,
-  ])
-
   const requestToggle = useCallback(() => {
     if (!useAppStore.getState().settings.globalDictationEnabled) return
     if (isProcessingRef.current) return
     void toggleListeningRef.current()
   }, [])
 
+  const requestPress = useCallback(() => {
+    if (!useAppStore.getState().settings.globalDictationEnabled) return
+    if (isListeningRef.current || isProcessingRef.current) return
+    void toggleListeningRef.current()
+  }, [])
+
+  const requestRelease = useCallback(() => {
+    if (!useAppStore.getState().settings.globalDictationEnabled) return
+    if (isListeningRef.current) {
+      void toggleListeningRef.current()
+      return
+    }
+    cancelPendingStartRef.current()
+  }, [])
+
   useEffect(() => {
     const unlistenPromise = listen('global-dictation-toggle', () => {
       requestToggle()
+    })
+    const unlistenPressPromise = listen('global-dictation-press', () => {
+      requestPress()
+    })
+    const unlistenReleasePromise = listen('global-dictation-release', () => {
+      requestRelease()
     })
 
     const handleDomToggle = () => {
@@ -328,8 +296,10 @@ export function useGlobalTranscription() {
     return () => {
       window.removeEventListener('termspace:toggle-global-dictation', handleDomToggle)
       unlistenPromise.then((unlisten) => unlisten()).catch(console.error)
+      unlistenPressPromise.then((unlisten) => unlisten()).catch(console.error)
+      unlistenReleasePromise.then((unlisten) => unlisten()).catch(console.error)
     }
-  }, [requestToggle])
+  }, [requestPress, requestRelease, requestToggle])
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('termspace:global-dictation-state', {
