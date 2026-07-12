@@ -208,19 +208,21 @@ pub fn init_db(path: &Path) -> Result<Connection> {
     )?;
 
     // Check if terminals still uses workspace_id
-    let has_workspace_id: bool = conn.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('terminals') WHERE name='workspace_id'",
-        [],
-        |row| {
-            let count: i32 = row.get(0)?;
-            Ok(count > 0)
-        }
-    ).unwrap_or(false);
+    let has_workspace_id: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('terminals') WHERE name='workspace_id'",
+            [],
+            |row| {
+                let count: i32 = row.get(0)?;
+                Ok(count > 0)
+            },
+        )
+        .unwrap_or(false);
 
     if has_workspace_id {
         let now = now_ms();
-        
-        // 1. Create a default tab for each workspace. 
+
+        // 1. Create a default tab for each workspace.
         // TRICK: We use the workspace's ID as the tab's ID to make migration trivial.
         conn.execute(
             "INSERT OR IGNORE INTO tabs (id, workspace_id, name, position, created_at)
@@ -231,20 +233,28 @@ pub fn init_db(path: &Path) -> Result<Connection> {
         // 2. Migrate pane tables dynamically
         let pane_tables = ["terminals", "browser_panes"];
         for table in pane_tables {
-            let mut stmt = conn.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?1")?;
+            let mut stmt =
+                conn.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?1")?;
             let sql_opt: Result<String> = stmt.query_row(params![table], |row| row.get(0));
-            
+
             if let Ok(sql) = sql_opt {
                 let new_table = format!("{}_new", table);
-                let new_sql = sql.replace(table, &new_table)
-                                 .replace("workspace_id", "tab_id")
-                                 .replace("REFERENCES workspaces(id)", "REFERENCES tabs(id)");
+                let new_sql = sql
+                    .replace(table, &new_table)
+                    .replace("workspace_id", "tab_id")
+                    .replace("REFERENCES workspaces(id)", "REFERENCES tabs(id)");
                 conn.execute(&new_sql, [])?;
-                
+
                 // Copy data
-                conn.execute(&format!("INSERT INTO {} SELECT * FROM {}", new_table, table), [])?;
+                conn.execute(
+                    &format!("INSERT INTO {} SELECT * FROM {}", new_table, table),
+                    [],
+                )?;
                 conn.execute(&format!("DROP TABLE {}", table), [])?;
-                conn.execute(&format!("ALTER TABLE {} RENAME TO {}", new_table, table), [])?;
+                conn.execute(
+                    &format!("ALTER TABLE {} RENAME TO {}", new_table, table),
+                    [],
+                )?;
             }
         }
     }
@@ -362,15 +372,31 @@ pub fn get_tabs(conn: &Connection, workspace_id: &str) -> Result<Vec<WorkspaceTa
         })
     })?;
     let mut tabs = Vec::new();
-    for t in iter { tabs.push(t?); }
+    for t in iter {
+        tabs.push(t?);
+    }
     Ok(tabs)
 }
 
-pub fn create_tab(conn: &Connection, id: &str, workspace_id: &str, name: &str) -> Result<WorkspaceTab> {
+pub fn create_tab(
+    conn: &Connection,
+    id: &str,
+    workspace_id: &str,
+    name: &str,
+) -> Result<WorkspaceTab> {
     let now = now_ms();
-    let position: i64 = conn.query_row("SELECT COALESCE(MAX(position)+1,0) FROM tabs WHERE workspace_id=?1", params![workspace_id], |row| row.get(0)).unwrap_or(0);
-    conn.execute("INSERT INTO tabs (id,workspace_id,name,position,created_at) VALUES (?1,?2,?3,?4,?5)", params![id, workspace_id, name, position, now])?;
-    
+    let position: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(position)+1,0) FROM tabs WHERE workspace_id=?1",
+            params![workspace_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    conn.execute(
+        "INSERT INTO tabs (id,workspace_id,name,position,created_at) VALUES (?1,?2,?3,?4,?5)",
+        params![id, workspace_id, name, position, now],
+    )?;
+
     Ok(WorkspaceTab {
         id: id.to_string(),
         workspace_id: workspace_id.to_string(),
@@ -433,7 +459,10 @@ pub fn set_ui_state(conn: &Connection, key: &str, value: &str) -> Result<()> {
 }
 
 pub fn delete_ui_state(conn: &Connection, key: &str) -> Result<()> {
-    conn.execute("DELETE FROM settings WHERE key=?1", params![ui_state_key(key)])?;
+    conn.execute(
+        "DELETE FROM settings WHERE key=?1",
+        params![ui_state_key(key)],
+    )?;
     Ok(())
 }
 
@@ -705,7 +734,10 @@ pub fn create_agent_conversation(
     })
 }
 
-pub fn list_agent_conversations(conn: &Connection, workspace_id: &str) -> Result<Vec<AgentConversation>> {
+pub fn list_agent_conversations(
+    conn: &Connection,
+    workspace_id: &str,
+) -> Result<Vec<AgentConversation>> {
     let mut statement = conn.prepare(
         "SELECT id, workspace_id, title, default_cwd, created_at, updated_at, archived_at
          FROM agent_conversations WHERE workspace_id = ?1 AND archived_at IS NULL
@@ -728,9 +760,8 @@ pub fn list_agent_conversations(conn: &Connection, workspace_id: &str) -> Result
 }
 
 pub fn append_agent_message(conn: &Connection, input: AgentMessageInput) -> Result<AgentMessage> {
-    let parts: serde_json::Value = serde_json::from_str(&input.parts_json).map_err(|error| {
-        rusqlite::Error::ToSqlConversionFailure(Box::new(error))
-    })?;
+    let parts: serde_json::Value = serde_json::from_str(&input.parts_json)
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
     if !parts.is_array() {
         return Err(rusqlite::Error::InvalidQuery);
     }
@@ -839,7 +870,12 @@ pub fn get_agent_context_bundle(conn: &Connection, bundle_id: &str) -> Result<Ag
                 kind: row.get(1)?,
                 source: row.get(2)?,
                 content_hash: row.get(3)?,
-                included_range: start_line.zip(end_line).map(|(start_line, end_line)| AgentIncludedRange { start_line, end_line }),
+                included_range: start_line.zip(end_line).map(|(start_line, end_line)| {
+                    AgentIncludedRange {
+                        start_line,
+                        end_line,
+                    }
+                }),
                 estimated_tokens: row.get(6)?,
                 priority: row.get(7)?,
                 inclusion_reason: row.get(8)?,
@@ -954,7 +990,13 @@ mod tests {
         .unwrap();
 
         let messages = list_agent_messages(&conn, "conversation-1").unwrap();
-        assert_eq!(messages.iter().map(|message| message.sequence).collect::<Vec<_>>(), vec![1, 2]);
+        assert_eq!(
+            messages
+                .iter()
+                .map(|message| message.sequence)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
         assert!(messages[0].parts_json.contains("text"));
     }
 
@@ -1022,7 +1064,8 @@ mod tests {
         conn.execute(
             "INSERT INTO tabs (id,workspace_id,name,position,created_at) VALUES (?1,?2,?3,?4,?5)",
             params!["tab-1", "ws-1", "Default", 0i64, 1_000_000i64],
-        ).unwrap();
+        )
+        .unwrap();
 
         create_browser_pane(&conn, "bp-1", "tab-1", "http://localhost:3000").unwrap();
 
@@ -1049,7 +1092,8 @@ mod tests {
         conn.execute(
             "INSERT INTO tabs (id,workspace_id,name,position,created_at) VALUES (?1,?2,?3,?4,?5)",
             params!["tab-1", "ws-1", "Default", 0i64, 1_000_000i64],
-        ).unwrap();
+        )
+        .unwrap();
         create_browser_pane(&conn, "bp-1", "tab-1", "http://localhost:3000").unwrap();
         conn.execute("DELETE FROM workspaces WHERE id=?1", params!["ws-1"])
             .unwrap();
@@ -1069,11 +1113,13 @@ mod tests {
         conn.execute(
             "INSERT INTO tabs (id,workspace_id,name,position,created_at) VALUES (?1,?2,?3,?4,?5)",
             params!["tab-1", "ws-1", "Default", 0i64, 1_000_000i64],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO tabs (id,workspace_id,name,position,created_at) VALUES (?1,?2,?3,?4,?5)",
             params!["tab-2", "ws-1", "Docs", 1i64, 1_000_001i64],
-        ).unwrap();
+        )
+        .unwrap();
         create_browser_pane(&conn, "bp-1", "tab-1", "http://localhost:3000").unwrap();
         create_browser_pane(&conn, "bp-2", "tab-2", "https://example.com").unwrap();
 
@@ -1121,13 +1167,23 @@ mod tests {
 
         assert_eq!(get_ui_state(&conn, "workspace-ui-state-v1").unwrap(), None);
 
-        set_ui_state(&conn, "workspace-ui-state-v1", r#"{"activeTabIds":{"ws-1":"tab-2"}}"#).unwrap();
+        set_ui_state(
+            &conn,
+            "workspace-ui-state-v1",
+            r#"{"activeTabIds":{"ws-1":"tab-2"}}"#,
+        )
+        .unwrap();
         assert_eq!(
             get_ui_state(&conn, "workspace-ui-state-v1").unwrap(),
             Some(r#"{"activeTabIds":{"ws-1":"tab-2"}}"#.to_string())
         );
 
-        set_ui_state(&conn, "workspace-ui-state-v1", r#"{"activeTabIds":{"ws-1":"tab-3"}}"#).unwrap();
+        set_ui_state(
+            &conn,
+            "workspace-ui-state-v1",
+            r#"{"activeTabIds":{"ws-1":"tab-3"}}"#,
+        )
+        .unwrap();
         assert_eq!(
             get_ui_state(&conn, "workspace-ui-state-v1").unwrap(),
             Some(r#"{"activeTabIds":{"ws-1":"tab-3"}}"#.to_string())

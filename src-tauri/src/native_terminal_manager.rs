@@ -22,11 +22,12 @@
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line};
-use std::collections::HashSet;
 use regex::Regex;
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
-pub static LOCALHOST_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:http://)?(?:localhost|127\.0\.0\.1):(\d+)").unwrap());
+pub static LOCALHOST_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:http://)?(?:localhost|127\.0\.0\.1):(\d+)").unwrap());
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::test::TermSize;
@@ -140,7 +141,9 @@ pub struct NativeTerminalManager {
 
 impl NativeTerminalManager {
     pub fn new() -> Self {
-        NativeTerminalManager { handles: Mutex::new(HashMap::new()) }
+        NativeTerminalManager {
+            handles: Mutex::new(HashMap::new()),
+        }
     }
 }
 
@@ -186,7 +189,12 @@ impl NativeTerminalManager {
 
         let pty_system = portable_pty::native_pty_system();
         let pair = pty_system
-            .openpty(portable_pty::PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+            .openpty(portable_pty::PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(|e| format!("openpty failed: {e}"))?;
 
         let mut cmd = portable_pty::CommandBuilder::new(&resolved_shell);
@@ -195,7 +203,10 @@ impl NativeTerminalManager {
         cmd.env("TERM", "xterm-256color");
         cmd.env("TERM_PROGRAM", "Apple_Terminal");
 
-        let child = pair.slave.spawn_command(cmd).map_err(|e| format!("spawn failed: {e}"))?;
+        let child = pair
+            .slave
+            .spawn_command(cmd)
+            .map_err(|e| format!("spawn failed: {e}"))?;
         // Drop the slave handle: the child holds its own fd, and keeping the
         // parent copy open would prevent EOF on the master when the shell exits.
         drop(pair.slave);
@@ -203,15 +214,19 @@ impl NativeTerminalManager {
         // `try_clone_reader`/`take_writer` take `&self`, so `master` remains
         // owned and storable for later SIGWINCH-bearing resizes.
         let master: Box<dyn portable_pty::MasterPty + Send> = pair.master;
-        let mut reader =
-            master.try_clone_reader().map_err(|e| format!("clone reader: {e}"))?;
+        let mut reader = master
+            .try_clone_reader()
+            .map_err(|e| format!("clone reader: {e}"))?;
         let writer: Arc<Mutex<Box<dyn Write + Send>>> = Arc::new(Mutex::new(
-            master.take_writer().map_err(|e| format!("take writer: {e}"))?,
+            master
+                .take_writer()
+                .map_err(|e| format!("take writer: {e}"))?,
         ));
 
         let cwd_arc: Arc<Mutex<String>> = Arc::new(Mutex::new(resolved_cwd));
         let title_arc: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
-        let detected_ports: Arc<std::sync::Mutex<HashSet<String>>> = Arc::new(std::sync::Mutex::new(HashSet::new()));
+        let detected_ports: Arc<std::sync::Mutex<HashSet<String>>> =
+            Arc::new(std::sync::Mutex::new(HashSet::new()));
 
         let listener = TermEventSender {
             terminal_id: terminal_id.clone(),
@@ -220,7 +235,10 @@ impl NativeTerminalManager {
         };
 
         let term = Arc::new(Mutex::new(Term::new(
-            Config { scrolling_history: 10_000, ..Default::default() },
+            Config {
+                scrolling_history: 10_000,
+                ..Default::default()
+            },
             &TermSize::new(cols as usize, rows as usize),
             listener,
         )));
@@ -344,10 +362,13 @@ impl NativeTerminalManager {
                                     let mut ports = ports_clone.lock().unwrap();
                                     if !ports.contains(port_str) {
                                         ports.insert(port_str.to_string());
-                                        let _ = app_clone.emit("localhost-detected", PortPayload {
-                                            port: port_str.to_string(),
-                                            terminal_id: id.clone(),
-                                        });
+                                        let _ = app_clone.emit(
+                                            "localhost-detected",
+                                            PortPayload {
+                                                port: port_str.to_string(),
+                                                terminal_id: id.clone(),
+                                            },
+                                        );
                                     }
                                 }
                             }
@@ -356,12 +377,15 @@ impl NativeTerminalManager {
                         serialize_snapshot(
                             &*t,
                             Some(cwd_val),
-                            if title_val.is_empty() { None } else { Some(title_val) },
+                            if title_val.is_empty() {
+                                None
+                            } else {
+                                Some(title_val)
+                            },
                         )
                     };
                     acc.clear();
-                    let _ = app_clone
-                        .emit(&format!("native-terminal-update-{id}"), snapshot);
+                    let _ = app_clone.emit(&format!("native-terminal-update-{id}"), snapshot);
                 }
             });
         }
@@ -373,7 +397,16 @@ impl NativeTerminalManager {
 
         self.handles.lock().insert(
             terminal_id,
-            NativeTerminalHandle { writer, term, child, master, cwd: cwd_arc, title: title_arc, app_handle: app, detected_ports },
+            NativeTerminalHandle {
+                writer,
+                term,
+                child,
+                master,
+                cwd: cwd_arc,
+                title: title_arc,
+                app_handle: app,
+                detected_ports,
+            },
         );
         Ok(())
     }
@@ -407,7 +440,12 @@ impl NativeTerminalManager {
             let h = handles
                 .get(terminal_id)
                 .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
-            (Arc::clone(&h.term), Arc::clone(&h.cwd), Arc::clone(&h.title), h.app_handle.clone())
+            (
+                Arc::clone(&h.term),
+                Arc::clone(&h.cwd),
+                Arc::clone(&h.title),
+                h.app_handle.clone(),
+            )
         }; // handles lock released here — write_terminal is unblocked
 
         // Drop term lock before emit — IPC doesn't need the grid locked.
@@ -419,7 +457,11 @@ impl NativeTerminalManager {
             serialize_snapshot(
                 &*t,
                 Some(cwd_val),
-                if title_val.is_empty() { None } else { Some(title_val) },
+                if title_val.is_empty() {
+                    None
+                } else {
+                    Some(title_val)
+                },
             )
         }; // term lock released before the IPC call below
         let _ = app_handle.emit(&format!("native-terminal-update-{terminal_id}"), snapshot);
@@ -428,7 +470,12 @@ impl NativeTerminalManager {
         let handles = self.handles.lock();
         if let Some(h) = handles.get(terminal_id) {
             h.master
-                .resize(portable_pty::PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+                .resize(portable_pty::PtySize {
+                    rows,
+                    cols,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                })
                 .map_err(|e| e.to_string())?;
         } else {
             return Err(format!("Terminal '{terminal_id}' removed during resize"));
@@ -473,7 +520,12 @@ impl NativeTerminalManager {
             let mode = *t.mode();
             if mode.contains(TermMode::ALT_SCREEN) {
                 let cursor = t.grid().cursor.point;
-                Some(alt_screen_wheel_bytes(mode, delta, cursor.column.0, cursor.line.0.max(0) as usize))
+                Some(alt_screen_wheel_bytes(
+                    mode,
+                    delta,
+                    cursor.column.0,
+                    cursor.line.0.max(0) as usize,
+                ))
             } else {
                 None
             }
@@ -482,7 +534,10 @@ impl NativeTerminalManager {
         if let Some(bytes) = wheel_bytes {
             // The app's own redraw in response will refresh the snapshot via
             // the normal reader thread — no need to emit one here.
-            return writer.lock().write_all(bytes.as_bytes()).map_err(|e| e.to_string());
+            return writer
+                .lock()
+                .write_all(bytes.as_bytes())
+                .map_err(|e| e.to_string());
         }
 
         let snapshot = {
@@ -493,7 +548,11 @@ impl NativeTerminalManager {
             serialize_snapshot(
                 &*t,
                 Some(cwd_val),
-                if title_val.is_empty() { None } else { Some(title_val) },
+                if title_val.is_empty() {
+                    None
+                } else {
+                    Some(title_val)
+                },
             )
         }; // term lock released before emit
         let _ = app_handle.emit(&format!("native-terminal-update-{terminal_id}"), snapshot);
@@ -508,7 +567,12 @@ impl NativeTerminalManager {
             let h = handles
                 .get(terminal_id)
                 .ok_or_else(|| format!("No terminal '{terminal_id}'"))?;
-            (Arc::clone(&h.term), Arc::clone(&h.cwd), Arc::clone(&h.title), h.app_handle.clone())
+            (
+                Arc::clone(&h.term),
+                Arc::clone(&h.cwd),
+                Arc::clone(&h.title),
+                h.app_handle.clone(),
+            )
         };
 
         let snapshot = {
@@ -518,7 +582,11 @@ impl NativeTerminalManager {
             serialize_snapshot(
                 &*t,
                 Some(cwd_val),
-                if title_val.is_empty() { None } else { Some(title_val) },
+                if title_val.is_empty() {
+                    None
+                } else {
+                    Some(title_val)
+                },
             )
         };
         let _ = app_handle.emit(&format!("native-terminal-update-{terminal_id}"), snapshot);
@@ -528,7 +596,10 @@ impl NativeTerminalManager {
 
     /// OS process id of the shell, if still running.
     pub fn get_pid(&self, terminal_id: &str) -> Option<u32> {
-        self.handles.lock().get(terminal_id).and_then(|h| h.child.process_id())
+        self.handles
+            .lock()
+            .get(terminal_id)
+            .and_then(|h| h.child.process_id())
     }
 
     /// Return all terminal text (scrollback + visible viewport) as plain text.
@@ -584,7 +655,10 @@ pub fn scan_osc_sequences(
 
         // OSC 7: working-directory report — `ESC ] 7 ; file://host/path BEL`.
         if let Some(start) = s.find("\x1b]7;file://") {
-            if let Some(end) = s[start..].find('\x07').or_else(|| s[start..].find("\x1b\\")) {
+            if let Some(end) = s[start..]
+                .find('\x07')
+                .or_else(|| s[start..].find("\x1b\\"))
+            {
                 let content = &s[start + "\x1b]7;file://".len()..start + end];
                 // Strip the optional host component before the first path slash.
                 let path = if let Some(slash) = content.find('/') {
@@ -646,7 +720,11 @@ pub fn percent_decode(s: &str) -> String {
 // Sentinel used when the palette has no entry for a Named/Indexed color. We
 // detect it after resolution and substitute the caller-provided default so the
 // theme stays consistent instead of leaking a hardcoded gray into the UI.
-const UNRESOLVED: Rgb = Rgb { r: 200, g: 200, b: 200 };
+const UNRESOLVED: Rgb = Rgb {
+    r: 200,
+    g: 200,
+    b: 200,
+};
 
 /// Encode a wheel-scroll tick as input bytes for a program running on the
 /// **alternate screen** (the alt screen has no scrollback, so
@@ -658,7 +736,12 @@ const UNRESOLVED: Rgb = Rgb { r: 200, g: 200, b: 200 };
 /// mouse-wheel report so the app can scroll its own view. Otherwise fall back
 /// to Up/Down arrow-key presses, which is how wheel scrolling drives
 /// alt-screen pagers (`less`, `vim`, `htop`) that don't read the mouse.
-pub fn alt_screen_wheel_bytes(mode: TermMode, delta: i32, cursor_col: usize, cursor_row: usize) -> String {
+pub fn alt_screen_wheel_bytes(
+    mode: TermMode,
+    delta: i32,
+    cursor_col: usize,
+    cursor_row: usize,
+) -> String {
     let steps = delta.unsigned_abs().min(10);
     let mut out = String::new();
     if mode.intersects(TermMode::MOUSE_MODE) && mode.contains(TermMode::SGR_MOUSE) {
@@ -669,7 +752,11 @@ pub fn alt_screen_wheel_bytes(mode: TermMode, delta: i32, cursor_col: usize, cur
         }
     } else {
         let key = if delta > 0 { 'A' } else { 'B' };
-        let prefix = if mode.contains(TermMode::APP_CURSOR) { 'O' } else { '[' };
+        let prefix = if mode.contains(TermMode::APP_CURSOR) {
+            'O'
+        } else {
+            '['
+        };
         for _ in 0..steps {
             out.push_str(&format!("\x1b{prefix}{key}"));
         }
@@ -707,11 +794,21 @@ pub fn serialize_snapshot(
 
         let f = item.flags;
         let mut flags: u32 = 0;
-        if f.contains(Flags::BOLD) { flags |= 1; }
-        if f.contains(Flags::DIM) { flags |= 2; }
-        if f.contains(Flags::ITALIC) { flags |= 4; }
-        if f.contains(Flags::UNDERLINE) { flags |= 8; }
-        if f.contains(Flags::STRIKEOUT) { flags |= 16; }
+        if f.contains(Flags::BOLD) {
+            flags |= 1;
+        }
+        if f.contains(Flags::DIM) {
+            flags |= 2;
+        }
+        if f.contains(Flags::ITALIC) {
+            flags |= 4;
+        }
+        if f.contains(Flags::UNDERLINE) {
+            flags |= 8;
+        }
+        if f.contains(Flags::STRIKEOUT) {
+            flags |= 16;
+        }
 
         binary_cells.extend_from_slice(&ch_u32.to_le_bytes());
         binary_cells.extend_from_slice(&fg.to_le_bytes());
@@ -810,22 +907,86 @@ fn resolve_default_named(n: alacritty_terminal::vte::ansi::NamedColor, default_p
 
 fn default_indexed_color(n: u8) -> Rgb {
     match n {
-        0 => Rgb { r: 22, g: 19, b: 16 },
-        1 => Rgb { r: 205, g: 49, b: 49 },
-        2 => Rgb { r: 13, g: 188, b: 121 },
-        3 => Rgb { r: 229, g: 229, b: 16 },
-        4 => Rgb { r: 36, g: 114, b: 200 },
-        5 => Rgb { r: 188, g: 63, b: 188 },
-        6 => Rgb { r: 17, g: 168, b: 205 },
-        7 => Rgb { r: 229, g: 229, b: 229 },
-        8 => Rgb { r: 90, g: 80, b: 64 },
-        9 => Rgb { r: 241, g: 76, b: 76 },
-        10 => Rgb { r: 35, g: 209, b: 139 },
-        11 => Rgb { r: 245, g: 245, b: 67 },
-        12 => Rgb { r: 59, g: 142, b: 234 },
-        13 => Rgb { r: 214, g: 112, b: 214 },
-        14 => Rgb { r: 41, g: 184, b: 219 },
-        15 => Rgb { r: 255, g: 255, b: 255 },
+        0 => Rgb {
+            r: 22,
+            g: 19,
+            b: 16,
+        },
+        1 => Rgb {
+            r: 205,
+            g: 49,
+            b: 49,
+        },
+        2 => Rgb {
+            r: 13,
+            g: 188,
+            b: 121,
+        },
+        3 => Rgb {
+            r: 229,
+            g: 229,
+            b: 16,
+        },
+        4 => Rgb {
+            r: 36,
+            g: 114,
+            b: 200,
+        },
+        5 => Rgb {
+            r: 188,
+            g: 63,
+            b: 188,
+        },
+        6 => Rgb {
+            r: 17,
+            g: 168,
+            b: 205,
+        },
+        7 => Rgb {
+            r: 229,
+            g: 229,
+            b: 229,
+        },
+        8 => Rgb {
+            r: 90,
+            g: 80,
+            b: 64,
+        },
+        9 => Rgb {
+            r: 241,
+            g: 76,
+            b: 76,
+        },
+        10 => Rgb {
+            r: 35,
+            g: 209,
+            b: 139,
+        },
+        11 => Rgb {
+            r: 245,
+            g: 245,
+            b: 67,
+        },
+        12 => Rgb {
+            r: 59,
+            g: 142,
+            b: 234,
+        },
+        13 => Rgb {
+            r: 214,
+            g: 112,
+            b: 214,
+        },
+        14 => Rgb {
+            r: 41,
+            g: 184,
+            b: 219,
+        },
+        15 => Rgb {
+            r: 255,
+            g: 255,
+            b: 255,
+        },
         16..=231 => {
             let n = n - 16;
             let steps = [0, 95, 135, 175, 215, 255];
@@ -869,7 +1030,7 @@ pub fn get_all_text(term: &Term<impl EventListener>) -> String {
 
     // Do not strip trailing blank lines so `history + rows` perfectly matches `lines.length`.
     // This allows the frontend to correctly map absolute rows to the output lines.
-    
+
     lines.join("\n")
 }
 
@@ -913,7 +1074,11 @@ pub fn search_term(term: &Term<impl EventListener>, query: &str) -> Vec<SearchMa
                 col_end: col_end as u16,
             });
             // Advance past this match's first char to find overlapping matches.
-            start = byte_start + row_str[byte_start..].chars().next().map_or(1, |c| c.len_utf8());
+            start = byte_start
+                + row_str[byte_start..]
+                    .chars()
+                    .next()
+                    .map_or(1, |c| c.len_utf8());
         }
     }
     results
@@ -931,7 +1096,10 @@ mod tests {
 
     #[test]
     fn snapshot_has_correct_dimensions() {
-        let config = Config { scrolling_history: 100, ..Default::default() };
+        let config = Config {
+            scrolling_history: 100,
+            ..Default::default()
+        };
         let size = TermSize::new(80, 24);
         let term = Term::new(config, &size, NullListener);
         let snapshot = serialize_snapshot(&term, None, None);
@@ -942,7 +1110,10 @@ mod tests {
 
     #[test]
     fn snapshot_echo_text_appears_in_cells() {
-        let config = Config { scrolling_history: 100, ..Default::default() };
+        let config = Config {
+            scrolling_history: 100,
+            ..Default::default()
+        };
         let size = TermSize::new(80, 24);
         let mut term = Term::new(config, &size, NullListener);
         // `Processor` is generic over a `Timeout` impl; default to the std handler.
@@ -954,10 +1125,17 @@ mod tests {
         let snapshot = serialize_snapshot(&term, None, None);
         // decode base64 to test
         use base64::Engine;
-        let decoded = base64::engine::general_purpose::STANDARD.decode(&snapshot.cells_b64).unwrap();
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&snapshot.cells_b64)
+            .unwrap();
         let mut chars = String::new();
         for i in 0..5 {
-            let ch_u32 = u32::from_le_bytes([decoded[i*16], decoded[i*16+1], decoded[i*16+2], decoded[i*16+3]]);
+            let ch_u32 = u32::from_le_bytes([
+                decoded[i * 16],
+                decoded[i * 16 + 1],
+                decoded[i * 16 + 2],
+                decoded[i * 16 + 3],
+            ]);
             if ch_u32 != 0 && ch_u32 != 32 {
                 chars.push(std::char::from_u32(ch_u32).unwrap_or(' '));
             } else {
@@ -988,7 +1166,10 @@ mod tests {
 
     #[test]
     fn search_finds_known_text() {
-        let config = Config { scrolling_history: 100, ..Default::default() };
+        let config = Config {
+            scrolling_history: 100,
+            ..Default::default()
+        };
         let size = TermSize::new(80, 24);
         let mut term = Term::new(config, &size, NullListener);
         let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
@@ -1005,7 +1186,10 @@ mod tests {
 
     #[test]
     fn search_no_match_returns_empty() {
-        let config = Config { scrolling_history: 100, ..Default::default() };
+        let config = Config {
+            scrolling_history: 100,
+            ..Default::default()
+        };
         let size = TermSize::new(80, 24);
         let term = Term::new(config, &size, NullListener);
         let matches = search_term(&term, "nothing");

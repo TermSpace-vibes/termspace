@@ -1,6 +1,6 @@
 #![allow(unexpected_cfgs)]
-mod agent_hook;
 mod agent_context;
+mod agent_hook;
 mod agent_runtime_manager;
 mod audio;
 mod browser_pane_manager;
@@ -9,17 +9,17 @@ mod clipboard_insertion_service;
 mod commands;
 mod daemon_client;
 mod db;
-mod dictation_overlay_service;
 mod dictation_model;
+mod dictation_overlay_service;
 mod global_shortcut_service;
 pub mod lsp_manager;
 mod native_terminal_manager;
 mod platform_permissions;
 mod tray_service;
 
+use agent_runtime_manager::AgentRuntimeManager;
 use browser_pane_manager::BrowserPaneManager;
 use claude_session_manager::ClaudeSessionManager;
-use agent_runtime_manager::AgentRuntimeManager;
 use commands::{DaemonClientState, DbState};
 use daemon_client::{ensure_daemon_running, DaemonClient};
 use native_terminal_manager::NativeTerminalManager;

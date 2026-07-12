@@ -74,15 +74,14 @@ impl ClaudeSessionManager {
                 .map_err(|e| format!("take writer: {e}"))?,
         ));
 
-        self.handles.lock().insert(
-            session_id.clone(),
-            ClaudeSessionHandle {
-                writer,
-                child,
-            },
-        );
+        self.handles
+            .lock()
+            .insert(session_id.clone(), ClaudeSessionHandle { writer, child });
 
-        let _ = app.emit(&format!("claude-ready-{session_id}"), "Claude session started");
+        let _ = app.emit(
+            &format!("claude-ready-{session_id}"),
+            "Claude session started",
+        );
         let _ = app.emit(
             "task-lifecycle",
             serde_json::json!({ "id": &session_id, "source": "claude", "kind": "started" }),
@@ -109,7 +108,10 @@ impl ClaudeSessionManager {
                 }
             }
             handles.lock().remove(&session_id);
-            let _ = app.emit(&format!("claude-exit-{session_id}"), "Claude session exited");
+            let _ = app.emit(
+                &format!("claude-exit-{session_id}"),
+                "Claude session exited",
+            );
             let _ = app.emit(
                 "task-lifecycle",
                 serde_json::json!({ "id": &session_id, "source": "claude", "kind": "completed" }),
@@ -151,7 +153,11 @@ impl ClaudeSessionManager {
 }
 
 fn claude_interactive_args(uuid: &str) -> Vec<String> {
-    vec!["--ax-screen-reader".to_string(), "--session-id".to_string(), uuid.to_string()]
+    vec![
+        "--ax-screen-reader".to_string(),
+        "--session-id".to_string(),
+        uuid.to_string(),
+    ]
 }
 
 fn resolved_working_directory(cwd: &str, home: Option<&Path>) -> PathBuf {
@@ -244,10 +250,8 @@ mod tests {
 
     #[test]
     fn resolves_claude_from_home_local_bin_when_path_misses_it() {
-        let root = std::env::temp_dir().join(format!(
-            "termspace-claude-path-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("termspace-claude-path-{}", uuid::Uuid::new_v4()));
         let bin_dir = root.join(".local/bin");
         fs::create_dir_all(&bin_dir).unwrap();
         let claude = bin_dir.join("claude");
@@ -265,10 +269,8 @@ mod tests {
 
     #[test]
     fn reports_candidate_paths_when_claude_cannot_be_resolved() {
-        let root = std::env::temp_dir().join(format!(
-            "termspace-claude-missing-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("termspace-claude-missing-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&root).unwrap();
 
         let err = resolve_claude_binary_from("/usr/bin:/bin", Some(&root)).unwrap_err();

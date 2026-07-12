@@ -9,8 +9,7 @@ pub const MODEL_FILE_NAME: &str = "ggml-base.en.bin";
 pub const MODEL_PART_FILE_NAME: &str = "ggml-base.en.bin.part";
 pub const MODEL_URL: &str =
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin";
-pub const MODEL_SHA256: &str =
-    "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002";
+pub const MODEL_SHA256: &str = "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002";
 pub const MODEL_SIZE_BYTES: u64 = 147_964_211;
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
@@ -92,7 +91,9 @@ pub fn validate_model_file(path: &Path) -> Result<u64, String> {
 
     let sha = sha256_file(path)?;
     if sha != MODEL_SHA256 {
-        return Err(format!("model checksum mismatch: expected {MODEL_SHA256}, got {sha}"));
+        return Err(format!(
+            "model checksum mismatch: expected {MODEL_SHA256}, got {sha}"
+        ));
     }
 
     Ok(size)

@@ -83,7 +83,13 @@ pub fn resolve_workspace_instructions(
             }
             resolution_path.push(directory.clone());
             let agents_path = directory.join("AGENTS.md");
-            add_instruction_if_present(&mut files, &mut seen, &agents_path, &directory, "agents-md")?;
+            add_instruction_if_present(
+                &mut files,
+                &mut seen,
+                &agents_path,
+                &directory,
+                "agents-md",
+            )?;
             if directory == root {
                 break;
             }
@@ -112,35 +118,55 @@ pub fn assemble_context(request: ContextRequest) -> Result<ContextBundle, String
     for selected_path in &request.selected_paths {
         let display_path = selected_path.display().to_string();
         if is_default_excluded(selected_path) {
-            exclusions.push(ContextExclusion { source: display_path, reason: "default_exclusion".into() });
+            exclusions.push(ContextExclusion {
+                source: display_path,
+                reason: "default_exclusion".into(),
+            });
             continue;
         }
         let canonical = match fs::canonicalize(selected_path) {
             Ok(path) => path,
             Err(_) => {
-                exclusions.push(ContextExclusion { source: display_path, reason: "missing".into() });
+                exclusions.push(ContextExclusion {
+                    source: display_path,
+                    reason: "missing".into(),
+                });
                 continue;
             }
         };
         if !canonical.starts_with(&root) {
-            exclusions.push(ContextExclusion { source: display_path, reason: "outside_workspace".into() });
+            exclusions.push(ContextExclusion {
+                source: display_path,
+                reason: "outside_workspace".into(),
+            });
             continue;
         }
         if !canonical.is_file() {
-            exclusions.push(ContextExclusion { source: display_path, reason: "not_a_file".into() });
+            exclusions.push(ContextExclusion {
+                source: display_path,
+                reason: "not_a_file".into(),
+            });
             continue;
         }
-        let content = fs::read(&canonical).map_err(|error| format!("Unable to inspect selected context: {error}"))?;
+        let content = fs::read(&canonical)
+            .map_err(|error| format!("Unable to inspect selected context: {error}"))?;
         let item_tokens = ((content.len() as i64) + 3) / 4;
         if estimated_tokens + item_tokens > budget {
-            exclusions.push(ContextExclusion { source: display_path, reason: "token_budget".into() });
+            exclusions.push(ContextExclusion {
+                source: display_path,
+                reason: "token_budget".into(),
+            });
             continue;
         }
         estimated_tokens += item_tokens;
         items.push(ContextItem {
             id: format!("context-{}", items.len() + 1),
             kind: "user_attachment".into(),
-            source: canonical.strip_prefix(&root).unwrap_or(&canonical).display().to_string(),
+            source: canonical
+                .strip_prefix(&root)
+                .unwrap_or(&canonical)
+                .display()
+                .to_string(),
             content_hash: hash_bytes(&content),
             estimated_tokens: item_tokens,
             priority: 100,
@@ -164,7 +190,8 @@ pub fn assemble_context(request: ContextRequest) -> Result<ContextBundle, String
 }
 
 fn canonical_workspace_root(workspace_root: &Path) -> Result<PathBuf, String> {
-    fs::canonicalize(workspace_root).map_err(|error| format!("Unable to resolve workspace root: {error}"))
+    fs::canonicalize(workspace_root)
+        .map_err(|error| format!("Unable to resolve workspace root: {error}"))
 }
 
 fn add_instruction_if_present(
@@ -177,7 +204,8 @@ fn add_instruction_if_present(
     if !path.is_file() || !seen.insert(path.to_path_buf()) {
         return Ok(());
     }
-    let content = fs::read(path).map_err(|error| format!("Unable to read workspace instruction: {error}"))?;
+    let content =
+        fs::read(path).map_err(|error| format!("Unable to read workspace instruction: {error}"))?;
     files.push(ResolvedInstructionFile {
         path: path.to_path_buf(),
         scope_root: scope_root.to_path_buf(),
@@ -188,10 +216,15 @@ fn add_instruction_if_present(
 }
 
 fn is_default_excluded(path: &Path) -> bool {
-    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
     file_name.starts_with(".env")
         || matches!(file_name, "id_rsa" | "id_ed25519" | "credentials" | ".git")
-        || path.components().any(|component| component.as_os_str() == ".git")
+        || path
+            .components()
+            .any(|component| component.as_os_str() == ".git")
 }
 
 fn hash_bytes(content: &[u8]) -> String {
@@ -239,7 +272,14 @@ mod tests {
             fs::write(&nested_agents, "nested instructions").unwrap();
             fs::write(&package_file, "export const feature = true;").unwrap();
             fs::write(&outside_file, "outside").unwrap();
-            Self { root, root_agents, root_claude, nested_agents, package_file, outside_file }
+            Self {
+                root,
+                root_agents,
+                root_claude,
+                nested_agents,
+                package_file,
+                outside_file,
+            }
         }
     }
 
@@ -253,10 +293,15 @@ mod tests {
     #[test]
     fn closest_agents_instruction_precedes_root_and_claude_files() {
         let fixture = Fixture::new();
-        let resolved = resolve_workspace_instructions(&fixture.root, &[fixture.package_file.clone()]).unwrap();
+        let resolved =
+            resolve_workspace_instructions(&fixture.root, &[fixture.package_file.clone()]).unwrap();
 
         assert_eq!(
-            resolved.files.iter().map(|file| file.path.clone()).collect::<Vec<_>>(),
+            resolved
+                .files
+                .iter()
+                .map(|file| file.path.clone())
+                .collect::<Vec<_>>(),
             vec![
                 fs::canonicalize(&fixture.nested_agents).unwrap(),
                 fs::canonicalize(&fixture.root_agents).unwrap(),
@@ -281,8 +326,17 @@ mod tests {
         })
         .unwrap();
 
-        assert!(bundle.items.iter().all(|item| !item.source.ends_with(".env")));
-        assert!(bundle.exclusions.iter().any(|item| item.reason == "default_exclusion"));
-        assert!(bundle.exclusions.iter().any(|item| item.reason == "outside_workspace"));
+        assert!(bundle
+            .items
+            .iter()
+            .all(|item| !item.source.ends_with(".env")));
+        assert!(bundle
+            .exclusions
+            .iter()
+            .any(|item| item.reason == "default_exclusion"));
+        assert!(bundle
+            .exclusions
+            .iter()
+            .any(|item| item.reason == "outside_workspace"));
     }
 }

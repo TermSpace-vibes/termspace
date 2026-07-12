@@ -17,9 +17,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use tauri::{
-    Emitter, LogicalPosition, LogicalSize, Manager, WebviewBuilder, WebviewUrl,
-};
+use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, WebviewBuilder, WebviewUrl};
 use tauri_plugin_dialog::DialogExt;
 
 /// Offscreen coordinates used to "hide" a pane without destroying it. Keeping
@@ -60,27 +58,33 @@ struct PaneEntry {
     granted: std::sync::Arc<std::sync::Mutex<bool>>,
 }
 
-static ADBLOCK_ENGINE: std::sync::OnceLock<std::sync::Arc<adblock::engine::Engine>> = std::sync::OnceLock::new();
+static ADBLOCK_ENGINE: std::sync::OnceLock<std::sync::Arc<adblock::engine::Engine>> =
+    std::sync::OnceLock::new();
 
 fn get_adblock_engine() -> std::sync::Arc<adblock::engine::Engine> {
-    ADBLOCK_ENGINE.get_or_init(|| {
-        let rules = vec![
-            "||doubleclick.net^",
-            "||googleadservices.com^",
-            "||googlesyndication.com^",
-            "||ads.twitter.com^",
-            "||facebook.com/tr/^",
-            "||taboola.com^",
-            "||outbrain.com^",
-            "||criteo.com^",
-            "||adsystem.com^",
-            "||adserv.com^",
-            "||adnxs.com^",
-            "||ads-twitter.com^",
-            "/pagead/js/adsbygoogle.js",
-        ];
-        std::sync::Arc::new(adblock::engine::Engine::from_rules(&rules, adblock::lists::ParseOptions::default()))
-    }).clone()
+    ADBLOCK_ENGINE
+        .get_or_init(|| {
+            let rules = vec![
+                "||doubleclick.net^",
+                "||googleadservices.com^",
+                "||googlesyndication.com^",
+                "||ads.twitter.com^",
+                "||facebook.com/tr/^",
+                "||taboola.com^",
+                "||outbrain.com^",
+                "||criteo.com^",
+                "||adsystem.com^",
+                "||adserv.com^",
+                "||adnxs.com^",
+                "||ads-twitter.com^",
+                "/pagead/js/adsbygoogle.js",
+            ];
+            std::sync::Arc::new(adblock::engine::Engine::from_rules(
+                &rules,
+                adblock::lists::ParseOptions::default(),
+            ))
+        })
+        .clone()
 }
 
 /// A single media state push from the injected page script, decoded from a
@@ -252,7 +256,8 @@ impl BrowserPaneManager {
 
         let cache_dir_clone = cache_dir.clone();
 
-        let init_js = format!(r#"
+        let init_js = format!(
+            r#"
         window.__termspace_adblock_enabled = {};
 
         // ── Autoplay gate ──────────────────────────────────────────────────
@@ -310,7 +315,7 @@ impl BrowserPaneManager {
             const adSelectors = ['.ad', '.ads', '.advertisement', '#ads', 'ins.adsbygoogle', 'div[id^="google_ads_"]', 'div[class*="Sponsored"]', '.taboola', '.outbrain'];
             const style = document.createElement('style');
             style.textContent = adSelectors.map(s => s + '{{display:none !important;}}').join('\n');
-            
+
             document.addEventListener('DOMContentLoaded', () => {{
                 if (window.__termspace_adblock_enabled) {{
                     document.documentElement.appendChild(style);
@@ -321,16 +326,16 @@ impl BrowserPaneManager {
                 if (!window.__termspace_adblock_enabled) return;
                 if (!document.head.contains(style)) document.head.appendChild(style);
             }});
-            
+
             // YouTube specific ad-skipper
             setInterval(() => {{
                 if (window.__termspace_adblock_enabled && window.location.hostname.includes('youtube.com')) {{
                     const skipBtn = document.querySelector('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern');
                     if (skipBtn) skipBtn.click();
-                    
+
                     const adOverlay = document.querySelector('.ytp-ad-overlay-close-button');
                     if (adOverlay) adOverlay.click();
-                    
+
                     const video = document.querySelector('video');
                     const adShowing = document.querySelector('.ad-showing, .ad-interrupting');
                     if (video && adShowing) {{
@@ -502,7 +507,7 @@ impl BrowserPaneManager {
                     urlToOpen = e.target.src || e.target.currentSrc;
                     mediaType = 'video';
                 }}
-                
+
                 if (!urlToOpen) {{
                     while (target && target.tagName !== 'A') {{
                         target = target.parentElement;
@@ -517,7 +522,7 @@ impl BrowserPaneManager {
                     e.preventDefault();
                     e.stopPropagation();
                     const url = `termspace-ctx://menu?url=${{encodeURIComponent(urlToOpen)}}&type=${{mediaType}}&x=${{e.clientX}}&y=${{e.clientY}}`;
-                    
+
                     const iframe = document.createElement('iframe');
                     iframe.style.display = 'none';
                     iframe.src = url;
@@ -525,7 +530,9 @@ impl BrowserPaneManager {
                     setTimeout(() => iframe.remove(), 100);
                 }}
             }}, true);
-        "#, if adblock_enabled { "true" } else { "false" });
+        "#,
+            if adblock_enabled { "true" } else { "false" }
+        );
 
         let ns = uuid::Uuid::NAMESPACE_URL;
         let ds_uuid = uuid::Uuid::new_v5(&ns, data_dir_name.as_bytes());
@@ -560,7 +567,7 @@ impl BrowserPaneManager {
                 let x = nav_url.query_pairs().find(|(k, _)| k == "x").map(|(_, v)| v.into_owned()).unwrap_or_default();
                 let y = nav_url.query_pairs().find(|(k, _)| k == "y").map(|(_, v)| v.into_owned()).unwrap_or_default();
                 let type_str = nav_url.query_pairs().find(|(k, _)| k == "type").map(|(_, v)| v.into_owned()).unwrap_or_else(|| "link".to_string());
-                
+
                 let _ = nav_app_handle.emit("browser-pane-context-menu", serde_json::json!({
                     "id": nav_id,
                     "url": url,
@@ -573,7 +580,7 @@ impl BrowserPaneManager {
             if nav_url.scheme() == "termspace" {
                 return false;
             }
-            
+
             println!(">>> BROWSER: Navigation requested to: {}", nav_url);
             // We no longer emit browser-pane-url-changed here because this hook fires for iframes too.
             // URL changes are now handled by on_page_load and the native polling task.
@@ -599,7 +606,7 @@ impl BrowserPaneManager {
             if was_granted {
                 let _ = webview.eval("window.__termspaceFocused = true;");
             }
-            
+
             let js = r#"
                 (function() {
                     const title = document.title;
@@ -607,14 +614,14 @@ impl BrowserPaneManager {
                     return JSON.stringify({ title, icon });
                 })();
             "#;
-            
+
             let _ = webview.eval_with_callback(js, move |result| {
-                // `result` is often a JSON-stringified string from the JS engine, so we might need to parse it twice 
+                // `result` is often a JSON-stringified string from the JS engine, so we might need to parse it twice
                 // if the JS engine JSON.stringifies the return value. But since we return JSON.stringify, it's a string.
                 // Let's just try parsing.
                 let parsed_str: Result<String, _> = serde_json::from_str(&result);
                 let actual_json = parsed_str.unwrap_or(result);
-                
+
                 if let Ok(data) = serde_json::from_str::<serde_json::Value>(&actual_json) {
                     let _ = app.emit("browser-pane-metadata", serde_json::json!({
                         "id": id,
@@ -643,7 +650,7 @@ impl BrowserPaneManager {
                     println!(">>> BROWSER: Download requested: {}", url);
                     let app = webview.app_handle();
                     let default_name = destination.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                    
+
                     if let Some(file_path) = app.dialog().file().set_file_name(&default_name).blocking_save_file() {
                         let path_str = file_path.to_string();
                         if let Ok(path) = file_path.into_path() {
@@ -651,13 +658,13 @@ impl BrowserPaneManager {
                         } else {
                             *destination = std::path::PathBuf::from(&path_str);
                         }
-                        
+
                         let _ = download_app_handle.emit("browser-pane-download-requested", serde_json::json!({
                             "id": download_id,
                             "url": url.to_string(),
                             "path": destination.to_string_lossy().into_owned()
                         }));
-                        
+
                         return true;
                     }
                     false
@@ -678,7 +685,7 @@ impl BrowserPaneManager {
         })
         .on_web_resource_request(move |request, response| {
             let url_str = request.uri().to_string();
-            
+
             // 1. Native Adblock
             if *adblock_state_clone.lock().unwrap() {
                 if let Ok(ad_req) = adblock::request::Request::new(&url_str, &url_str, "") {
@@ -696,7 +703,7 @@ impl BrowserPaneManager {
                 let cache_dir_local = cache_dir_clone.clone();
                 let hash = seahash::hash(url_str.as_bytes());
                 let file_path = cache_dir_local.join(hash.to_string());
-                
+
                 if file_path.exists() {
                     if let Ok(data) = std::fs::read(&file_path) {
                         *response.status_mut() = tauri::http::StatusCode::OK;
@@ -976,7 +983,10 @@ mod tests {
         assert!(!payload.ended);
         assert_eq!(payload.media_type, "video");
         assert_eq!(payload.media_title.as_deref(), Some("Cool Video"));
-        assert_eq!(payload.thumbnail_url.as_deref(), Some("https://x.test/t.jpg"));
+        assert_eq!(
+            payload.thumbnail_url.as_deref(),
+            Some("https://x.test/t.jpg")
+        );
         assert!(payload.can_prev);
         assert!(!payload.can_next);
     }
@@ -1007,7 +1017,10 @@ mod tests {
 
     #[test]
     fn js_escape_with_special_chars() {
-        assert_eq!(js_escape("ends_with_backslash\\"), "ends_with_backslash\\\\");
+        assert_eq!(
+            js_escape("ends_with_backslash\\"),
+            "ends_with_backslash\\\\"
+        );
         assert_eq!(js_escape(""), "");
         assert_eq!(js_escape("\""), "\\\"");
     }
@@ -1021,7 +1034,8 @@ mod tests {
     #[test]
     fn parse_media_update_url_contradictory_ended_and_playing() {
         let url: tauri::Url = "termspace-media://update?data=%7B%22mediaId%22%3A%22m1%22%2C%22isPlaying%22%3Atrue%2C%22ended%22%3Atrue%2C%22mediaType%22%3A%22video%22%7D".parse().unwrap();
-        let payload = parse_media_update_url(&url).expect("payload should parse despite contradiction");
+        let payload =
+            parse_media_update_url(&url).expect("payload should parse despite contradiction");
         assert_eq!(payload.media_id, "m1");
         assert_eq!(payload.media_type, "video");
         assert!(payload.ended);

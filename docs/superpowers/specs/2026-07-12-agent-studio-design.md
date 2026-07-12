@@ -1,7 +1,7 @@
 # Agent Studio Design
 
 **Date:** 2026-07-12  
-**Status:** Approved design; implementation plan pending written-spec review
+**Status:** Release 1A implemented and verified (2026-07-12). Release 1B (Epic artifacts, revisions, requirements, tickets) and Release 1C (evidence-bound review) remain planned.
 
 ## Goal
 
