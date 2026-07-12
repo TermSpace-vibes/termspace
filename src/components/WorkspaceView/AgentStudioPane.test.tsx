@@ -7,11 +7,21 @@ const tauri = vi.hoisted(() => ({ listen: vi.fn().mockResolvedValue(() => {}), i
 vi.mock('../../utils/tauri', () => tauri)
 
 describe('AgentStudioPane', () => {
-  it('attaches its event listener before starting the selected provider session', async () => {
+  it('waits to launch the provider until the user sends their first prompt', async () => {
     useAppStore.setState({ agentStudioPanesByTab: { 'tab-1': [{ id: 'agent-1', tabId: 'tab-1', title: 'Agent Studio', cwd: '/tmp', conversationId: null, position: 0, createdAt: 1 }] } })
     render(<AgentStudioPane tabId="tab-1" paneId="agent-1" isActive onFocus={vi.fn()} onClose={vi.fn()} />)
-    await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith('start_agent_session', expect.any(Object)))
-    expect(tauri.listen.mock.invocationCallOrder[0]).toBeLessThan(tauri.invoke.mock.invocationCallOrder.find((_, index) => tauri.invoke.mock.calls[index][0] === 'start_agent_session')!)
+    await waitFor(() => expect(tauri.listen).toHaveBeenCalled())
+    expect(tauri.invoke).not.toHaveBeenCalledWith('start_agent_session', expect.any(Object))
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Ask Agent Studio' }), { target: { value: 'Plan this change' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
+
+    await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith('write_agent_session', { sessionId: 'agent-1', data: 'Plan this change\n' }))
+    const startIndex = tauri.invoke.mock.calls.findIndex(([command]) => command === 'start_agent_session')
+    const writeIndex = tauri.invoke.mock.calls.findIndex(([command]) => command === 'write_agent_session')
+    expect(startIndex).toBeGreaterThanOrEqual(0)
+    expect(startIndex).toBeLessThan(writeIndex)
+    expect(tauri.listen.mock.invocationCallOrder[0]).toBeLessThan(tauri.invoke.mock.invocationCallOrder[startIndex])
   })
 
   it('opens explicit access choices from the composer', async () => {

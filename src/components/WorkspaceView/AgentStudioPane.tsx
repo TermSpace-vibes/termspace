@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, Check, ChevronDown, FilePenLine, ImagePlus, Layers3, LockKeyhole, Mic, Search, SendHorizontal, ShieldCheck, Sparkles, Square, X } from 'lucide-react'
 import { invoke, listen } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
 import { appendAgentEnvelope, appendAgentUserMessage, createAgentTranscript } from './agentTranscript'
 import { AgentContextInspector } from './AgentContextInspector'
 import { AgentProviderDiagnostics } from './AgentProviderDiagnostics'
+import { stripClaudeAnsi } from './claudeOutputParser'
 import type { AgentProviderId, AgentRuntimeEnvelope } from '../../types'
 
 interface Props { tabId: string; paneId: string; isActive: boolean; onFocus: (id: string) => void; onClose: (id: string) => void }
@@ -33,6 +34,7 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
   const [accessMode, setAccessMode] = useState<AccessMode>('full-access')
   const [workflow, setWorkflow] = useState<WorkflowMode>('epic')
   const [modelQuery, setModelQuery] = useState('')
+  const sessionStartedRef = useRef(false)
   const currentAccess = useMemo(() => accessModes.find((mode) => mode.id === accessMode) ?? accessModes[2], [accessMode])
   const start = useCallback(async () => {
     await invoke('start_agent_session', { sessionId: paneId, provider, cwd: pane?.cwd ?? '' })
@@ -43,15 +45,23 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
     let active = true
     listen<AgentRuntimeEnvelope>(`agent-event-${paneId}`, (event) => {
       if (!active) return
-      setTranscript((current) => appendAgentEnvelope(current, event.payload))
+      const sanitizedPayload = event.payload.event.kind === 'text'
+        ? { ...event.payload, event: { ...event.payload.event, text: stripClaudeAnsi(event.payload.event.text) } }
+        : event.payload
+      if (sanitizedPayload.event.kind === 'text' && !sanitizedPayload.event.text) return
+      setTranscript((current) => appendAgentEnvelope(current, sanitizedPayload))
       setRunning(event.payload.event.kind === 'text' || event.payload.event.kind === 'activity')
-    }).then((dispose) => { unlisten = dispose; return start() }).catch(() => {})
+    }).then((dispose) => { unlisten = dispose }).catch(() => {})
     return () => { active = false; unlisten?.() }
-  }, [paneId, start])
+  }, [paneId])
 
   const submit = async () => {
     const text = draft.trim()
     if (!text) return
+    if (!sessionStartedRef.current) {
+      await start()
+      sessionStartedRef.current = true
+    }
     setTranscript((current) => appendAgentUserMessage(current, text))
     setDraft('')
     setRunning(true)
