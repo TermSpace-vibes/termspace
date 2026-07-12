@@ -472,7 +472,7 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
           )}
         </Group>
         
-        {!(terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || kubernetesPanes.length > 0 || dockerPanes.length > 0 || claudePanes.length > 0) && (!isLoaded || isLoading ? (
+        {!(terminals.length > 0 || browserPanes.length > 0 || editorPanes.length > 0 || kubernetesPanes.length > 0 || dockerPanes.length > 0 || claudePanes.length > 0 || agentStudioPanes.length > 0) && (!isLoaded || isLoading ? (
           <div
             key="activating"
             style={{
@@ -506,6 +506,16 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
               <span style={{ color: 'var(--text-dim)', fontSize: 13 }}>Spawn a terminal or browser to begin working</span>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleAddAgentStudioPane}
+                style={{
+                  marginTop: 8, padding: '10px 20px', background: 'var(--accent)',
+                  border: '1px solid var(--accent)', borderRadius: 8, color: 'var(--bg-main)',
+                  fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s'
+                }}
+              >
+                ✦ Start Agent Studio
+              </button>
               <button 
                 onClick={() => handleAddTerminal()}
                 style={{
