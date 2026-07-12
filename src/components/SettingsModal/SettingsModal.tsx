@@ -144,7 +144,7 @@ export function SettingsModal({ onClose }: Props) {
   const [notifyOnBell, setNotifyOnBell] = useState(settings.notifyOnBell ?? false)
   const [useOsNotification, setUseOsNotification] = useState(settings.useOsNotification !== false)
   const [permGranted, setPermGranted] = useState<boolean | null>(null)
-  useEffect(() => { isPermissionGranted().then(setPermGranted) }, [])
+  useEffect(() => { isPermissionGranted().then(setPermGranted).catch(() => setPermGranted(false)) }, [])
 
   const [appVersion, setAppVersion] = useState<string>('Loading...')
   const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'downloading' | 'ready' | 'none'>('idle')

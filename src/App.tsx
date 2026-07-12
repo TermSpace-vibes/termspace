@@ -15,6 +15,7 @@ import { DictationButton } from './components/ui/DictationButton'
 import { useGlobalKeybindings } from './hooks/useGlobalKeybindings'
 import { useBrowserMediaBridge } from './hooks/useBrowserMediaBridge'
 import { useGlobalTranscription } from './hooks/useGlobalTranscription'
+import { useNotifications } from './hooks/useNotifications'
 import { buildDurableWorkspaceUiState, useSqliteUiStateSync, WORKSPACE_UI_STATE_KEY } from './hooks/useSqliteUiStateSync'
 import { Workspace, Terminal, EditorPane, BrowserPane } from './types'
 import { getSqliteUiState, setSqliteUiState } from './utils/sqliteUiState'
@@ -89,6 +90,7 @@ export default function App() {
   useGlobalKeybindings()
   useBrowserMediaBridge()
   useGlobalTranscription()
+  useNotifications()
   useSqliteUiStateSync(uiStateHydrated)
 
   useEffect(() => {
@@ -113,16 +115,6 @@ export default function App() {
   }, [sidebarRef])
 
   useEffect(() => {
-    const unlisten = listen<string>('agent-hook-event', (event) => {
-      try {
-        const payload = JSON.parse(event.payload)
-        useAppStore.getState().addToast(`🤖 AI Agent: ${payload.message || 'Action completed'}`, 'info')
-      } catch {
-        useAppStore.getState().addToast(`🤖 AI Agent: ${event.payload}`, 'info')
-      }
-      invoke('play_notification_sound').catch(console.error)
-    })
-
     const unlistenLocalhost = listen<{ port: string, terminal_id: string }>('localhost-detected', (event) => {
       const { port, terminal_id } = event.payload;
       useAppStore.getState().addToast(`Server Detected on localhost:${port}`, 'info', {
@@ -153,7 +145,6 @@ export default function App() {
     });
 
     return () => {
-      unlisten.then(f => f())
       unlistenLocalhost.then(f => f())
     }
   }, [])

@@ -42,6 +42,14 @@ window.matchMedia = window.matchMedia || function (query: string) {
   } as unknown as MediaQueryList
 }
 
+// jsdom doesn't implement the Notification Web API; @tauri-apps/plugin-notification's
+// isPermissionGranted() reads window.Notification.permission before falling back to
+// invoke(), so an undefined window.Notification throws on every mount in tests.
+;(window as unknown as { Notification: unknown }).Notification = class {
+  static permission = 'default'
+  static requestPermission = vi.fn().mockResolvedValue('default')
+}
+
 // Mock Tauri APIs
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue({}),

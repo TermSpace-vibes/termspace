@@ -1,5 +1,9 @@
+import { useEffect } from 'react'
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import type { TaskEvent, Settings } from '../types'
 import { useAppStore } from '../store/useAppStore'
+import { invoke, listen } from '../utils/tauri'
 
 export type Deliver = 'os' | 'toast-only'
 export interface Decision {
@@ -148,4 +152,61 @@ export function parseHook(raw: string): TaskEvent | null {
 export function labelFor(ev: TaskEvent): string {
   if (ev.source === 'agent-hook') return 'Claude agent'
   return `${ev.source} · ${ev.id}`
+}
+
+async function deliver(d: Decision, ev?: TaskEvent) {
+  const granted = await isPermissionGranted().catch(() => false)
+  const { useOs, playSound } = resolveDelivery(d.deliver, granted)
+  const body = [ev ? labelFor(ev) : '', d.body].filter(Boolean).join(' — ')
+  if (useOs) {
+    sendNotification({ title: d.title, body })
+    if (d.bounce) getCurrentWindow().requestUserAttention(null).catch(() => {})
+  }
+  if (d.showToast) {
+    const isFailure = d.title.includes('failed')
+    useAppStore.getState().addToast(`${d.title}${body ? ` — ${body}` : ''}`, isFailure ? 'error' : 'info')
+  }
+  if (playSound) {
+    invoke('play_notification_sound').catch(() => {})
+  }
+}
+
+export function useNotifications() {
+  useEffect(() => {
+    let offLife: (() => void) | null = null
+    let offHook: (() => void) | null = null
+    let cancelled = false
+    ;(async () => {
+      if (!(await isPermissionGranted().catch(() => false))) await requestPermission().catch(() => 'denied' as const)
+      if (cancelled) return
+      const engine = new NotificationEngine({
+        get focusedPaneId() { return useAppStore.getState().focusedPaneId },
+        appFocused: () => typeof document !== 'undefined' && document.hasFocus(),
+        get closingIds() { return new Set(useAppStore.getState().closingIds) },
+        get settings() {
+          const s = useAppStore.getState().settings
+          return {
+            notificationsEnabled: s.notificationsEnabled !== false,
+            notifyOnComplete: s.notifyOnComplete !== false,
+            notifyOnPrompt: s.notifyOnPrompt !== false,
+            notifyOnBell: s.notifyOnBell ?? false,
+            useOsNotification: s.useOsNotification !== false,
+          }
+        },
+        now: () => Date.now(),
+      })
+      engine.onFlush = (d) => { deliver(d) }
+      offLife = await listen<TaskEvent>('task-lifecycle', (e) => {
+        const ev = e.payload
+        if (ev.kind === 'started') { engine.registerStart(ev.id); return }
+        const d = engine.process(ev)
+        if (d) deliver(d, ev)
+      })
+      offHook = await listen<string>('agent-hook-event', (e) => {
+        const ev = parseHook(e.payload)
+        if (ev) { const d = engine.process(ev); if (d) deliver(d, ev) }
+      })
+    })()
+    return () => { cancelled = true; offLife?.(); offHook?.() }
+  }, [])
 }
