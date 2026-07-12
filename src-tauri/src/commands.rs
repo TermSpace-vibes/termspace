@@ -43,6 +43,23 @@ pub struct WatcherState(
 
 pub struct DaemonClientState(pub Arc<Mutex<Option<crate::daemon_client::DaemonClient>>>);
 
+fn validate_agent_id(id: &str) -> Result<(), String> {
+    if id.is_empty()
+        || id.len() > 128
+        || !id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
+    {
+        return Err("Agent Studio received an invalid identifier.".into());
+    }
+    Ok(())
+}
+
+fn agent_data_error(operation: &str, error: rusqlite::Error) -> String {
+    eprintln!("Agent Studio {operation} failed: {error}");
+    format!("Agent Studio data could not be {operation}.")
+}
+
 // macOS concurrent fork/posix_spawn workaround
 static SPAWN_LOCK: Mutex<()> = Mutex::new(());
 
@@ -219,6 +236,65 @@ pub fn create_workspace(
     #[cfg(debug_assertions)]
     println!(">>> RUST: create_workspace called for {}", name);
     db::create_workspace(&db.0.lock(), &name, &emoji, &color).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_agent_conversation(
+    db_state: State<DbState>,
+    input: db::AgentConversationInput,
+) -> Result<db::AgentConversation, String> {
+    validate_agent_id(&input.id)?;
+    validate_agent_id(&input.workspace_id)?;
+    db::create_agent_conversation(&db_state.0.lock(), input)
+        .map_err(|error| agent_data_error("created", error))
+}
+
+#[tauri::command]
+pub fn list_agent_conversations(
+    db_state: State<DbState>,
+    workspace_id: String,
+) -> Result<Vec<db::AgentConversation>, String> {
+    validate_agent_id(&workspace_id)?;
+    db::list_agent_conversations(&db_state.0.lock(), &workspace_id)
+        .map_err(|error| agent_data_error("loaded", error))
+}
+
+#[tauri::command]
+pub fn append_agent_message(
+    db_state: State<DbState>,
+    input: db::AgentMessageInput,
+) -> Result<db::AgentMessage, String> {
+    validate_agent_id(&input.id)?;
+    validate_agent_id(&input.conversation_id)?;
+    if let Some(session_id) = &input.runtime_session_id {
+        validate_agent_id(session_id)?;
+    }
+    db::append_agent_message(&db_state.0.lock(), input)
+        .map_err(|error| agent_data_error("saved", error))
+}
+
+#[tauri::command]
+pub fn create_agent_context_bundle(
+    db_state: State<DbState>,
+    input: db::AgentContextBundleInput,
+) -> Result<db::AgentContextBundle, String> {
+    validate_agent_id(&input.id)?;
+    validate_agent_id(&input.conversation_id)?;
+    if input.items.iter().any(|item| validate_agent_id(&item.id).is_err()) {
+        return Err("Agent Studio received an invalid context item identifier.".into());
+    }
+    db::create_agent_context_bundle(&db_state.0.lock(), input)
+        .map_err(|error| agent_data_error("saved", error))
+}
+
+#[tauri::command]
+pub fn get_agent_context_bundle(
+    db_state: State<DbState>,
+    bundle_id: String,
+) -> Result<db::AgentContextBundle, String> {
+    validate_agent_id(&bundle_id)?;
+    db::get_agent_context_bundle(&db_state.0.lock(), &bundle_id)
+        .map_err(|error| agent_data_error("loaded", error))
 }
 
 #[tauri::command]
