@@ -1,5 +1,6 @@
 #![allow(unexpected_cfgs)]
 mod agent_hook;
+mod agent_context;
 mod audio;
 mod browser_pane_manager;
 mod claude_session_manager;
@@ -216,6 +217,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_system_stats,
+            commands::preview_agent_context,
             commands::get_git_branch,
             commands::get_git_status,
             commands::get_git_blame,

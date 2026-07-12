@@ -1,4 +1,5 @@
 use crate::browser_pane_manager::BrowserPaneManager;
+use crate::agent_context::{self, ContextRequest};
 use crate::claude_session_manager::ClaudeSessionManager;
 use crate::clipboard_insertion_service::{
     self, GlobalInsertionOptions, GlobalInsertionResult,
@@ -58,6 +59,20 @@ fn validate_agent_id(id: &str) -> Result<(), String> {
 fn agent_data_error(operation: &str, error: rusqlite::Error) -> String {
     eprintln!("Agent Studio {operation} failed: {error}");
     format!("Agent Studio data could not be {operation}.")
+}
+
+#[tauri::command]
+pub fn preview_agent_context(
+    request: ContextRequest,
+) -> Result<agent_context::ContextBundle, String> {
+    if !matches!(request.provider.as_str(), "claude-code" | "codex") {
+        return Err("Agent Studio received an unsupported provider.".into());
+    }
+    agent_context::assemble_context(request)
+        .map_err(|error| {
+            eprintln!("Agent Studio context preview failed: {error}");
+            "Agent Studio context could not be prepared.".into()
+        })
 }
 
 // macOS concurrent fork/posix_spawn workaround
