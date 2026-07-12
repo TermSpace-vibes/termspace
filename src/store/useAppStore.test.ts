@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { act } from '@testing-library/react'
 import { useAppStore } from './useAppStore'
-import { Workspace, Terminal, BrowserPane, EditorPane } from '../types'
+import { Workspace, Terminal, BrowserPane, EditorPane, WorkspaceTab, ClaudePane } from '../types'
 
 const ws1: Workspace = { id: 'ws-1', name: 'Work', emoji: '🔥', color: '#e8a045', position: 0, createdAt: 1000 }
 const t1: Terminal = { id: 't-1', workspaceId: 'ws-1', shell: 'zsh', cwd: '/tmp', position: 0, sizePercent: 50, createdAt: 1001 }
@@ -94,6 +94,45 @@ describe('useAppStore', () => {
   it('sets active terminal', () => {
     act(() => useAppStore.getState().setActiveTerminalId('t-1'))
     expect(useAppStore.getState().activeTerminalId).toBe('t-1')
+  })
+
+  it('setActiveTerminalId also updates focusedPaneId (notifications focus suppression)', () => {
+    act(() => useAppStore.getState().setActiveTerminalId('t-1'))
+    expect(useAppStore.getState().focusedPaneId).toBe('t-1')
+    act(() => useAppStore.getState().setActiveTerminalId(null))
+    expect(useAppStore.getState().focusedPaneId).toBeNull()
+  })
+
+  it('removeTab marks its terminals and claude panes as closing', async () => {
+    const tab: WorkspaceTab = { id: 'tab-1', workspaceId: 'ws-1', name: 'Tab 1', position: 0, createdAt: 1000 }
+    const claudePane: ClaudePane = { id: 'cp-1', tabId: 'tab-1', title: 'Claude', cwd: '/tmp', position: 0, createdAt: 1000 }
+    act(() => {
+      useAppStore.setState({
+        tabsByWorkspace: { 'ws-1': [tab] },
+        activeTabIds: { 'ws-1': 'tab-1' },
+        terminalsByTab: { 'tab-1': [{ ...t1, id: 't-1' }] },
+        claudePanesByTab: { 'tab-1': [claudePane] },
+        closingIds: [],
+      })
+    })
+    await act(async () => { await useAppStore.getState().removeTab('ws-1', 'tab-1') })
+    expect(useAppStore.getState().closingIds).toEqual(expect.arrayContaining(['t-1', 'cp-1']))
+  })
+
+  it('removeWorkspace marks every contained terminal and claude pane as closing', () => {
+    const tab: WorkspaceTab = { id: 'tab-1', workspaceId: 'ws-1', name: 'Tab 1', position: 0, createdAt: 1000 }
+    const claudePane: ClaudePane = { id: 'cp-1', tabId: 'tab-1', title: 'Claude', cwd: '/tmp', position: 0, createdAt: 1000 }
+    act(() => {
+      useAppStore.setState({
+        workspaces: [ws1],
+        tabsByWorkspace: { 'ws-1': [tab] },
+        terminalsByTab: { 'tab-1': [{ ...t1, id: 't-1' }] },
+        claudePanesByTab: { 'tab-1': [claudePane] },
+        closingIds: [],
+      })
+      useAppStore.getState().removeWorkspace('ws-1')
+    })
+    expect(useAppStore.getState().closingIds).toEqual(expect.arrayContaining(['t-1', 'cp-1']))
   })
 
   it('setTerminals preserves browser and editor nodes in layout', () => {

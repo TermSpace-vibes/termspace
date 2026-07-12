@@ -276,9 +276,17 @@ export const useAppStore = create<AppState>()(
 
       removeWorkspace: (id) =>
         set((s) => {
+          // Mark every claude/terminal pane in this workspace as closing *before* teardown so the
+          // notification service drops their task-lifecycle completions instead of showing a
+          // "N tasks finished" banner for an intentional close (spec §4.3).
+          const closingPaneIds: string[] = []
           for (const tab of s.tabsByWorkspace[id] ?? []) {
             for (const pane of s.claudePanesByTab[tab.id] ?? []) {
               void invoke('close_claude_session', { sessionId: pane.id }).catch(() => {})
+              closingPaneIds.push(pane.id)
+            }
+            for (const term of s.terminalsByTab[tab.id] ?? []) {
+              closingPaneIds.push(term.id)
             }
           }
           useBrowserMediaStore.getState().removeSessionsForWorkspace(id)
@@ -288,6 +296,7 @@ export const useAppStore = create<AppState>()(
               s.activeWorkspaceId === id
                 ? (s.workspaces.find((w) => w.id !== id)?.id ?? null)
                 : s.activeWorkspaceId,
+            closingIds: [...new Set([...s.closingIds, ...closingPaneIds])],
           }
         }),
 
@@ -330,8 +339,15 @@ export const useAppStore = create<AppState>()(
       removeTab: async (workspaceId, tabId) => {
         await invoke('delete_tab', { id: tabId })
         set((s) => {
+          // Mark every claude/terminal pane in this tab as closing before teardown (spec §4.3) --
+          // see removeWorkspace above for why.
+          const closingPaneIds: string[] = []
           for (const pane of s.claudePanesByTab[tabId] ?? []) {
             void invoke('close_claude_session', { sessionId: pane.id }).catch(() => {})
+            closingPaneIds.push(pane.id)
+          }
+          for (const term of s.terminalsByTab[tabId] ?? []) {
+            closingPaneIds.push(term.id)
           }
           const currentTabs = s.tabsByWorkspace[workspaceId] || []
           const nextTabs = currentTabs.filter(t => t.id !== tabId)
@@ -341,7 +357,8 @@ export const useAppStore = create<AppState>()(
           }
           return {
             tabsByWorkspace: { ...s.tabsByWorkspace, [workspaceId]: nextTabs },
-            activeTabIds: { ...s.activeTabIds, [workspaceId]: nextActiveId }
+            activeTabIds: { ...s.activeTabIds, [workspaceId]: nextActiveId },
+            closingIds: [...new Set([...s.closingIds, ...closingPaneIds])],
           }
         })
       },
@@ -895,7 +912,10 @@ export const useAppStore = create<AppState>()(
           }
         }),
 
-      setActiveTerminalId: (id) => set({ activeTerminalId: id }),
+      // activeTerminalId is the single "currently active pane" concept already wired at every
+      // focus site (mouse, keyboard nav, tab/workspace switch) -- mirror it into focusedPaneId
+      // rather than adding a second, parallel focus-tracking mechanism per pane component.
+      setActiveTerminalId: (id) => set({ activeTerminalId: id, focusedPaneId: id }),
 
       setActiveFile: (tabId, filePath) => 
         set((s) => ({
