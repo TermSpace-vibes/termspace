@@ -100,6 +100,22 @@ export const DictationButton: React.FC = () => {
     if (!isListening) setAudioLevels([...EMPTY_AUDIO_LEVELS]);
   }, [isListening]);
 
+  React.useEffect(() => {
+    const handleGlobalAudioLevels = (event: Event) => {
+      if (!settings.globalDictationEnabled) return;
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (!Array.isArray(detail)) return;
+      setAudioLevels(
+        Array.from({ length: BAR_MAX_HEIGHTS.length }, (_, index) => {
+          const value = Number(detail[index] ?? 0);
+          return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
+        })
+      );
+    };
+    window.addEventListener(GLOBAL_DICTATION_AUDIO_LEVELS_EVENT, handleGlobalAudioLevels);
+    return () => window.removeEventListener(GLOBAL_DICTATION_AUDIO_LEVELS_EVENT, handleGlobalAudioLevels);
+  }, [settings.globalDictationEnabled]);
+
   return (
     <motion.div
       ref={dragRef}

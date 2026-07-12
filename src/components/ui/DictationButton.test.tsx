@@ -2,6 +2,7 @@ import React from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { DictationButton } from './DictationButton'
+import { GLOBAL_DICTATION_AUDIO_LEVELS_EVENT } from '../../utils/constants'
 
 let dictationState = {
   isListening: false,
@@ -157,5 +158,72 @@ describe('DictationButton', () => {
 
     const bars = screen.getByTestId('dictation-waveform').querySelectorAll('span')
     expect(bars[0]).toHaveStyle({ height: '4px' })
+  })
+
+  it('applies valid global audio-level events while in global dictation mode', () => {
+    storeState.settings = { ...storeState.settings, globalDictationEnabled: true }
+    render(<DictationButton />)
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('termspace:global-dictation-state', {
+        detail: { isListening: true, isProcessing: false, interimTranscript: '', toggleListening: vi.fn() },
+      }))
+    })
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(GLOBAL_DICTATION_AUDIO_LEVELS_EVENT, {
+        detail: [1, 0.5, 0, 0.25, 0.75, 1, 0.1],
+      }))
+    })
+
+    const bars = screen.getByTestId('dictation-waveform').querySelectorAll('span')
+    expect(bars[0]).toHaveStyle({ height: '12px' })
+  })
+
+  it('ignores global audio-level events while in local dictation mode', () => {
+    dictationState = { ...dictationState, isListening: true }
+    render(<DictationButton />)
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(GLOBAL_DICTATION_AUDIO_LEVELS_EVENT, {
+        detail: [1, 1, 1, 1, 1, 1, 1],
+      }))
+    })
+
+    const bars = screen.getByTestId('dictation-waveform').querySelectorAll('span')
+    bars.forEach((bar) => expect(bar).toHaveStyle({ height: '4px' }))
+  })
+
+  it('ignores malformed global audio-level payloads', () => {
+    storeState.settings = { ...storeState.settings, globalDictationEnabled: true }
+    render(<DictationButton />)
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('termspace:global-dictation-state', {
+        detail: { isListening: true, isProcessing: false, interimTranscript: '', toggleListening: vi.fn() },
+      }))
+    })
+
+    for (const payload of [null, 'not-an-array', [Number.NaN, -1, 4]]) {
+      expect(() => {
+        act(() => {
+          window.dispatchEvent(new CustomEvent(GLOBAL_DICTATION_AUDIO_LEVELS_EVENT, { detail: payload }))
+        })
+      }).not.toThrow()
+    }
+
+    const bars = screen.getByTestId('dictation-waveform').querySelectorAll('span')
+    expect(bars[0]).toHaveStyle({ height: '4px' })
+  })
+
+  it('removes the global audio-level listener on unmount', () => {
+    const removeSpy = vi.spyOn(window, 'removeEventListener')
+
+    const { unmount } = render(<DictationButton />)
+    unmount()
+
+    expect(removeSpy).toHaveBeenCalledWith(GLOBAL_DICTATION_AUDIO_LEVELS_EVENT, expect.any(Function))
+
+    removeSpy.mockRestore()
   })
 })
