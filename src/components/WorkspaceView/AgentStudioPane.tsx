@@ -22,9 +22,36 @@ const accessModes: Array<{ id: AccessMode; label: string; detail: string; Icon: 
 const workflowLabels: Record<WorkflowMode, string> = { chat: 'Chat', plan: 'Plan', epic: 'Epic', review: 'Review' }
 const providerLabels: Record<AgentProviderId, string> = { 'claude-code': 'Claude Code', codex: 'Codex' }
 
+interface ProviderModel {
+  id: string
+  label: string
+  runtimeModel?: string
+}
+
+const providerModels: Record<AgentProviderId, ProviderModel[]> = {
+  'claude-code': [
+    { id: 'claude-default', label: 'Default (Sonnet 5)' },
+    { id: 'claude-sonnet-5', label: 'Sonnet 5', runtimeModel: 'sonnet' },
+    { id: 'claude-fable', label: 'Fable', runtimeModel: 'fable' },
+    { id: 'claude-opus-4-8', label: 'Opus 4.8', runtimeModel: 'opus' },
+    { id: 'claude-haiku-4-5', label: 'Haiku 4.5', runtimeModel: 'haiku' },
+  ],
+  codex: [
+    { id: 'codex-gpt-5-6-sol', label: 'GPT-5.6-Sol', runtimeModel: 'gpt-5.6-sol' },
+    { id: 'codex-gpt-5-6-terra', label: 'GPT-5.6-Terra', runtimeModel: 'gpt-5.6-terra' },
+    { id: 'codex-gpt-5-6-luna', label: 'GPT-5.6-Luna', runtimeModel: 'gpt-5.6-luna' },
+    { id: 'codex-gpt-5-5', label: 'GPT-5.5', runtimeModel: 'gpt-5.5' },
+    { id: 'codex-gpt-5-4', label: 'GPT-5.4', runtimeModel: 'gpt-5.4' },
+    { id: 'codex-gpt-5-4-mini', label: 'GPT-5.4-Mini', runtimeModel: 'gpt-5.4-mini' },
+  ],
+}
+
+const defaultModelFor = (provider: AgentProviderId) => providerModels[provider][0]
+
 export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: Props) {
   const pane = useAppStore((state) => state.agentStudioPanesByTab[tabId]?.find((item) => item.id === paneId))
   const [provider, setProvider] = useState<AgentProviderId>('claude-code')
+  const [model, setModel] = useState<ProviderModel>(() => defaultModelFor('claude-code'))
   const [draft, setDraft] = useState('')
   const [running, setRunning] = useState(false)
   const [transcript, setTranscript] = useState(createAgentTranscript)
@@ -37,8 +64,13 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
   const sessionStartedRef = useRef(false)
   const currentAccess = useMemo(() => accessModes.find((mode) => mode.id === accessMode) ?? accessModes[2], [accessMode])
   const start = useCallback(async () => {
-    await invoke('start_agent_session', { sessionId: paneId, provider, cwd: pane?.cwd ?? '' })
-  }, [pane?.cwd, paneId, provider])
+    await invoke('start_agent_session', {
+      sessionId: paneId,
+      provider,
+      cwd: pane?.cwd ?? '',
+      ...(model.runtimeModel ? { model: model.runtimeModel } : {}),
+    })
+  }, [model.runtimeModel, pane?.cwd, paneId, provider])
 
   useEffect(() => {
     let unlisten: (() => void) | undefined
@@ -70,6 +102,12 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
 
   const chooseProvider = (nextProvider: AgentProviderId) => {
     setProvider(nextProvider)
+    setModel(defaultModelFor(nextProvider))
+    setModelQuery('')
+  }
+
+  const chooseModel = (nextModel: ProviderModel) => {
+    setModel(nextModel)
     setShowProvider(false)
     setModelQuery('')
   }
@@ -113,16 +151,16 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
             <div className="agent-studio__workflow"><Layers3 size={18} /><select aria-label="Workflow mode" value={workflow} onChange={(event) => setWorkflow(event.target.value as WorkflowMode)}>{(Object.keys(workflowLabels) as WorkflowMode[]).map((mode) => <option key={mode} value={mode}>{workflowLabels[mode]}</option>)}</select></div>
             <div className="agent-studio__right-controls">
               <div className="agent-studio__menu-anchor">
-                <button className="agent-studio__model-button" type="button" aria-label="Choose provider and model" aria-expanded={showProvider} onClick={() => { setShowProvider((open) => !open); setShowAccess(false) }}><Bot size={18} /><span>{providerLabels[provider]}</span><span className="agent-studio__model-detail">Default</span><ChevronDown size={15} /></button>
+                <button className="agent-studio__model-button" type="button" aria-label="Choose provider and model" aria-expanded={showProvider} onClick={() => { setShowProvider((open) => !open); setShowAccess(false) }}><Bot size={18} /><span>{providerLabels[provider]}</span><span className="agent-studio__model-detail">{model.label}</span><ChevronDown size={15} /></button>
                 {showProvider && <div className="agent-studio__popover agent-studio__provider-menu" role="dialog" aria-label="Choose provider and model">
-                  <label className="agent-studio__provider-search"><Search size={19} /><input autoFocus value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder="Search local providers" /></label>
+                  <label className="agent-studio__provider-search"><Search size={19} /><input autoFocus value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder={`Search ${providerLabels[provider]} models`} /></label>
                   <div className="agent-studio__provider-layout">
                     <div className="agent-studio__provider-tabs" aria-label="Provider list">
                       {(Object.keys(providerLabels) as AgentProviderId[]).map((item) => <button key={item} className={provider === item ? 'agent-studio__provider-tab--active' : ''} type="button" aria-label={providerLabels[item]} onClick={() => chooseProvider(item)}>{item === 'claude-code' ? <Sparkles size={19} /> : <Bot size={19} />}</button>)}
                     </div>
                     <div className="agent-studio__model-list">
                       <p>{providerLabels[provider].toUpperCase()}</p>
-                      {['Default local CLI', 'Provider default model'].filter((item) => item.toLowerCase().includes(modelQuery.toLowerCase())).map((item, index) => <button key={item} type="button" className={index === 0 ? 'agent-studio__model-option--selected' : ''} onClick={() => setShowProvider(false)}><span>{item}</span>{index === 0 && <Check size={18} />}</button>)}
+                      {providerModels[provider].filter((item) => item.label.toLowerCase().includes(modelQuery.toLowerCase())).map((item) => <button key={item.id} type="button" aria-label={item.label} className={model.id === item.id ? 'agent-studio__model-option--selected' : ''} onClick={() => chooseModel(item)}><span>{item.label}</span>{model.id === item.id && <Check size={18} />}</button>)}
                     </div>
                   </div>
                   <div className="agent-studio__provider-footer"><span>Reasoning effort</span><button type="button">Default</button><small>Provider settings apply when the next session starts.</small></div>

@@ -34,4 +34,26 @@ describe('AgentStudioPane', () => {
     expect(screen.getByText('Auto-accept edits')).toBeVisible()
     expect(screen.getAllByText('Full access').at(-1)).toBeVisible()
   })
+
+  it('shows provider-specific models and keeps the selected model in the composer', async () => {
+    useAppStore.setState({ agentStudioPanesByTab: { 'tab-1': [{ id: 'agent-1', tabId: 'tab-1', title: 'Agent Studio', cwd: '/tmp', conversationId: null, position: 0, createdAt: 1 }] } })
+    render(<AgentStudioPane tabId="tab-1" paneId="agent-1" isActive onFocus={vi.fn()} onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose provider and model' }))
+    expect(await screen.findByRole('button', { name: 'Sonnet 5' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'GPT-5.6-Sol' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'GPT-5.6-Sol' }))
+
+    expect(screen.getByRole('button', { name: 'Choose provider and model' })).toHaveTextContent('Codex')
+    expect(screen.getByRole('button', { name: 'Choose provider and model' })).toHaveTextContent('GPT-5.6-Sol')
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Ask Agent Studio' }), { target: { value: 'Review this workspace' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
+
+    await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith('start_agent_session', {
+      sessionId: 'agent-1', provider: 'codex', cwd: '/tmp', model: 'gpt-5.6-sol',
+    }))
+  })
 })

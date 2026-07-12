@@ -121,6 +121,7 @@ impl AgentRuntimeManager {
         session_id: String,
         provider: AgentProviderId,
         cwd: &str,
+        model: Option<&str>,
         app: AppHandle,
     ) -> Result<(), String> {
         if self.handles.lock().contains_key(&session_id) {
@@ -141,6 +142,9 @@ impl AgentRuntimeManager {
         let mut command = portable_pty::CommandBuilder::new(binary);
         if provider == AgentProviderId::ClaudeCode {
             command.arg("--ax-screen-reader");
+        }
+        for argument in provider_model_args(model) {
+            command.arg(argument);
         }
         command.cwd(if Path::new(cwd).is_dir() { cwd } else { "/" });
         command.env("TERM", "xterm-256color");
@@ -238,6 +242,12 @@ fn provider_name(provider: AgentProviderId) -> &'static str {
         AgentProviderId::Codex => "Codex",
     }
 }
+
+fn provider_model_args(model: Option<&str>) -> Vec<&str> {
+    model
+        .map(|selected| vec!["--model", selected])
+        .unwrap_or_default()
+}
 fn emit(app: &AppHandle, session_id: &str, sequence: u64, event: AgentRuntimeEvent) {
     let _ = app.emit(
         &format!("agent-event-{session_id}"),
@@ -274,5 +284,14 @@ mod tests {
 
         assert!(!diagnostic.available);
         assert!(!diagnostic.capabilities.structured_output);
+    }
+
+    #[test]
+    fn provider_model_arguments_are_omitted_for_the_default_and_forwarded_when_selected() {
+        assert!(provider_model_args(None).is_empty());
+        assert_eq!(
+            provider_model_args(Some("gpt-5.6-sol")),
+            vec!["--model", "gpt-5.6-sol"]
+        );
     }
 }

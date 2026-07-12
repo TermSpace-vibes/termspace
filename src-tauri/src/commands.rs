@@ -145,9 +145,10 @@ pub fn start_agent_session(
     session_id: String,
     provider: AgentProviderId,
     cwd: String,
+    model: Option<String>,
 ) -> Result<(), String> {
     validate_agent_id(&session_id)?;
-    runtime.start(session_id, provider, &cwd, app)
+    runtime.start(session_id, provider, &cwd, model.as_deref(), app)
 }
 #[tauri::command]
 pub fn write_agent_session(
