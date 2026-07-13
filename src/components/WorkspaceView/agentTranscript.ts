@@ -33,8 +33,11 @@ export function appendAgentEnvelope(transcript: AgentTranscript, envelope: Agent
   const event = envelope.event
   if (event.kind === 'text') {
     const previous = rows[rows.length - 1]
-    if (previous?.kind === 'message' && previous.sessionId === envelope.sessionId) previous.markdown += event.text
-    else rows.push({ id: `event-${envelope.sequence}`, kind: 'message', markdown: event.text, sessionId: envelope.sessionId })
+    if (previous?.kind === 'message' && previous.sessionId === envelope.sessionId) {
+      // Replace (don't mutate) the prior row so the updater stays pure and
+      // React StrictMode's double-invoke doesn't append the text twice.
+      rows[rows.length - 1] = { ...previous, markdown: previous.markdown + event.text }
+    } else rows.push({ id: `event-${envelope.sequence}`, kind: 'message', markdown: event.text, sessionId: envelope.sessionId })
   } else if (event.kind === 'message') rows.push({ id: `event-${envelope.sequence}`, kind: 'message', markdown: event.markdown, sessionId: envelope.sessionId })
   else if (event.kind === 'activity') rows.push({ id: `event-${envelope.sequence}`, kind: 'activity', label: event.label, detail: event.detail })
   else if (event.kind === 'command') rows.push({ id: `event-${envelope.sequence}`, kind: 'command', command: event.command, cwd: event.cwd, output: event.output, exitCode: event.exitCode })
@@ -45,8 +48,9 @@ export function appendAgentEnvelope(transcript: AgentTranscript, envelope: Agent
   else if (event.kind === 'diagnostic') rows.push({ id: `event-${envelope.sequence}`, kind: 'diagnostic', message: event.rawOutputRef })
   else if (event.kind === 'reasoning') {
     const previous = rows[rows.length - 1]
-    if (previous?.kind === 'reasoning') previous.content += event.content
-    else rows.push({ id: `event-${envelope.sequence}`, kind: 'reasoning', content: event.content })
+    if (previous?.kind === 'reasoning') {
+      rows[rows.length - 1] = { ...previous, content: previous.content + event.content }
+    } else rows.push({ id: `event-${envelope.sequence}`, kind: 'reasoning', content: event.content })
   }
   else if (event.kind === 'tool_call') rows.push({ id: `event-${envelope.sequence}`, kind: 'toolCall', name: event.name, summary: event.summary })
   else if (event.kind === 'file_change') rows.push({ id: `event-${envelope.sequence}`, kind: 'fileChange', path: event.path, operation: event.operation, additions: event.additions, deletions: event.deletions })
