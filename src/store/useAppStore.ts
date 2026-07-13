@@ -247,6 +247,7 @@ export const useAppStore = create<AppState>()(
         showWorkspaceDefaultPaths: true,
         globalDictationEnabled: false,
         globalDictationHotkey: '`',
+        dictationLanguage: 'en',
         globalDictationAutoPaste: true,
         globalDictationRestoreClipboard: true,
         globalDictationPasteDelayMs: 120,

@@ -12,6 +12,70 @@ pub const MODEL_URL: &str =
 pub const MODEL_SHA256: &str = "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002";
 pub const MODEL_SIZE_BYTES: u64 = 147_964_211;
 
+/// Multilingual model (whisper.cpp `ggml-base.bin`). Downloaded on demand when
+/// the user picks a non-English language. Validation is intentionally relaxed
+/// (min size only, no pinned SHA) so we don't hardcode a checksum that can
+/// drift between whisper.cpp releases; a corrupt file fails at `WhisperContext`
+/// load and surfaces as an error state instead.
+pub const MODEL_MULTILINGUAL_FILE_NAME: &str = "ggml-base.bin";
+pub const MODEL_MULTILINGUAL_PART_FILE_NAME: &str = "ggml-base.bin.part";
+pub const MODEL_MULTILINGUAL_URL: &str =
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
+/// Below this we treat the download as incomplete/corrupt.
+pub const MODEL_MULTILINGUAL_MIN_SIZE_BYTES: u64 = 100_000_000;
+
+/// Which on-disk model a language maps to. English uses the smaller English-only
+/// `base.en`; everything else needs the multilingual `base`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelKind {
+    English,
+    Multilingual,
+}
+
+pub fn model_kind_for_language(language: &str) -> ModelKind {
+    if language.is_empty() || language.eq_ignore_ascii_case("en") {
+        ModelKind::English
+    } else {
+        ModelKind::Multilingual
+    }
+}
+
+pub fn model_file_name(kind: ModelKind) -> &'static str {
+    match kind {
+        ModelKind::English => MODEL_FILE_NAME,
+        ModelKind::Multilingual => MODEL_MULTILINGUAL_FILE_NAME,
+    }
+}
+
+pub fn model_part_file_name(kind: ModelKind) -> &'static str {
+    match kind {
+        ModelKind::English => MODEL_PART_FILE_NAME,
+        ModelKind::Multilingual => MODEL_MULTILINGUAL_PART_FILE_NAME,
+    }
+}
+
+pub fn model_url(kind: ModelKind) -> &'static str {
+    match kind {
+        ModelKind::English => MODEL_URL,
+        ModelKind::Multilingual => MODEL_MULTILINGUAL_URL,
+    }
+}
+
+/// `None` means "no strict check" (multilingual uses relaxed validation).
+pub fn expected_size(kind: ModelKind) -> Option<u64> {
+    match kind {
+        ModelKind::English => Some(MODEL_SIZE_BYTES),
+        ModelKind::Multilingual => None,
+    }
+}
+
+pub fn expected_sha(kind: ModelKind) -> Option<&'static str> {
+    match kind {
+        ModelKind::English => Some(MODEL_SHA256),
+        ModelKind::Multilingual => None,
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DictationModelStatus {
@@ -56,11 +120,19 @@ pub fn app_model_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 pub fn downloaded_model_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(app_model_dir(app)?.join(MODEL_FILE_NAME))
+    downloaded_model_path_for(app, ModelKind::English)
+}
+
+pub fn downloaded_model_path_for(app: &tauri::AppHandle, kind: ModelKind) -> Result<PathBuf, String> {
+    Ok(app_model_dir(app)?.join(model_file_name(kind)))
 }
 
 pub fn downloaded_part_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(app_model_dir(app)?.join(MODEL_PART_FILE_NAME))
+    downloaded_part_path_for(app, ModelKind::English)
+}
+
+pub fn downloaded_part_path_for(app: &tauri::AppHandle, kind: ModelKind) -> Result<PathBuf, String> {
+    Ok(app_model_dir(app)?.join(model_part_file_name(kind)))
 }
 
 pub fn sha256_file(path: &Path) -> Result<String, String> {
@@ -81,19 +153,38 @@ pub fn sha256_file(path: &Path) -> Result<String, String> {
 }
 
 pub fn validate_model_file(path: &Path) -> Result<u64, String> {
+    validate_model_file_kind(path, ModelKind::English)
+}
+
+pub fn validate_model_file_kind(path: &Path, kind: ModelKind) -> Result<u64, String> {
     let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
     let size = metadata.len();
-    if size != MODEL_SIZE_BYTES {
-        return Err(format!(
-            "model size mismatch: expected {MODEL_SIZE_BYTES} bytes, got {size} bytes"
-        ));
+
+    match expected_size(kind) {
+        Some(expected) => {
+            if size != expected {
+                return Err(format!(
+                    "model size mismatch: expected {expected} bytes, got {size} bytes"
+                ));
+            }
+        }
+        None => {
+            // Relaxed validation for the multilingual model (no pinned SHA/size).
+            if size < MODEL_MULTILINGUAL_MIN_SIZE_BYTES {
+                return Err(format!(
+                    "model file too small ({size} bytes); download may be incomplete or corrupt"
+                ));
+            }
+        }
     }
 
-    let sha = sha256_file(path)?;
-    if sha != MODEL_SHA256 {
-        return Err(format!(
-            "model checksum mismatch: expected {MODEL_SHA256}, got {sha}"
-        ));
+    if let Some(expected_sha) = expected_sha(kind) {
+        let sha = sha256_file(path)?;
+        if sha != expected_sha {
+            return Err(format!(
+                "model checksum mismatch: expected {expected_sha}, got {sha}"
+            ));
+        }
     }
 
     Ok(size)
@@ -102,9 +193,10 @@ pub fn validate_model_file(path: &Path) -> Result<u64, String> {
 pub fn inspect_model_files(
     downloaded_path: &Path,
     _bundled_path: Option<&Path>,
+    kind: ModelKind,
 ) -> DictationModelStatus {
     if downloaded_path.exists() {
-        return match validate_model_file(downloaded_path) {
+        return match validate_model_file_kind(downloaded_path, kind) {
             Ok(size) => status(
                 "downloaded",
                 Some("downloaded"),
@@ -129,13 +221,23 @@ pub fn inspect_model_files(
 
 pub fn inspect_app_model_files(app: &tauri::AppHandle) -> Result<DictationModelStatus, String> {
     let downloaded = downloaded_model_path(app)?;
-    Ok(inspect_model_files(&downloaded, None))
+    Ok(inspect_model_files(&downloaded, None, ModelKind::English))
 }
 
-pub fn selected_model_path(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
-    let downloaded = downloaded_model_path(app)?;
+/// Status for the model that a given language maps to (English vs multilingual).
+pub fn inspect_app_model_files_for(
+    app: &tauri::AppHandle,
+    kind: ModelKind,
+) -> Result<DictationModelStatus, String> {
+    let downloaded = downloaded_model_path_for(app, kind)?;
+    Ok(inspect_model_files(&downloaded, None, kind))
+}
 
-    if validate_model_file(&downloaded).is_ok() {
+pub fn selected_model_path(app: &tauri::AppHandle, language: &str) -> Result<Option<PathBuf>, String> {
+    let kind = model_kind_for_language(language);
+    let downloaded = downloaded_model_path_for(app, kind)?;
+
+    if validate_model_file_kind(&downloaded, kind).is_ok() {
         return Ok(Some(downloaded));
     }
 
@@ -177,7 +279,7 @@ mod tests {
     #[test]
     fn dictation_model_missing_download_reports_missing_when_no_bundled_fallback() {
         let dir = temp_dir("missing");
-        let status = inspect_model_files(&dir.join(MODEL_FILE_NAME), None);
+        let status = inspect_model_files(&dir.join(MODEL_FILE_NAME), None, ModelKind::English);
 
         assert_eq!(status.state, "missing");
         assert_eq!(status.source, None);
@@ -190,7 +292,7 @@ mod tests {
         let bundled = dir.join("bundled.bin");
         write_bytes(&bundled, 32, 1);
 
-        let status = inspect_model_files(&downloaded, Some(&bundled));
+        let status = inspect_model_files(&downloaded, Some(&bundled), ModelKind::English);
 
         assert_eq!(status.state, "missing");
         assert_eq!(status.source, None);
@@ -204,7 +306,7 @@ mod tests {
         let part_path = dir.join(MODEL_PART_FILE_NAME);
         write_bytes(&part_path, 16, 2);
 
-        let status = inspect_model_files(&final_path, None);
+        let status = inspect_model_files(&final_path, None, ModelKind::English);
 
         assert_eq!(status.state, "missing");
         assert_eq!(status.downloaded_path, None);
@@ -216,7 +318,7 @@ mod tests {
         let downloaded = dir.join(MODEL_FILE_NAME);
         write_bytes(&downloaded, 16, 3);
 
-        let status = inspect_model_files(&downloaded, None);
+        let status = inspect_model_files(&downloaded, None, ModelKind::English);
 
         assert_eq!(status.state, "corrupted");
         assert_eq!(status.source.as_deref(), Some("downloaded"));

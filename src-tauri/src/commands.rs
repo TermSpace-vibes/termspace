@@ -7,7 +7,7 @@ use crate::browser_pane_manager::BrowserPaneManager;
 use crate::claude_session_manager::ClaudeSessionManager;
 use crate::clipboard_insertion_service::{self, GlobalInsertionOptions, GlobalInsertionResult};
 use crate::db::{self, Terminal, Workspace};
-use crate::dictation_model::{self, DictationModelStatus, MODEL_PART_FILE_NAME, MODEL_URL};
+use crate::dictation_model::{self, DictationModelStatus};
 use crate::global_shortcut_service::{self, GlobalShortcutState, GlobalShortcutStatus};
 use crate::native_terminal_manager::NativeTerminalManager;
 use crate::platform_permissions::{self, GlobalDictationPermissionStatus};
@@ -28,7 +28,19 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use whisper_rs::{FullParams, WhisperContext};
 pub struct DbState(pub Mutex<Connection>);
 pub struct SysInfoState(pub Mutex<(sysinfo::System, sysinfo::Networks)>);
-pub struct WhisperState(pub Arc<(std::sync::Mutex<WhisperLoad>, std::sync::Condvar)>);
+/// Holds the loaded whisper context plus two coordination aids:
+/// - `loaded_kind`: which model (`English`/`Multilingual`) is currently in the
+///   context, so we can swap it when the user changes the dictation language.
+/// - `decode_lock`: serializes decode calls. whisper-rs contexts are not `Send`,
+///   so the CPU-heavy `full()` can't move to `spawn_blocking`; instead we run it
+///   on the command thread (already off the UI/main thread, so the frontend
+///   never blocks) and gate concurrent decodes with this lock — the pragmatic
+///   equivalent of Traycer's worker-thread recognizer for our engine.
+pub struct WhisperState(
+    pub Arc<(std::sync::Mutex<WhisperLoad>, std::sync::Condvar)>,
+    pub Arc<std::sync::Mutex<Option<dictation_model::ModelKind>>>,
+    pub Arc<std::sync::Mutex<()>>,
+);
 
 /// Tracks the in-memory whisper context and any load currently in flight. The
 /// `Loading` variant lets concurrent callers (the startup preload thread and an
@@ -43,11 +55,39 @@ pub enum WhisperLoad {
     Failed(String),
 }
 
-/// Loads the whisper model into shared state, coordinating with any in-flight
-/// load so the heavy model init happens at most once. Returns once a context
-/// is available (or errors if loading failed / no model exists).
-pub fn ensure_whisper_loaded(state: &WhisperState, app: &AppHandle) -> Result<(), String> {
-    ensure_whisper_loaded_with_selected_path(state, || dictation_model::selected_model_path(app))
+/// Loads the whisper model for `language` into shared state, coordinating with
+/// any in-flight load so the heavy model init happens at most once. If a
+/// different model is currently loaded (e.g. user switched English → Spanish),
+/// the loaded context is dropped and the correct one loaded. Returns once a
+/// context is available (or errors if loading failed / no model exists).
+pub fn ensure_whisper_loaded(
+    state: &WhisperState,
+    app: &AppHandle,
+    language: &str,
+) -> Result<(), String> {
+    let kind = dictation_model::model_kind_for_language(language);
+
+    // Drop a mismatched already-loaded model so we reload the right one. We only
+    // flip to `Idle` when safely Loaded; an in-flight `Loading` is left to finish
+    // (it'll be for some kind, and the next call re-checks).
+    {
+        let loaded = state.1.lock().unwrap();
+        if *loaded != Some(kind) {
+            let (lock, _cvar) = &*state.0;
+            let mut guard = lock.lock().unwrap();
+            if matches!(*guard, WhisperLoad::Loaded(_)) {
+                *guard = WhisperLoad::Idle;
+            }
+        }
+    }
+
+    let result = ensure_whisper_loaded_with_selected_path(state, || {
+        dictation_model::selected_model_path(app, language)
+    });
+    if result.is_ok() {
+        *state.1.lock().unwrap() = Some(kind);
+    }
+    result
 }
 
 fn ensure_whisper_loaded_with_selected_path<F>(
@@ -1610,8 +1650,10 @@ pub fn open_mic_settings() -> Result<(), String> {
 pub fn get_dictation_model_status(
     app: AppHandle,
     state: State<'_, WhisperState>,
+    language: Option<String>,
 ) -> Result<DictationModelStatus, String> {
-    let status = dictation_model::inspect_app_model_files(&app)?;
+    let kind = dictation_model::model_kind_for_language(language.as_deref().unwrap_or("en"));
+    let status = dictation_model::inspect_app_model_files_for(&app, kind)?;
     let guard = state.0 .0.lock().unwrap();
     match &*guard {
         WhisperLoad::Loaded(_) => Ok(dictation_model::loaded_status(status)),
@@ -1634,38 +1676,44 @@ pub fn get_dictation_model_status(
 pub fn load_dictation_model(
     app: AppHandle,
     state: State<'_, WhisperState>,
+    language: Option<String>,
 ) -> Result<DictationModelStatus, String> {
+    let language = language.unwrap_or_else(|| "en".to_string());
     // Coordinate with any in-flight load (e.g. the startup preload thread) so
     // we never kick off a second ~150MB model init. If the model is already
     // loading, this just waits for it to finish — no duplicate work.
-    ensure_whisper_loaded(&state, &app)?;
-    get_dictation_model_status(app, state)
+    ensure_whisper_loaded(&state, &app, &language)?;
+    get_dictation_model_status(app, state, Some(language))
 }
 
 #[tauri::command]
 pub async fn download_dictation_model(
     app: AppHandle,
     state: State<'_, WhisperState>,
+    language: Option<String>,
 ) -> Result<DictationModelStatus, String> {
+    let language = language.unwrap_or_else(|| "en".to_string());
+    let kind = dictation_model::model_kind_for_language(&language);
+
     let model_dir = dictation_model::app_model_dir(&app)?;
     std::fs::create_dir_all(&model_dir).map_err(|e| e.to_string())?;
 
-    let final_path = dictation_model::downloaded_model_path(&app)?;
-    if final_path.exists() && dictation_model::validate_model_file(&final_path).is_ok() {
-        return load_dictation_model(app, state);
+    let final_path = dictation_model::downloaded_model_path_for(&app, kind)?;
+    if final_path.exists() && dictation_model::validate_model_file_kind(&final_path, kind).is_ok() {
+        return load_dictation_model(app, state, Some(language));
     }
 
     if final_path.exists() {
         std::fs::remove_file(&final_path).map_err(|e| e.to_string())?;
     }
 
-    let part_path = dictation_model::downloaded_part_path(&app)?;
+    let part_path = dictation_model::downloaded_part_path_for(&app, kind)?;
     if part_path.exists() {
         std::fs::remove_file(&part_path).map_err(|e| e.to_string())?;
     }
 
     let response = reqwest::Client::new()
-        .get(MODEL_URL)
+        .get(dictation_model::model_url(kind))
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -1698,30 +1746,49 @@ pub async fn download_dictation_model(
     file.flush().map_err(|e| e.to_string())?;
     drop(file);
 
-    if let Err(error) = dictation_model::validate_model_file(&part_path) {
+    if let Err(error) = dictation_model::validate_model_file_kind(&part_path, kind) {
         let _ = std::fs::remove_file(&part_path);
-        return Err(format!("{MODEL_PART_FILE_NAME} failed validation: {error}"));
+        return Err(format!(
+            "{part_name} failed validation: {error}",
+            part_name = dictation_model::model_part_file_name(kind)
+        ));
     }
 
     std::fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
-    load_dictation_model(app, state)
+    load_dictation_model(app, state, Some(language))
 }
 
 #[tauri::command]
 pub async fn transcribe_chunk(
+    app: AppHandle,
     state: State<'_, WhisperState>,
     audio_samples: Vec<f32>,
     prompt: Option<String>,
+    language: Option<String>,
 ) -> Result<String, String> {
+    let language = language.unwrap_or_else(|| "en".to_string());
+    // Make sure the context holds the model for the requested language (reloads
+    // if the user switched English → non-English since the last load).
+    ensure_whisper_loaded(&state, &app, &language)?;
+
     let context_opt = state.0 .0.lock().unwrap();
     let ctx = match &*context_opt {
         WhisperLoad::Loaded(c) => c,
         _ => return Err("Download the transcription model first.".into()),
     };
 
-    let mut state = ctx.create_state().map_err(|e| e.to_string())?;
+    // Serialize decodes (whisper-rs context isn't Send, so we can't offload to
+    // spawn_blocking; this keeps concurrent transcriptions from racing).
+    let _decode_guard = state.2.lock().unwrap();
+
+    let mut decode_state = ctx.create_state().map_err(|e| e.to_string())?;
     let mut params = FullParams::new(whisper_rs::SamplingStrategy::Greedy { best_of: 1 });
-    params.set_language(Some("en"));
+    // `None` => whisper auto-detects the language; otherwise pin it.
+    let whisper_lang: Option<&str> = match language.as_str() {
+        "" | "auto" => None,
+        code => Some(code),
+    };
+    params.set_language(whisper_lang);
     params.set_print_special(false);
     params.set_print_progress(false);
     params.set_print_realtime(false);
@@ -1731,14 +1798,14 @@ pub async fn transcribe_chunk(
         params.set_initial_prompt(p);
     }
 
-    state
+    decode_state
         .full(params, &audio_samples)
         .map_err(|e| e.to_string())?;
 
-    let num_segments = state.full_n_segments();
+    let num_segments = decode_state.full_n_segments();
     let mut result = String::new();
     for i in 0..num_segments {
-        if let Some(segment) = state.get_segment(i) {
+        if let Some(segment) = decode_state.get_segment(i) {
             if let Ok(text) = segment.to_str() {
                 result.push_str(text);
             }
@@ -1754,7 +1821,11 @@ mod tests {
     use std::sync::{Arc, Condvar, Mutex};
 
     fn whisper_state() -> WhisperState {
-        WhisperState(Arc::new((Mutex::new(WhisperLoad::Idle), Condvar::new())))
+        WhisperState(
+            Arc::new((Mutex::new(WhisperLoad::Idle), Condvar::new())),
+            Arc::new(Mutex::new(None)),
+            Arc::new(Mutex::new(())),
+        )
     }
 
     #[test]

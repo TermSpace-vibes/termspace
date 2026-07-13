@@ -88,6 +88,11 @@ export function useDictation({
   const audioDataRef = useRef<number[]>([]);
   const isListeningRef = useRef(false);
   const startGenerationRef = useRef(0);
+  // Rolling (low-latency) recognition: a timer re-decodes the buffer in place so
+  // the interim transcript updates while the user is still speaking, instead of
+  // only after they stop. `decodingRef` guards against overlapping decodes.
+  const streamingTimerRef = useRef<number | null>(null);
+  const decodingRef = useRef(false);
 
   const stopLevelMeter = useCallback(() => {
     if (levelsRafRef.current != null) {
@@ -128,6 +133,11 @@ export function useDictation({
 
   const stopRecordingAndTranscribe = useCallback(async () => {
     isListeningRef.current = false;
+    if (streamingTimerRef.current != null) {
+      clearInterval(streamingTimerRef.current);
+      streamingTimerRef.current = null;
+    }
+    decodingRef.current = false;
     setIsListening(false);
     setIsProcessing(true);
     onStateChange?.({ isListening: false, isProcessing: true });
@@ -191,9 +201,11 @@ export function useDictation({
       let text = '';
       
       if (provider === 'local') {
-        text = await invoke<string>('transcribe_chunk', { 
+        const language = settings.dictationLanguage || 'en';
+        text = await invoke<string>('transcribe_chunk', {
           audioSamples: finalAudioSamples,
-          prompt: settings.dictationPrompt || null
+          prompt: settings.dictationPrompt || null,
+          language,
         });
       } else {
         // Encode to WAV
@@ -289,6 +301,11 @@ export function useDictation({
 
   const cancelPendingStart = useCallback(() => {
     if (isListeningRef.current) return;
+    if (streamingTimerRef.current != null) {
+      clearInterval(streamingTimerRef.current);
+      streamingTimerRef.current = null;
+    }
+    decodingRef.current = false;
     startGenerationRef.current += 1;
     setIsProcessing(false);
     setInterimTranscript('');
@@ -315,8 +332,9 @@ export function useDictation({
 
     try {
       const provider = useAppStore.getState().settings.dictationProvider || 'local';
+      const language = useAppStore.getState().settings.dictationLanguage || 'en';
       if (provider === 'local') {
-        const status = await invoke<DictationModelStatus>('get_dictation_model_status');
+        const status = await invoke<DictationModelStatus>('get_dictation_model_status', { language });
         console.info('Transcription backend selected:', {
           backend: 'local',
           modelState: status.state,
@@ -335,7 +353,7 @@ export function useDictation({
           throw new Error(status.error || 'Downloaded transcription model is corrupted. Re-download it from Settings.');
         }
         if (status.state !== 'loaded') {
-          const loadedStatus = await invoke<DictationModelStatus>('load_dictation_model');
+          const loadedStatus = await invoke<DictationModelStatus>('load_dictation_model', { language });
           console.info('Transcription local model loaded:', {
             modelState: loadedStatus.state,
             modelPath: loadedStatus.downloadedPath,
@@ -388,6 +406,33 @@ export function useDictation({
       onStateChange?.({ isListening: true, isProcessing: false });
       onLifecycleChange?.('listening');
       setInterimTranscript('Listening...');
+
+      // Local provider: rolling low-latency recognition — re-decode the buffer
+      // in place every couple seconds so the interim transcript tracks speech
+      // live, instead of only after the user stops.
+      if (provider === 'local') {
+        const prompt = useAppStore.getState().settings.dictationPrompt || null;
+        const tick = async () => {
+          if (decodingRef.current) return;
+          if (audioDataRef.current.length < 8000) return; // skip near-silence
+          decodingRef.current = true;
+          try {
+            const text = await invoke<string>('transcribe_chunk', {
+              audioSamples: audioDataRef.current.slice(),
+              prompt,
+              language,
+            });
+            setInterimTranscript(text.trim() || 'Listening...');
+          } catch {
+            // interim decode is best-effort; ignore transient errors
+          } finally {
+            decodingRef.current = false;
+          }
+        };
+        streamingTimerRef.current = window.setInterval(tick, 2000);
+        void tick();
+      }
+
       const providerName = provider === 'openai' ? 'OpenAI' : provider === 'groq' ? 'Groq' : 'Local';
       useAppStore.getState().addToast(`${providerName} Dictation started.`, 'success');
 

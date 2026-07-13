@@ -154,11 +154,24 @@ pub fn run() {
                 std::sync::Mutex::new(commands::WhisperLoad::Idle),
                 std::sync::Condvar::new(),
             ));
-            app.manage(commands::WhisperState(whisper_state.clone()));
+            let whisper_loaded_kind: Arc<std::sync::Mutex<Option<dictation_model::ModelKind>>> =
+                Arc::new(std::sync::Mutex::new(None));
+            let whisper_decode_lock: Arc<std::sync::Mutex<()>> =
+                Arc::new(std::sync::Mutex::new(()));
+            app.manage(commands::WhisperState(
+                whisper_state.clone(),
+                whisper_loaded_kind.clone(),
+                whisper_decode_lock.clone(),
+            ));
             {
                 let app_handle = app.handle().clone();
+                let preload_state = commands::WhisperState(
+                    whisper_state.clone(),
+                    whisper_loaded_kind.clone(),
+                    whisper_decode_lock.clone(),
+                );
                 std::thread::spawn(move || {
-                    match dictation_model::selected_model_path(&app_handle) {
+                    match dictation_model::selected_model_path(&app_handle, "en") {
                         Ok(Some(path)) => eprintln!(
                             "Preloading local whisper model from {}; source: downloaded",
                             path.display()
@@ -170,10 +183,7 @@ pub fn run() {
                         }
                         Err(e) => eprintln!("Could not resolve whisper model path: {e}"),
                     }
-                    match commands::ensure_whisper_loaded(
-                        &commands::WhisperState(whisper_state.clone()),
-                        &app_handle,
-                    ) {
+                    match commands::ensure_whisper_loaded(&preload_state, &app_handle, "en") {
                         Ok(()) => {
                             eprintln!("Local whisper model finished loading in the background")
                         }

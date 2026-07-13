@@ -102,7 +102,7 @@ describe('useDictation local model readiness', () => {
       await result.current.toggleListening()
     })
 
-    expect(invokeMock).toHaveBeenCalledWith('get_dictation_model_status')
+    expect(invokeMock).toHaveBeenCalledWith('get_dictation_model_status', { language: 'en' })
     expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled()
     expect(onError).toHaveBeenCalledWith({
       kind: 'modelNeeded',
