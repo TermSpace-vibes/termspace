@@ -163,6 +163,8 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
     return () => clearInterval(interval)
   }, [terminalId])
 
+  // Re-fetch on cwd change, and watch HEAD so in-place branch switches
+  // (e.g. `git checkout other-branch` with no `cd`) refresh too.
   useEffect(() => {
     if (!terminal?.cwd) {
       setGitBranch(null)
@@ -171,7 +173,17 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
     invoke<string>('get_git_branch', { cwd: terminal.cwd })
       .then(branch => setGitBranch(branch))
       .catch(() => setGitBranch(null))
-  }, [terminal?.cwd])
+    invoke('watch_git_branch', { terminalId, cwd: terminal.cwd }).catch(() => {})
+
+    const unlistenPromise = listen<string>(`git-branch-changed-${terminalId}`, (e) => {
+      setGitBranch(e.payload || null)
+    })
+
+    return () => {
+      unlistenPromise.then(fn => fn())
+      invoke('unwatch_git_branch', { terminalId }).catch(() => {})
+    }
+  }, [terminal?.cwd, terminalId])
 
   const formatCwd = (path: string) => {
     if (!path) return ''

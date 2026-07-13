@@ -903,17 +903,31 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     }
   }
 
-  // ── Git branch — re-fetch whenever cwd changes ────────────────────────────
+  // ── Git branch — re-fetch whenever cwd changes, and watch HEAD so in-place
+  // branch switches (e.g. `git checkout other-branch` with no `cd`) refresh too ──
   useEffect(() => {
     const dir = cwd || terminal?.cwd || ''
     if (!dir) { setGitBranch(null); return }
+
+    let cancelled = false
     const timer = setTimeout(() => {
       invoke<string>('get_git_branch', { cwd: dir })
-        .then(branch => setGitBranch(branch || null))
-        .catch(() => setGitBranch(null))
+        .then(branch => { if (!cancelled) setGitBranch(branch || null) })
+        .catch(() => { if (!cancelled) setGitBranch(null) })
+      invoke('watch_git_branch', { terminalId, cwd: dir }).catch(() => {})
     }, 300)
-    return () => clearTimeout(timer)
-  }, [cwd, terminal?.cwd])
+
+    const unlistenPromise = listen<string>(`git-branch-changed-${terminalId}`, (e) => {
+      setGitBranch(e.payload || null)
+    })
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+      unlistenPromise.then(fn => fn())
+      invoke('unwatch_git_branch', { terminalId }).catch(() => {})
+    }
+  }, [cwd, terminal?.cwd, terminalId])
 
   // ── Derived display values ─────────────────────────────────────────────────
   const displayTitle = terminal?.title || title || `Terminal ${terminalIndex}`

@@ -1,5 +1,8 @@
 use crate::agent_context::{self, ContextRequest};
-use crate::agent_runtime_manager::{AgentProviderDiagnostic, AgentProviderId, AgentRuntimeManager};
+use crate::agent_runtime_manager::{
+    AgentAccessMode, AgentProviderDiagnostic, AgentProviderId, AgentReasoningEffort,
+    AgentRuntimeManager, AgentWorkflowMode,
+};
 use crate::browser_pane_manager::BrowserPaneManager;
 use crate::claude_session_manager::ClaudeSessionManager;
 use crate::clipboard_insertion_service::{self, GlobalInsertionOptions, GlobalInsertionResult};
@@ -100,6 +103,15 @@ pub struct WatcherState(
     >,
 );
 
+pub struct GitBranchWatcherState(
+    pub  std::sync::Mutex<
+        std::collections::HashMap<
+            String,
+            notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>,
+        >,
+    >,
+);
+
 pub struct DaemonClientState(pub Arc<Mutex<Option<crate::daemon_client::DaemonClient>>>);
 
 fn validate_agent_id(id: &str) -> Result<(), String> {
@@ -146,9 +158,21 @@ pub fn start_agent_session(
     provider: AgentProviderId,
     cwd: String,
     model: Option<String>,
+    access_mode: AgentAccessMode,
+    workflow: AgentWorkflowMode,
+    reasoning_effort: AgentReasoningEffort,
 ) -> Result<(), String> {
     validate_agent_id(&session_id)?;
-    runtime.start(session_id, provider, &cwd, model.as_deref(), app)
+    runtime.start(
+        session_id,
+        provider,
+        &cwd,
+        model.as_deref(),
+        access_mode,
+        workflow,
+        reasoning_effort,
+        app,
+    )
 }
 #[tauri::command]
 pub fn write_agent_session(
@@ -1325,6 +1349,87 @@ pub fn get_git_branch(cwd: String) -> Result<String, String> {
     } else {
         Err("Not a git repository".to_string())
     }
+}
+
+/// Resolves the real `.git` directory for `cwd`, following worktree
+/// `.git` file redirects so we watch the directory that actually holds `HEAD`.
+fn resolve_git_dir(cwd: &str) -> Result<PathBuf, String> {
+    let output = std::process::Command::new("git")
+        .arg("rev-parse")
+        .arg("--git-dir")
+        .current_dir(cwd)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Err("Not a git repository".to_string());
+    }
+
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let path = PathBuf::from(&raw);
+    let resolved = if path.is_absolute() {
+        path
+    } else {
+        PathBuf::from(cwd).join(path)
+    };
+    resolved.canonicalize().map_err(|e| e.to_string())
+}
+
+/// Watches the resolved git-dir's HEAD file for a terminal's cwd so branch
+/// switches made in-place (e.g. `git checkout other-branch`) without a `cd`
+/// are picked up. Re-calling with the same terminal_id replaces (and drops,
+/// stopping) any previous watcher for it. Emits `git-branch-changed-{terminal_id}`
+/// with the new branch name, matching the per-terminal event naming used
+/// elsewhere (e.g. `native-terminal-bell-{terminal_id}`).
+#[tauri::command]
+pub fn watch_git_branch(
+    app: AppHandle,
+    state: State<'_, GitBranchWatcherState>,
+    terminal_id: String,
+    cwd: String,
+) -> Result<(), String> {
+    if cwd.is_empty() {
+        return Err("Empty cwd".to_string());
+    }
+
+    let git_dir = resolve_git_dir(&cwd)?;
+    let head_path = git_dir.join("HEAD");
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut debouncer = new_debouncer(Duration::from_millis(300), tx).map_err(|e| e.to_string())?;
+    debouncer
+        .watcher()
+        .watch(&head_path, RecursiveMode::NonRecursive)
+        .map_err(|e| e.to_string())?;
+
+    state
+        .0
+        .lock()
+        .unwrap()
+        .insert(terminal_id.clone(), debouncer);
+
+    let event_name = format!("git-branch-changed-{}", terminal_id);
+    std::thread::spawn(move || {
+        for res in rx {
+            if res.is_err() {
+                continue;
+            }
+            if let Ok(branch) = get_git_branch(cwd.clone()) {
+                let _ = app.emit(&event_name, branch);
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn unwatch_git_branch(
+    state: State<'_, GitBranchWatcherState>,
+    terminal_id: String,
+) -> Result<(), String> {
+    state.0.lock().unwrap().remove(&terminal_id);
+    Ok(())
 }
 
 #[tauri::command]

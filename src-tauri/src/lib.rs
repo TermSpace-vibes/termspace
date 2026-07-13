@@ -138,6 +138,9 @@ pub fn run() {
             app.manage(commands::WatcherState(std::sync::Mutex::new(
                 std::collections::HashMap::new(),
             )));
+            app.manage(commands::GitBranchWatcherState(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )));
             app.manage(global_shortcut_service::GlobalShortcutState::default());
             app.manage(tray_service::TrayState::default());
 
@@ -228,6 +231,8 @@ pub fn run() {
             commands::interrupt_agent_session,
             commands::close_agent_session,
             commands::get_git_branch,
+            commands::watch_git_branch,
+            commands::unwatch_git_branch,
             commands::get_git_status,
             commands::get_git_blame,
             commands::get_git_file_content,
