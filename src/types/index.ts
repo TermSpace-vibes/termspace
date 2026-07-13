@@ -104,7 +104,22 @@ export interface ClaudePane {
   error?: string | null
 }
 
-export type AgentProviderId = 'claude-code' | 'codex'
+export type AgentProviderId =
+  | 'claude-code'
+  | 'codex'
+  | 'opencode'
+  | 'cursor'
+  | 'traycer'
+  | 'grok'
+  | 'qwen'
+  | 'kimi'
+  | 'kiro'
+  | 'copilot'
+  | 'kilocode'
+  | 'openrouter'
+  | 'amp'
+  | 'devin'
+  | 'pi'
 
 export type AgentSessionStatus =
   | 'starting'

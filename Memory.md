@@ -553,8 +553,12 @@ Files touched (all verified, tests green):
 - Shared `Arc<Mutex<u64>>` sequence counter so the PTY reader + JSONL tailer never collide (frontend dedups by it). `stop: Arc<AtomicBool>` ends the tailer when the PTY session closes.
 - Rendered as distinct `agentTranscript.ts` rows + CSS: thinking block (muted/italic), tool-call chip (accent), file-change diff card (green, +/−/op), compaction note (amber). `setRunning` heuristic counts the new kinds as activity.
 
-**P1 — Declarative provider registry (add Qwen/Kimi/OpenCode without code)**
-- Replace hardcoded `providerModels` / `provider_*_args` with a `ProviderDefinition { id, binary, argsTemplate, env, capabilities, defaultEffort }` loaded from a config file (mirror Traycer's `provider-overrides.json`). Add `terminalAgentArgs` (user-appended) + `envOverrides` fields.
+**P1 — Declarative provider registry (add Qwen/Kimi/OpenCode without code)** [IMPLEMENTED 2026-07-13]
+- `AgentProviderId` enum expanded to 15 providers (claude-code, codex, opencode, cursor, traycer, grok, qwen, kimi, kiro, copilot, kilocode, openrouter, amp, devin, pi) — kebab-case serde matches Traycer's `ProviderId`.
+- Providers are now **DATA**: a `ProviderDefinition` registry (`build_provider_definitions`, behind a `OnceLock`) holds `binary`, `reasoning_flag` + per-tier `reasoning_levels`, `supports_permissions`, per-model `windows`, and `capabilities`. `provider_binary`, `provider_reasoning_args`, `provider_model_window`, `provider_session_args`, `inspect_provider`, and `diagnostics()` all read from it. Adding a provider = one registry row, no Rust control-flow edits.
+- `provider_reasoning_args` now drives `--effort` (Claude/Qwen/Kimi) vs `--reasoning` (Codex/OpenCode) from the registry; higher tiers clamp where the CLI only accepts low/medium/high. Unknown providers emit no reasoning flag.
+- **User overrides** from `~/.config/termspace/providers.json`: `terminalAgentArgs` (extra argv appended at spawn) + `envOverrides` (extra env). Best-effort — missing/unparseable file = no overrides. This is the Traycer `terminalAgentArgs`/`envOverrides` equivalent.
+- Frontend: `AgentProviderId` type widened to the 15 literals; `providerLabels`/`providerModels`/`providerDefaults` converted to `Partial<Record<...>>` with `providerLabel`/`modelsFor`/`defaultsFor` fallbacks; provider tab bar derives from `diagnostics()` (installed binaries) + current selection, so a new binary in PATH surfaces automatically; `ProviderIcon` renders a generic `Bot` mark for providers without bespoke art.
 
 **P2 — Efficient file-access portrayal (copy Traycer's trick)**
 - Adopt `suppressEditToolCalls` + `BULK_INPUT_FIELDS`: collapse `Edit`/`Write` into a `file_change` diff card; render other tools as reconstructed commands (e.g. `$ grep -n …`) or label/value lists — never raw JSON. This is *why* Traycer "portrays so efficiently."
@@ -569,4 +573,5 @@ Files touched (all verified, tests green):
 - `npx tsc --noEmit` clean.
 - `cargo test agent_runtime_manager::tests` 19/19 pass (incl. `reasoning_effort_emits_provider_flags_per_tier`, `ultracode_forces_full_permission_on_claude_code`, new `claude_session_line_yields_reasoning_and_tool_events`, `claude_edit_tool_collapses_to_file_change_without_body`, `codex_reasoning_and_function_call_are_parsed`, `sanitize_project_dir_matches_claude_encoding`, `read_new_lines_returns_only_complete_lines_and_advances_offset`).
 - `cargo check` passes; frontend `agentTranscript.test.ts` 3/3 pass.
-- **P0 is IMPLEMENTED** (structured thinking + file_change + tool_call + compaction via JSONL tailer). P1–P3 remain DESIGN-ONLY.
+- **P0 is IMPLEMENTED** (structured thinking + file_change + tool_call + compaction via JSONL tailer).
+- **P1 is IMPLEMENTED** (declarative 15-provider registry + `~/.config/termspace/providers.json` overrides; frontend widened + fallback-safe). P2–P3 remain DESIGN-ONLY.

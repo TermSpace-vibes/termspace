@@ -5,14 +5,28 @@ use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::SystemTime;
 use tauri::{AppHandle, Emitter};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum AgentProviderId {
     ClaudeCode,
     Codex,
+    OpenCode,
+    Cursor,
+    Traycer,
+    Grok,
+    Qwen,
+    Kimi,
+    Kiro,
+    Copilot,
+    KiloCode,
+    OpenRouter,
+    Amp,
+    Devin,
+    Pi,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -44,7 +58,7 @@ pub enum AgentReasoningEffort {
     Ultracode,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentProviderCapabilities {
     pub structured_output: bool,
@@ -58,10 +72,8 @@ pub struct AgentProviderCapabilities {
 }
 
 impl AgentProviderCapabilities {
-    /// Real capability set per provider. Drives which Agent Studio controls are
-    /// offered (reasoning effort, permission modes) and what defaults apply.
-    fn for_provider(provider: AgentProviderId) -> Self {
-        let _ = provider;
+    /// All-true capabilities for the first-party providers we fully support.
+    fn full() -> Self {
         Self {
             structured_output: true,
             session_resume: true,
@@ -72,6 +84,313 @@ impl AgentProviderCapabilities {
             tool_events: true,
             context_continuation: true,
         }
+    }
+
+    /// Capabilities for providers we recognise but drive more conservatively:
+    /// reasoning/effort only when the CLI exposes a flag, permission modes only
+    /// for providers that model them (Claude-style).
+    fn conservative(reasoning_effort: bool, permission_requests: bool) -> Self {
+        Self {
+            structured_output: true,
+            session_resume: true,
+            model_selection: true,
+            reasoning_effort,
+            permission_requests,
+            file_change_events: true,
+            tool_events: true,
+            context_continuation: true,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Declarative provider registry (P1). Providers are DATA, not code: adding a
+// new provider is a registry entry (mirrors Traycer's provider catalog), and
+// users can append argv / env via `~/.config/termspace/providers.json`.
+// ---------------------------------------------------------------------------
+
+/// Reasoning-effort tiers in `AgentReasoningEffort` order:
+/// default, low, medium, high, extra-high, max, ultracode.
+const CLAUDE_EFFORT_LEVELS: &[&str] = &["", "low", "medium", "high", "xhigh", "max", "xhigh"];
+const CODEX_EFFORT_LEVELS: &[&str] = &["", "low", "medium", "high", "high", "high", "high"];
+
+struct ProviderDefinition {
+    label: String,
+    binary: String,
+    /// CLI flag for reasoning effort, if the provider exposes one.
+    reasoning_flag: Option<String>,
+    /// One token per `AgentReasoningEffort` tier (empty string = omit).
+    reasoning_levels: Vec<String>,
+    /// Whether permission modes map to a CLI flag (Claude-style).
+    supports_permissions: bool,
+    /// Per-model context windows in tokens (fallback 200k when absent).
+    windows: Vec<(String, u64)>,
+    capabilities: AgentProviderCapabilities,
+}
+
+impl ProviderDefinition {
+    fn build(
+        label: &str,
+        binary: &str,
+        reasoning_flag: Option<&str>,
+        reasoning_levels: &[&str],
+        supports_permissions: bool,
+        windows: &[(&str, u64)],
+        capabilities: AgentProviderCapabilities,
+    ) -> Self {
+        Self {
+            label: label.to_string(),
+            binary: binary.to_string(),
+            reasoning_flag: reasoning_flag.map(|flag| flag.to_string()),
+            reasoning_levels: reasoning_levels.iter().map(|level| level.to_string()).collect(),
+            supports_permissions,
+            windows: windows
+                .iter()
+                .map(|(model, tokens)| (model.to_string(), *tokens))
+                .collect(),
+            capabilities,
+        }
+    }
+}
+
+fn agent_capabilities() -> AgentProviderCapabilities {
+    AgentProviderCapabilities::full()
+}
+
+fn known_capabilities(reasoning_effort: bool, permission_requests: bool) -> AgentProviderCapabilities {
+    AgentProviderCapabilities::conservative(reasoning_effort, permission_requests)
+}
+
+fn build_provider_definitions() -> HashMap<AgentProviderId, ProviderDefinition> {
+    use AgentProviderId::*;
+    [
+        (
+            ClaudeCode,
+            ProviderDefinition::build(
+                "Claude Code",
+                "claude",
+                Some("--effort"),
+                CLAUDE_EFFORT_LEVELS,
+                true,
+                &[
+                    ("sonnet", 1_000_000),
+                    ("fable", 1_000_000),
+                    ("opus", 1_000_000),
+                    ("haiku", 200_000),
+                ],
+                agent_capabilities(),
+            ),
+        ),
+        (
+            Codex,
+            ProviderDefinition::build(
+                "Codex",
+                "codex",
+                Some("--reasoning"),
+                CODEX_EFFORT_LEVELS,
+                false,
+                &[
+                    ("gpt-5.6-sol", 1_050_000),
+                    ("gpt-5.6-terra", 1_050_000),
+                    ("gpt-5.6-luna", 1_050_000),
+                    ("gpt-5.5", 1_050_000),
+                    ("gpt-5.4", 1_050_000),
+                    ("gpt-5.4-mini", 1_050_000),
+                ],
+                agent_capabilities(),
+            ),
+        ),
+        (
+            OpenCode,
+            ProviderDefinition::build(
+                "OpenCode",
+                "opencode",
+                Some("--reasoning"),
+                CODEX_EFFORT_LEVELS,
+                false,
+                &[],
+                known_capabilities(true, false),
+            ),
+        ),
+        (
+            Qwen,
+            ProviderDefinition::build(
+                "Qwen Code",
+                "qwen",
+                Some("--effort"),
+                CLAUDE_EFFORT_LEVELS,
+                false,
+                &[],
+                known_capabilities(true, false),
+            ),
+        ),
+        (
+            Kimi,
+            ProviderDefinition::build(
+                "Kimi",
+                "kimi",
+                Some("--effort"),
+                CLAUDE_EFFORT_LEVELS,
+                false,
+                &[],
+                known_capabilities(true, false),
+            ),
+        ),
+        (
+            Cursor,
+            ProviderDefinition::build(
+                "Cursor",
+                "cursor",
+                None,
+                CODEX_EFFORT_LEVELS,
+                false,
+                &[],
+                known_capabilities(false, false),
+            ),
+        ),
+        (
+            Traycer,
+            ProviderDefinition::build(
+                "Traycer",
+                "traycer",
+                None,
+                CODEX_EFFORT_LEVELS,
+                false,
+                &[],
+                known_capabilities(false, false),
+            ),
+        ),
+        (
+            Grok,
+            ProviderDefinition::build(
+                "Grok",
+                "grok",
+                None,
+                CODEX_EFFORT_LEVELS,
+                false,
+                &[],
+                known_capabilities(false, false),
+            ),
+        ),
+        (
+            Kiro,
+            ProviderDefinition::build(
+                "Kiro",
+                "kiro",
+                None,
+                CODEX_EFFORT_LEVELS,
+                false,
+                &[],
+                known_capabilities(false, false),
+            ),
+        ),
+        (
+            Copilot,
+            ProviderDefinition::build(
+                "GitHub Copilot",
+                "copilot",
+                None,
+                CODEX_EFFORT_LEVELS,
+                false,
+                &[],
+                known_capabilities(false, false),
+            ),
+        ),
+        (
+            KiloCode,
+            ProviderDefinition::build(
+                "Kilo Code",
+                "kilocode",
+                None,
+                CODEX_EFFORT_LEVELS,
+                false,
+                &[],
+                known_capabilities(false, false),
+            ),
+        ),
+        (
+            OpenRouter,
+            ProviderDefinition::build(
+                "OpenRouter",
+                "openrouter",
+                None,
+                CODEX_EFFORT_LEVELS,
+                false,
+                &[],
+                known_capabilities(false, false),
+            ),
+        ),
+        (
+            Amp,
+            ProviderDefinition::build(
+                "Amp",
+                "amp",
+                None,
+                CODEX_EFFORT_LEVELS,
+                false,
+                &[],
+                known_capabilities(false, false),
+            ),
+        ),
+        (
+            Devin,
+            ProviderDefinition::build(
+                "Devin",
+                "devin",
+                None,
+                CODEX_EFFORT_LEVELS,
+                false,
+                &[],
+                known_capabilities(false, false),
+            ),
+        ),
+        (
+            Pi,
+            ProviderDefinition::build(
+                "Pi",
+                "pi",
+                None,
+                CODEX_EFFORT_LEVELS,
+                false,
+                &[],
+                known_capabilities(false, false),
+            ),
+        ),
+    ]
+    .into_iter()
+    .collect()
+}
+
+static PROVIDER_DEFINITIONS: OnceLock<HashMap<AgentProviderId, ProviderDefinition>> = OnceLock::new();
+
+fn provider_definitions() -> &'static HashMap<AgentProviderId, ProviderDefinition> {
+    PROVIDER_DEFINITIONS.get_or_init(build_provider_definitions)
+}
+
+fn provider_def(provider: AgentProviderId) -> &'static ProviderDefinition {
+    provider_definitions()
+        .get(&provider)
+        .unwrap_or_else(|| panic!("provider {provider:?} missing from registry"))
+}
+
+/// User overrides loaded from `~/.config/termspace/providers.json`. Best-effort:
+/// a missing/unparseable file simply yields empty overrides.
+#[derive(Deserialize, Default)]
+struct ProviderOverrides {
+    #[serde(default)]
+    terminal_agent_args: HashMap<AgentProviderId, Vec<String>>,
+    #[serde(default)]
+    env_overrides: HashMap<AgentProviderId, HashMap<String, String>>,
+}
+
+fn load_provider_overrides() -> ProviderOverrides {
+    let Some(home) = std::env::var_os("HOME") else {
+        return ProviderOverrides::default();
+    };
+    let path = PathBuf::from(home).join(".config").join("termspace").join("providers.json");
+    match std::fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
+        Err(_) => ProviderOverrides::default(),
     }
 }
 
@@ -134,7 +453,7 @@ pub fn inspect_provider(provider: AgentProviderId, binary: &Path) -> AgentProvid
         available,
         binary_path: available.then(|| binary.to_path_buf()),
         version: None,
-        capabilities: AgentProviderCapabilities::for_provider(provider),
+        capabilities: provider_def(provider).capabilities,
     }
 }
 
@@ -169,8 +488,9 @@ impl AgentRuntimeManager {
         }
     }
     pub fn diagnostics(&self) -> Vec<AgentProviderDiagnostic> {
-        [AgentProviderId::ClaudeCode, AgentProviderId::Codex]
-            .into_iter()
+        provider_definitions()
+            .keys()
+            .copied()
             .map(|provider| inspect_provider(provider, &provider_binary(provider)))
             .collect()
     }
@@ -213,6 +533,19 @@ impl AgentRuntimeManager {
         }
         for argument in provider_reasoning_args(provider, reasoning_effort) {
             command.arg(argument);
+        }
+        // User overrides from ~/.config/termspace/providers.json (P1): append
+        // argv and set env without touching Rust.
+        let overrides = load_provider_overrides();
+        if let Some(arguments) = overrides.terminal_agent_args.get(&provider) {
+            for argument in arguments {
+                command.arg(argument);
+            }
+        }
+        if let Some(envs) = overrides.env_overrides.get(&provider) {
+            for (key, value) in envs {
+                command.env(key, value);
+            }
         }
         command.cwd(if Path::new(cwd).is_dir() { cwd } else { "/" });
         command.env("TERM", "xterm-256color");
@@ -338,24 +671,18 @@ impl AgentRuntimeManager {
 }
 
 fn provider_binary(provider: AgentProviderId) -> PathBuf {
-    let name = match provider {
-        AgentProviderId::ClaudeCode => "claude",
-        AgentProviderId::Codex => "codex",
-    };
+    let name = provider_def(provider).binary.clone();
     let paths = std::env::var_os("PATH")
         .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
         .unwrap_or_default();
     paths
         .into_iter()
-        .map(|directory| directory.join(name))
+        .map(|directory| directory.join(&name))
         .find(|path| path.is_file())
         .unwrap_or_else(|| PathBuf::from(format!("/missing/{name}")))
 }
 fn provider_name(provider: AgentProviderId) -> &'static str {
-    match provider {
-        AgentProviderId::ClaudeCode => "Claude Code",
-        AgentProviderId::Codex => "Codex",
-    }
+    provider_def(provider).label.as_str()
 }
 
 fn provider_model_args(model: Option<&str>) -> Vec<&str> {
@@ -364,75 +691,54 @@ fn provider_model_args(model: Option<&str>) -> Vec<&str> {
         .unwrap_or_default()
 }
 
-/// Maps the reasoning-effort control to provider CLI flags.
+/// Maps the reasoning-effort control to provider CLI flags, sourced from the
+/// declarative registry so adding a provider never requires Rust edits.
 ///
-/// - **Claude Code** uses `--effort <level>` with levels
-///   `low | medium | high | xhigh | max`. `ultracode` is a real Claude Code
-///   concept: it pairs `xhigh` effort with standing permission to launch
-///   multi-agent workflows (that permission is applied in
-///   `provider_session_args`). `default` emits no flag.
-/// - **Codex** uses `--reasoning <low|medium|high>`; the CLI accepts only those
-///   three tiers, so the higher UI tiers (`extra-high`/`max`/`ultracode`) clamp
-///   to `high`. `default` emits no flag.
+/// Each provider declares a `reasoning_flag` (e.g. Claude `--effort`, Codex
+/// `--reasoning`) and a token per tier; tiers with no CLI support omit the flag.
+/// `ultracode` is a real Claude Code concept: `xhigh` effort paired with
+/// standing permission (applied in `provider_session_args`). Higher tiers clamp
+/// where the CLI only accepts low/medium/high (e.g. Codex).
 fn provider_reasoning_args(
     provider: AgentProviderId,
     effort: AgentReasoningEffort,
 ) -> Vec<String> {
-    match (provider, effort) {
-        (AgentProviderId::Codex, AgentReasoningEffort::Default) => Vec::new(),
-        (AgentProviderId::Codex, AgentReasoningEffort::Low) => {
-            vec!["--reasoning".into(), "low".into()]
-        }
-        (AgentProviderId::Codex, AgentReasoningEffort::Medium) => {
-            vec!["--reasoning".into(), "medium".into()]
-        }
-        (AgentProviderId::Codex, AgentReasoningEffort::High) => {
-            vec!["--reasoning".into(), "high".into()]
-        }
-        // Codex CLI only supports low/medium/high; clamp the higher tiers.
-        (AgentProviderId::Codex, _) => vec!["--reasoning".into(), "high".into()],
-
-        (AgentProviderId::ClaudeCode, AgentReasoningEffort::Default) => Vec::new(),
-        (AgentProviderId::ClaudeCode, AgentReasoningEffort::Low) => {
-            vec!["--effort".into(), "low".into()]
-        }
-        (AgentProviderId::ClaudeCode, AgentReasoningEffort::Medium) => {
-            vec!["--effort".into(), "medium".into()]
-        }
-        (AgentProviderId::ClaudeCode, AgentReasoningEffort::High) => {
-            vec!["--effort".into(), "high".into()]
-        }
-        (AgentProviderId::ClaudeCode, AgentReasoningEffort::ExtraHigh) => {
-            vec!["--effort".into(), "xhigh".into()]
-        }
-        (AgentProviderId::ClaudeCode, AgentReasoningEffort::Max) => {
-            vec!["--effort".into(), "max".into()]
-        }
-        // ultracode = xhigh effort; standing permission handled in provider_session_args.
-        (AgentProviderId::ClaudeCode, AgentReasoningEffort::Ultracode) => {
-            vec!["--effort".into(), "xhigh".into()]
-        }
+    let definition = provider_def(provider);
+    let Some(flag) = definition.reasoning_flag.clone() else {
+        return Vec::new();
+    };
+    let index = match effort {
+        AgentReasoningEffort::Default => 0,
+        AgentReasoningEffort::Low => 1,
+        AgentReasoningEffort::Medium => 2,
+        AgentReasoningEffort::High => 3,
+        AgentReasoningEffort::ExtraHigh => 4,
+        AgentReasoningEffort::Max => 5,
+        AgentReasoningEffort::Ultracode => 6,
+    };
+    let token = definition
+        .reasoning_levels
+        .get(index)
+        .map(String::as_str)
+        .unwrap_or("");
+    if token.is_empty() {
+        Vec::new()
+    } else {
+        vec![flag, token.to_string()]
     }
 }
 
 /// Per-model context window (in tokens), used for the "remaining" calculation
-/// until/unless the provider reports its own window in the stream. Values are
-/// verified per-model sizes from provider docs.
+/// until/unless the provider reports its own window in the stream. Sourced from
+/// the registry's per-provider `windows`; unknown models fall back to 200k.
 fn provider_model_window(provider: AgentProviderId, model: Option<&str>) -> u64 {
-    let key = (provider, model.unwrap_or(""));
-    match key {
-        (AgentProviderId::ClaudeCode, "sonnet") => 1_000_000,
-        (AgentProviderId::ClaudeCode, "fable") => 1_000_000,
-        (AgentProviderId::ClaudeCode, "opus") => 1_000_000,
-        (AgentProviderId::ClaudeCode, "haiku") => 200_000,
-        (AgentProviderId::Codex, "gpt-5.6-sol") => 1_050_000,
-        (AgentProviderId::Codex, "gpt-5.6-terra") => 1_050_000,
-        (AgentProviderId::Codex, "gpt-5.6-luna") => 1_050_000,
-        (AgentProviderId::Codex, "gpt-5.5") => 1_050_000,
-        (AgentProviderId::Codex, "gpt-5.4") => 1_050_000,
-        (AgentProviderId::Codex, "gpt-5.4-mini") => 1_050_000,
-        _ => 200_000,
+    let definition = provider_def(provider);
+    if let Some(model) = model {
+        if let Some((_, tokens)) = definition.windows.iter().find(|(name, _)| name == model) {
+            return *tokens;
+        }
     }
+    200_000
 }
 
 /// Strips ANSI/CSI escape sequences so token numbers can be parsed from
@@ -512,19 +818,21 @@ fn parse_usage_tokens(provider: AgentProviderId, text: &str) -> Option<(u64, u64
             .or_else(|| tokens.get(secondary).and_then(|token| parse_token_scaled(token)))
     };
     match provider {
-        AgentProviderId::ClaudeCode => {
-            let input = number_near("input", false)?;
-            let output = number_near("output", false)?;
-            let cache = number_near("cache", false)
-                .or_else(|| number_near("cached", false))
-                .unwrap_or(0);
-            Some((input, output, cache))
-        }
         AgentProviderId::Codex => {
             let input = number_near("input", true)?;
             let output = number_near("output", true)?;
             let cache = number_near("cached", true)
                 .or_else(|| number_near("cache", true))
+                .unwrap_or(0);
+            Some((input, output, cache))
+        }
+        _ => {
+            // Claude-style footers print the number before the label; used as
+            // the default for every other provider we recognise.
+            let input = number_near("input", false)?;
+            let output = number_near("output", false)?;
+            let cache = number_near("cache", false)
+                .or_else(|| number_near("cached", false))
                 .unwrap_or(0);
             Some((input, output, cache))
         }
@@ -543,7 +851,8 @@ fn provider_session_args(
     workflow: AgentWorkflowMode,
     effort: AgentReasoningEffort,
 ) -> Vec<String> {
-    if provider != AgentProviderId::ClaudeCode {
+    // Permission modes only apply to providers that model them (Claude-style).
+    if !provider_def(provider).supports_permissions {
         return Vec::new();
     }
     let mut args = Vec::new();
@@ -729,6 +1038,9 @@ fn newest_session_file(
         AgentProviderId::Codex => {
             collect_dirs_recursive(&home.join(".codex").join("sessions"), 5)
         }
+        // Unknown providers: we don't know their transcript layout, so skip
+        // JSONL tailing (the live PTY still works).
+        _ => return None,
     };
     let grace = std::time::Duration::from_secs(5);
     let mut best: Option<(SystemTime, PathBuf)> = None;
@@ -798,6 +1110,7 @@ fn parse_session_line(provider: AgentProviderId, line: &str) -> Vec<AgentRuntime
     match provider {
         AgentProviderId::ClaudeCode => parse_claude_session_line(&value),
         AgentProviderId::Codex => parse_codex_session_line(&value),
+        _ => Vec::new(),
     }
 }
 
@@ -1326,5 +1639,57 @@ mod tests {
         let again = read_new_lines(&path, &mut offset).unwrap();
         assert!(again.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn registry_exposes_all_providers_in_diagnostics() {
+        let manager = AgentRuntimeManager::new();
+        let providers: Vec<_> = manager.diagnostics().into_iter().map(|d| d.provider).collect();
+        assert!(providers.contains(&AgentProviderId::ClaudeCode));
+        assert!(providers.contains(&AgentProviderId::Codex));
+        assert!(providers.contains(&AgentProviderId::Qwen));
+        assert!(providers.contains(&AgentProviderId::Kimi));
+        // 15 providers total in the registry.
+        assert_eq!(providers.len(), 15);
+    }
+
+    #[test]
+    fn provider_binary_name_is_sourced_from_registry() {
+        assert_eq!(provider_def(AgentProviderId::Qwen).binary, "qwen");
+        assert_eq!(provider_def(AgentProviderId::Kimi).binary, "kimi");
+        assert_eq!(provider_def(AgentProviderId::ClaudeCode).binary, "claude");
+    }
+
+    #[test]
+    fn reasoning_args_use_registry_flag_per_provider() {
+        // Qwen mirrors Claude: --effort with xhigh for extra-high.
+        assert_eq!(
+            provider_reasoning_args(AgentProviderId::Qwen, AgentReasoningEffort::ExtraHigh),
+            vec!["--effort".to_string(), "xhigh".to_string()]
+        );
+        // Codex clamps the higher tiers to high.
+        assert_eq!(
+            provider_reasoning_args(AgentProviderId::Codex, AgentReasoningEffort::Ultracode),
+            vec!["--reasoning".to_string(), "high".to_string()]
+        );
+        // Providers without a reasoning flag emit nothing.
+        assert!(provider_reasoning_args(AgentProviderId::Cursor, AgentReasoningEffort::High).is_empty());
+    }
+
+    #[test]
+    fn model_window_is_read_from_registry_with_fallback() {
+        assert_eq!(
+            provider_model_window(AgentProviderId::ClaudeCode, Some("opus")),
+            1_000_000
+        );
+        assert_eq!(
+            provider_model_window(AgentProviderId::Codex, Some("gpt-5.6-sol")),
+            1_050_000
+        );
+        // Unknown model falls back to 200k.
+        assert_eq!(
+            provider_model_window(AgentProviderId::Qwen, Some("unknown-model")),
+            200_000
+        );
     }
 }

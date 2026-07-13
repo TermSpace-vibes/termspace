@@ -22,7 +22,28 @@ const accessModes: Array<{ id: AccessMode; label: string; detail: string; Icon: 
 ]
 
 const workflowLabels: Record<WorkflowMode, string> = { chat: 'Chat', plan: 'Plan', epic: 'Epic', review: 'Review' }
-const providerLabels: Record<AgentProviderId, string> = { 'claude-code': 'Claude Code', codex: 'Codex' }
+
+// Providers are data, not code (see backend ProviderDefinition registry). These
+// maps are intentionally partial: providers without an explicit entry fall
+// back to generic defaults so adding a provider never requires UI edits.
+const providerLabels: Partial<Record<AgentProviderId, string>> = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+  cursor: 'Cursor',
+  traycer: 'Traycer',
+  grok: 'Grok',
+  qwen: 'Qwen Code',
+  kimi: 'Kimi',
+  kiro: 'Kiro',
+  copilot: 'GitHub Copilot',
+  kilocode: 'Kilo Code',
+  openrouter: 'OpenRouter',
+  amp: 'Amp',
+  devin: 'Devin',
+  pi: 'Pi',
+}
+const providerLabel = (id: AgentProviderId) => providerLabels[id] ?? id
 
 interface ProviderModel {
   id: string
@@ -30,7 +51,7 @@ interface ProviderModel {
   runtimeModel?: string
 }
 
-const providerModels: Record<AgentProviderId, ProviderModel[]> = {
+const providerModels: Partial<Record<AgentProviderId, ProviderModel[]>> = {
   'claude-code': [
     { id: 'claude-default', label: 'Default (Sonnet 5)' },
     { id: 'claude-sonnet-5', label: 'Sonnet 5', runtimeModel: 'sonnet' },
@@ -48,15 +69,19 @@ const providerModels: Record<AgentProviderId, ProviderModel[]> = {
   ],
 }
 
-const defaultModelFor = (provider: AgentProviderId) => providerModels[provider][0]
+const modelsFor = (provider: AgentProviderId): ProviderModel[] =>
+  providerModels[provider] ?? [{ id: 'default', label: 'Default' }]
+const defaultModelFor = (provider: AgentProviderId) => modelsFor(provider)[0]
 
 // Per-provider defaults. The "criterion" is each provider's capabilities:
 // which controls are offered is gated on capabilities (see capsFor), and these
 // defaults are applied when the provider (or model) changes.
-const providerDefaults: Record<AgentProviderId, { access: AccessMode; effort: EffortLevel }> = {
+const providerDefaults: Partial<Record<AgentProviderId, { access: AccessMode; effort: EffortLevel }>> = {
   'claude-code': { access: 'full-access', effort: 'default' },
   codex: { access: 'supervised', effort: 'default' },
 }
+const defaultsFor = (id: AgentProviderId) =>
+  providerDefaults[id] ?? { access: 'supervised' as AccessMode, effort: 'default' as EffortLevel }
 
 // Per-model context window (tokens), used for the "remaining" calculation until
 // the provider reports its own window. Mirrors the backend table.
@@ -117,15 +142,22 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
   const [showContext, setShowContext] = useState(false)
   const [showAccess, setShowAccess] = useState(false)
   const [showProvider, setShowProvider] = useState(false)
-  const [accessMode, setAccessMode] = useState<AccessMode>(() => providerDefaults['claude-code'].access)
+  const [accessMode, setAccessMode] = useState<AccessMode>(() => defaultsFor('claude-code').access)
   const [workflow, setWorkflow] = useState<WorkflowMode>('epic')
-  const [effort, setEffort] = useState<EffortLevel>(() => providerDefaults['claude-code'].effort)
+  const [effort, setEffort] = useState<EffortLevel>(() => defaultsFor('claude-code').effort)
   const [modelQuery, setModelQuery] = useState('')
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([])
   const [usage, setUsage] = useState<{ input: number; output: number; cache: number; window: number } | null>(null)
   const [showEffort, setShowEffort] = useState(false)
   const sessionStartedRef = useRef(false)
   const currentAccess = useMemo(() => accessModes.find((mode) => mode.id === accessMode) ?? accessModes[2], [accessMode])
+  // Show providers that are installed (from diagnostics) plus the currently
+  // selected one — so dropping a new binary into PATH surfaces it automatically
+  // without any code change (see backend ProviderDefinition registry).
+  const visibleProviders = useMemo<AgentProviderId[]>(
+    () => Array.from(new Set<AgentProviderId>([provider, ...diagnostics.map((item) => item.provider)])),
+    [provider, diagnostics],
+  )
   const capsFor = (id: AgentProviderId): AgentProviderCapabilities =>
     diagnostics.find((item) => item.provider === id)?.capabilities ?? NO_CAPABILITIES
   useEffect(() => {
@@ -188,7 +220,7 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
   const chooseProvider = (nextProvider: AgentProviderId) => {
     setProvider(nextProvider)
     setModel(defaultModelFor(nextProvider))
-    const defaults = providerDefaults[nextProvider]
+    const defaults = defaultsFor(nextProvider)
     setAccessMode(defaults.access)
     setEffort(defaults.effort)
     setModelQuery('')
@@ -257,16 +289,16 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
             <div className="agent-studio__workflow"><Layers3 size={18} /><select aria-label="Workflow mode" value={workflow} onChange={(event) => setWorkflow(event.target.value as WorkflowMode)}>{(Object.keys(workflowLabels) as WorkflowMode[]).map((mode) => <option key={mode} value={mode}>{workflowLabels[mode]}</option>)}</select></div>
             <div className="agent-studio__right-controls">
               <div className="agent-studio__menu-anchor">
-                <button className="agent-studio__model-button" type="button" aria-label="Choose provider and model" aria-expanded={showProvider} onClick={() => { setShowProvider((open) => !open); setShowAccess(false); setShowEffort(false) }}><ProviderIcon provider={provider} size={18} /><span>{providerLabels[provider]}</span><span className="agent-studio__model-detail">{model.label}</span><ChevronDown size={15} /></button>
+                <button className="agent-studio__model-button" type="button" aria-label="Choose provider and model" aria-expanded={showProvider} onClick={() => { setShowProvider((open) => !open); setShowAccess(false); setShowEffort(false) }}><ProviderIcon provider={provider} size={18} /><span>{providerLabel(provider)}</span><span className="agent-studio__model-detail">{model.label}</span><ChevronDown size={15} /></button>
                 {showProvider && <div className="agent-studio__popover agent-studio__provider-menu" role="dialog" aria-label="Choose provider and model">
-                  <label className="agent-studio__provider-search"><Search size={19} /><input autoFocus value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder={`Search ${providerLabels[provider]} models`} /></label>
+                  <label className="agent-studio__provider-search"><Search size={19} /><input autoFocus value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder={`Search ${providerLabel(provider)} models`} /></label>
                   <div className="agent-studio__provider-layout">
                     <div className="agent-studio__provider-tabs" aria-label="Provider list">
-                      {(Object.keys(providerLabels) as AgentProviderId[]).map((item) => <button key={item} className={provider === item ? 'agent-studio__provider-tab--active' : ''} type="button" aria-label={providerLabels[item]} onClick={() => chooseProvider(item)}><ProviderIcon provider={item} size={19} /></button>)}
+                      {visibleProviders.map((item) => <button key={item} className={provider === item ? 'agent-studio__provider-tab--active' : ''} type="button" aria-label={providerLabel(item)} onClick={() => chooseProvider(item)}><ProviderIcon provider={item} size={19} /></button>)}
                     </div>
                     <div className="agent-studio__model-list">
-                      <p>{providerLabels[provider].toUpperCase()}</p>
-                      {providerModels[provider].filter((item) => item.label.toLowerCase().includes(modelQuery.toLowerCase())).map((item) => <button key={item.id} type="button" aria-label={item.label} className={model.id === item.id ? 'agent-studio__model-option--selected' : ''} onClick={() => chooseModel(item)}><span>{item.label}</span>{model.id === item.id && <Check size={18} />}</button>)}
+                      <p>{providerLabel(provider).toUpperCase()}</p>
+                      {modelsFor(provider).filter((item) => item.label.toLowerCase().includes(modelQuery.toLowerCase())).map((item) => <button key={item.id} type="button" aria-label={item.label} className={model.id === item.id ? 'agent-studio__model-option--selected' : ''} onClick={() => chooseModel(item)}><span>{item.label}</span>{model.id === item.id && <Check size={18} />}</button>)}
                     </div>
                   </div>
                   <div className="agent-studio__provider-footer">
