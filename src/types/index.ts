@@ -168,6 +168,11 @@ export type AgentRuntimeEvent =
   | { kind: 'error'; message: string; rawOutputRef?: string }
   | { kind: 'status'; status: AgentSessionStatus }
   | { kind: 'diagnostic'; rawOutputRef: string }
+  | { kind: 'context_usage'; input_tokens: number; output_tokens: number; cache_read_tokens: number; window: number }
+  | { kind: 'reasoning'; content: string }
+  | { kind: 'tool_call'; name: string; summary: string }
+  | { kind: 'file_change'; path: string; operation: string; additions: number; deletions: number }
+  | { kind: 'compaction'; pre_tokens: number; post_tokens: number }
 
 export interface AgentQuestionChoice {
   id: string

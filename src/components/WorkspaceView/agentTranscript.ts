@@ -10,6 +10,10 @@ export type AgentTranscriptRow =
   | { id: string; kind: 'status'; status: string }
   | { id: string; kind: 'error'; message: string }
   | { id: string; kind: 'diagnostic'; message: string }
+  | { id: string; kind: 'reasoning'; content: string }
+  | { id: string; kind: 'toolCall'; name: string; summary: string }
+  | { id: string; kind: 'fileChange'; path: string; operation: string; additions: number; deletions: number }
+  | { id: string; kind: 'compaction'; preTokens: number; postTokens: number }
 
 export interface AgentTranscript { lastSequence: number; rows: AgentTranscriptRow[] }
 
@@ -38,7 +42,15 @@ export function appendAgentEnvelope(transcript: AgentTranscript, envelope: Agent
   else if (event.kind === 'ready') rows.push({ id: `event-${envelope.sequence}`, kind: 'status', status: 'ready' })
   else if (event.kind === 'status') rows.push({ id: `event-${envelope.sequence}`, kind: 'status', status: event.status })
   else if (event.kind === 'error') rows.push({ id: `event-${envelope.sequence}`, kind: 'error', message: event.message })
-  else rows.push({ id: `event-${envelope.sequence}`, kind: 'diagnostic', message: event.rawOutputRef })
+  else if (event.kind === 'diagnostic') rows.push({ id: `event-${envelope.sequence}`, kind: 'diagnostic', message: event.rawOutputRef })
+  else if (event.kind === 'reasoning') {
+    const previous = rows[rows.length - 1]
+    if (previous?.kind === 'reasoning') previous.content += event.content
+    else rows.push({ id: `event-${envelope.sequence}`, kind: 'reasoning', content: event.content })
+  }
+  else if (event.kind === 'tool_call') rows.push({ id: `event-${envelope.sequence}`, kind: 'toolCall', name: event.name, summary: event.summary })
+  else if (event.kind === 'file_change') rows.push({ id: `event-${envelope.sequence}`, kind: 'fileChange', path: event.path, operation: event.operation, additions: event.additions, deletions: event.deletions })
+  else if (event.kind === 'compaction') rows.push({ id: `event-${envelope.sequence}`, kind: 'compaction', preTokens: event.pre_tokens, postTokens: event.post_tokens })
   return { lastSequence: envelope.sequence, rows }
 }
 

@@ -494,3 +494,79 @@ From co-change analysis:
 - App icon (using default Tauri placeholder icons)
 - Loading indicator for lazy workspace activation
 - Scrollback restoration may reflow on first resize
+
+---
+
+## Agent Studio — Traycer Research & Provider-Integration Gap Analysis
+
+> Source of truth: Traycer open-source repo `github.com/traycerai/traycer` (Apache-2.0, TS/Bun+Nx).
+> A clone was read at `/tmp/traycer` on 2026-07-13 (EPHEMERAL — do not depend on it; re-clone if needed).
+> KEY FILES read (use these paths/URLs, no need to re-dive):
+> - `protocol/src/host/provider-schemas.ts` — provider catalog + CLI candidate/override model
+> - `protocol/src/host/agent/gui/agent-runtime-accumulator.ts` — the `accumulateEvent` reducer (ContentBlock model)
+> - `protocol/src/host/agent/gui/tool-input-detail.ts` — how tool/file input is "portrayed efficiently"
+> - `protocol/src/host/agent/gui/agent-runtime.ts` — `RuntimeEvent` wire types
+> URLs: [provider-schemas.ts](https://github.com/traycerai/traycer/blob/main/protocol/src/host/provider-schemas.ts) · [agent-runtime-accumulator.ts](https://github.com/traycerai/traycer/blob/main/protocol/src/host/agent/gui/agent-runtime-accumulator.ts) · [tool-input-detail.ts](https://github.com/traycerai/traycer/blob/main/protocol/src/host/agent/gui/tool-input-detail.ts)
+
+### 1. Caveats (read first — what we could NOT copy)
+
+- **Traycer's actual agent adapter is CLOSED.** Per its `AGENTS.md`, the repo holds only clients + CLI + the *wire protocol*; the **host binary that spawns providers and parses their output is provisioned separately and not open source.** So we could read the *target event/block schema* but NOT the code that converts provider output → events.
+- **termspace's constraint is the interactive PTY.** We drive providers as a persistent REPL PTY (`portable_pty`), so Claude Code's `--output-format stream-json` (headless-only) is NOT available mid-session. Traycer gets structured events from its host; we must get them another way (see §4 P0).
+- **Provider JSONL event shapes are version-dependent.** Claude (`~/.claude/projects/<hash>/<session>.jsonl`), Codex (`~/.codex/sessions/<id>/rollout-*.jsonl`), OpenCode/Gemini all differ and change across versions — the JSONL tailer (P0) needs live validation against real output.
+- **"chimi code" = almost certainly Qwen Code (`qwen`) or Kimi (`kimi`)** in Traycer's `ProviderId` enum — not a separate product. Don't go hunting for a "Chimi" provider.
+- The Traycer clone in `/tmp/traycer` is NOT committed and will be wiped. Re-clone with `git clone --depth 1 https://github.com/traycerai/traycer /tmp/traycer` if you need to re-read.
+
+### 2. What we HAVE built (current Agent Studio state)
+
+Files touched (all verified, tests green):
+- `src-tauri/src/agent_runtime_manager.rs`
+  - `AgentReasoningEffort` enum: `default | low | medium | high | extra-high | max | ultracode` (kebab).
+  - `provider_reasoning_args`: Claude Code `--effort <low|medium|high|xhigh|max>`; Codex `--reasoning <low|medium|high>` (higher tiers clamp to `high`).
+  - `provider_session_args`: permission modes (`plan`/`acceptEdits`/`bypassPermissions`) + workflow system prompts; `ultracode` forces `bypassPermissions`.
+  - `provider_model_window`: per-model context windows (Claude 1M/200k, GPT-5.x 1.05M).
+  - `parse_usage_tokens` / `strip_ansi_codes`: context usage parsed from PTY text → `ContextUsage` event (provider-accurate "used", table-based "window").
+- `src-tauri/src/commands.rs`: `start_agent_session` (provider, accessMode, workflow, reasoningEffort, model) + `get_agent_provider_diagnostics`.
+- `src/types/index.ts`: `AgentRuntimeEvent` (Text, Ready, Error, Status, ContextUsage) + `AgentProviderCapabilities`.
+- `src/components/WorkspaceView/AgentStudioPane.tsx`: provider/model/access/workflow/effort selectors; `providerDefaults`; `providerModelWindow`; diagnostics fetch; 7-tier effort popover; context bar.
+- `src/components/WorkspaceView/AgentProviderDiagnostics.tsx`: presentational, capability-driven.
+- `src/components/WorkspaceView/agentTranscript.ts`: `appendAgentEnvelope`.
+- `src/styles/globals.css`: context + effort-menu styling.
+
+### 3. Missing gaps (the "missing puzzle")
+
+| # | Gap | Traycer equivalent | termspace today |
+|---|-----|--------------------|-----------------|
+| G1 | **Structured thinking/tool/file events** | `reasoning`, `tool_call`, `file_change`, `command`, `subagent`, `approval`, `compaction` blocks via `accumulateEvent` | Only coarse rows: text / activity / command / question / status / error / diagnostic |
+| G2 | **Provider catalog is hardcoded** | `ProviderId` enum of 16 (claude-code, codex, opencode, cursor, traycer, grok, **qwen, kimi**, kiro, copilot, kilocode, openrouter, amp, devin, pi) | Only `claude-code | codex` |
+| G3 | **Single binary per provider** | Per-provider CLI *candidates* (bundled / PATH-discovered / custom) + background version probe + `terminalAgentArgs` (user-appended argv) + `envOverrides` | One `inspect_provider` binary, no overrides |
+| G4 | **No declarative registry** | `provider-overrides.json` at `~/.traycer/host/config/` | Inline `provider_*_args` builders in Rust |
+| G5 | **File access "portrayed efficiently"** | `tool-input-detail.ts`: drops `Edit`/`Write` bulk bodies (`old_string`/`new_string`/`content`/`edits`/`patch`), suppresses those tool calls, shows a `file_change` **diff card** + reconstructed command (never raw JSON) | Raw tool text only |
+| G6 | **No agent-to-agent / subagents** | `subagent` / `workflow` blocks, nested via `parentBlockId` | Single agent per pane |
+| G7 | **No context-compaction visibility** | `compaction` block (`preTokens`/`postTokens`/`durationMs`) | Context bar only; no compaction event |
+| G8 | **No mid-chat model/provider switch** | Per-task shared filesystem + artifacts + history (switch model without losing thread) | `chooseProvider` resets session; `sessionStartedRef` blocks re-send |
+
+### 4. How to fill the gaps / make it better (prioritized plan)
+
+**P0 — Structured thinking + file-access blocks (the literal "missing puzzle")** [IMPLEMENTED 2026-07-13]
+- Extended `AgentRuntimeEvent` (Rust + `src/types/index.ts`) with `Reasoning { content }`, `ToolCall { name, summary }`, `FileChange { path, operation, additions, deletions }`, `Compaction { pre_tokens, post_tokens }`.
+- **Bridged the PTY constraint:** `agent_runtime_manager.rs` `start()` now spawns a SECOND reader thread (`tail_provider_jsonl`) that **tails the provider's on-disk JSONL** in parallel with the PTY — Claude `~/.claude/projects/<sanitized-cwd>/<session>.jsonl`, Codex `~/.codex/sessions/**/rollout-*.jsonl`. PTY = live display; JSONL = structured thinking/tool/file events. Defensive parsing (`serde_json::Value`), byte-offset tracking (only complete lines), stale-file grace window, silent on any failure. Edit/Write/MultiEdit collapse to a `FileChange` diff card (additions/deletions from line counts) WITHOUT shipping the body — the exact Traycer "portray efficiently" trick.
+- Shared `Arc<Mutex<u64>>` sequence counter so the PTY reader + JSONL tailer never collide (frontend dedups by it). `stop: Arc<AtomicBool>` ends the tailer when the PTY session closes.
+- Rendered as distinct `agentTranscript.ts` rows + CSS: thinking block (muted/italic), tool-call chip (accent), file-change diff card (green, +/−/op), compaction note (amber). `setRunning` heuristic counts the new kinds as activity.
+
+**P1 — Declarative provider registry (add Qwen/Kimi/OpenCode without code)**
+- Replace hardcoded `providerModels` / `provider_*_args` with a `ProviderDefinition { id, binary, argsTemplate, env, capabilities, defaultEffort }` loaded from a config file (mirror Traycer's `provider-overrides.json`). Add `terminalAgentArgs` (user-appended) + `envOverrides` fields.
+
+**P2 — Efficient file-access portrayal (copy Traycer's trick)**
+- Adopt `suppressEditToolCalls` + `BULK_INPUT_FIELDS`: collapse `Edit`/`Write` into a `file_change` diff card; render other tools as reconstructed commands (e.g. `$ grep -n …`) or label/value lists — never raw JSON. This is *why* Traycer "portrays so efficiently."
+
+**P3 — Compaction + agent-to-agent visibility**
+- Emit a `compaction` event onto the existing context bar ("context compacted: 80k→12k").
+- `subagent`/`workflow` blocks (nested via `parentBlockId`) for multi-agent orchestration.
+
+**Stretch** — multi-profile auth, remote MCP connectors (low ROI).
+
+### 5. Verification status (as of 2026-07-13)
+- `npx tsc --noEmit` clean.
+- `cargo test agent_runtime_manager::tests` 19/19 pass (incl. `reasoning_effort_emits_provider_flags_per_tier`, `ultracode_forces_full_permission_on_claude_code`, new `claude_session_line_yields_reasoning_and_tool_events`, `claude_edit_tool_collapses_to_file_change_without_body`, `codex_reasoning_and_function_call_are_parsed`, `sanitize_project_dir_matches_claude_encoding`, `read_new_lines_returns_only_complete_lines_and_advances_offset`).
+- `cargo check` passes; frontend `agentTranscript.test.ts` 3/3 pass.
+- **P0 is IMPLEMENTED** (structured thinking + file_change + tool_call + compaction via JSONL tailer). P1–P3 remain DESIGN-ONLY.
