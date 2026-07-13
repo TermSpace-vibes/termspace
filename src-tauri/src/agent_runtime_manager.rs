@@ -744,22 +744,24 @@ fn provider_model_window(provider: AgentProviderId, model: Option<&str>) -> u64 
 /// Strips ANSI/CSI escape sequences so token numbers can be parsed from
 /// terminal output regardless of coloring.
 fn strip_ansi_codes(s: &str) -> String {
-    let bytes = s.as_bytes();
+    // Operate on chars (not raw bytes) so multi-byte UTF-8 (e.g. a `é` in a
+    // path) survives intact. Skip CSI sequences: ESC '[' … final-byte(@..~).
     let mut out = String::with_capacity(s.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
-            i += 2;
-            while i < bytes.len() && !(0x40..=0x7e).contains(&bytes[i]) {
-                i += 1;
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            if chars.peek() == Some(&'[') {
+                chars.next(); // consume '['
+                while let Some(&n) = chars.peek() {
+                    chars.next();
+                    if ('@'..='~').contains(&n) {
+                        break;
+                    }
+                }
             }
-            if i < bytes.len() {
-                i += 1;
-            }
-        } else {
-            out.push(bytes[i] as char);
-            i += 1;
+            continue;
         }
+        out.push(c);
     }
     out
 }
@@ -831,9 +833,9 @@ fn parse_usage_tokens(provider: AgentProviderId, text: &str) -> Option<(u64, u64
             // the default for every other provider we recognise.
             let input = number_near("input", false)?;
             let output = number_near("output", false)?;
-            let cache = number_near("cache", false)
-                .or_else(|| number_near("cached", false))
-                .unwrap_or(0);
+            // `number_near` matches on `starts_with(label)`, so "cache" already
+            // covers "cached"/"cache_read"; no second probe needed.
+            let cache = number_near("cache", false).unwrap_or(0);
             Some((input, output, cache))
         }
     }
@@ -1024,12 +1026,26 @@ fn newest_session_file(
     let dirs: Vec<PathBuf> = match provider {
         AgentProviderId::ClaudeCode => {
             let root = home.join(".claude").join("projects");
-            let mut dirs = vec![root.join(sanitize_project_dir(cwd))];
-            if let Ok(entries) = std::fs::read_dir(&root) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        dirs.push(path);
+            let cwd_dir = root.join(sanitize_project_dir(cwd));
+            // Prefer the cwd's own project dir. Only widen the scan to *other*
+            // project dirs when the cwd dir has no qualifying .jsonl file —
+            // otherwise a recently-touched session in another project could be
+            // (wrongly) selected and cross-contaminate this transcript.
+            let cwd_has_session = std::fs::read_dir(&cwd_dir)
+                .map(|entries| {
+                    entries.flatten().any(|e| {
+                        e.path().extension().and_then(|x| x.to_str()) == Some("jsonl")
+                    })
+                })
+                .unwrap_or(false);
+            let mut dirs = vec![cwd_dir];
+            if !cwd_has_session {
+                if let Ok(entries) = std::fs::read_dir(&root) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_dir() {
+                            dirs.push(path);
+                        }
                     }
                 }
             }
@@ -1230,6 +1246,25 @@ fn parse_claude_session_line(value: &serde_json::Value) -> Vec<AgentRuntimeEvent
                         }),
                     }
                 }
+                Some("summary") => {
+                    // Claude emits a `summary` message on compaction. Token
+                    // counts vary by version, so read them best-effort and
+                    // default to 0 when absent.
+                    let pre = item
+                        .get("original_tokens")
+                        .and_then(|v| v.as_u64())
+                        .or_else(|| item.get("input_tokens").and_then(|v| v.as_u64()))
+                        .unwrap_or(0);
+                    let post = item
+                        .get("compressed_tokens")
+                        .and_then(|v| v.as_u64())
+                        .or_else(|| item.get("output_tokens").and_then(|v| v.as_u64()))
+                        .unwrap_or(0);
+                    out.push(AgentRuntimeEvent::Compaction {
+                        pre_tokens: pre,
+                        post_tokens: post,
+                    });
+                }
                 _ => {}
             }
         }
@@ -1274,6 +1309,22 @@ fn parse_codex_session_line(value: &serde_json::Value) -> Vec<AgentRuntimeEvent>
             out.push(AgentRuntimeEvent::ToolCall {
                 summary: name.clone(),
                 name,
+            });
+        }
+        Some("compression_summary") | Some("auto_compact") | Some("compact") => {
+            let pre = payload
+                .get("before_tokens")
+                .and_then(|v| v.as_u64())
+                .or_else(|| payload.get("original_tokens").and_then(|v| v.as_u64()))
+                .unwrap_or(0);
+            let post = payload
+                .get("after_tokens")
+                .and_then(|v| v.as_u64())
+                .or_else(|| payload.get("compressed_tokens").and_then(|v| v.as_u64()))
+                .unwrap_or(0);
+            out.push(AgentRuntimeEvent::Compaction {
+                pre_tokens: pre,
+                post_tokens: post,
             });
         }
         _ => {}
@@ -1602,6 +1653,49 @@ mod tests {
                 summary: "shell".into(),
             }]
         );
+    }
+
+    #[test]
+    fn claude_summary_emits_compaction_event() {
+        // Claude emits a `summary` content item on compaction. Token counts are
+        // version-dependent, so they may be absent (default 0).
+        let with_tokens = r#"{"type":"assistant","message":{"content":[
+            {"type":"summary","original_tokens":90000,"compressed_tokens":12000}
+        ]}}"#;
+        assert_eq!(
+            parse_session_line(AgentProviderId::ClaudeCode, with_tokens),
+            vec![AgentRuntimeEvent::Compaction {
+                pre_tokens: 90000,
+                post_tokens: 12000,
+            }]
+        );
+
+        let without_tokens = r#"{"type":"assistant","message":{"content":[
+            {"type":"summary"}
+        ]}}"#;
+        assert_eq!(
+            parse_session_line(AgentProviderId::ClaudeCode, without_tokens),
+            vec![AgentRuntimeEvent::Compaction {
+                pre_tokens: 0,
+                post_tokens: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn codex_compression_summary_emits_compaction_event() {
+        for kind in ["compression_summary", "auto_compact", "compact"] {
+            let line = format!(
+                r#"{{"type":"response_item","payload":{{"type":"{kind}","before_tokens":80000,"after_tokens":10000}}}}"#
+            );
+            assert_eq!(
+                parse_session_line(AgentProviderId::Codex, &line),
+                vec![AgentRuntimeEvent::Compaction {
+                    pre_tokens: 80000,
+                    post_tokens: 10000,
+                }]
+            );
+        }
     }
 
     #[test]

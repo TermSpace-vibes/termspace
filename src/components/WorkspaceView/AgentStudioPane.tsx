@@ -43,7 +43,7 @@ const providerLabels: Partial<Record<AgentProviderId, string>> = {
   devin: 'Devin',
   pi: 'Pi',
 }
-const providerLabel = (id: AgentProviderId) => providerLabels[id] ?? id
+export const providerLabel = (id: AgentProviderId) => providerLabels[id] ?? id
 
 interface ProviderModel {
   id: string
@@ -155,7 +155,13 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
   // selected one — so dropping a new binary into PATH surfaces it automatically
   // without any code change (see backend ProviderDefinition registry).
   const visibleProviders = useMemo<AgentProviderId[]>(
-    () => Array.from(new Set<AgentProviderId>([provider, ...diagnostics.map((item) => item.provider)])),
+    () =>
+      Array.from(
+        new Set<AgentProviderId>([
+          provider,
+          ...diagnostics.filter((item) => item.available).map((item) => item.provider),
+        ]),
+      ),
     [provider, diagnostics],
   )
   const capsFor = (id: AgentProviderId): AgentProviderCapabilities =>
@@ -192,6 +198,14 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
           cache: evt.cache_read_tokens,
           window: evt.window,
         })
+        // Keep the dedup invariant in sync: context_usage shares the backend's
+        // monotonic sequence counter, so advance lastSequence here too — otherwise
+        // the next real event trips a spurious "sequence gap" diagnostic.
+        setTranscript((current) =>
+          current.lastSequence >= evt.sequence
+            ? current
+            : { ...current, lastSequence: evt.sequence },
+        )
         return
       }
       const sanitizedPayload = evt.kind === 'text'
