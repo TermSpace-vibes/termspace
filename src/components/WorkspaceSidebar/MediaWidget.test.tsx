@@ -33,7 +33,7 @@ describe('MediaWidget', () => {
 
     render(<MediaWidget />)
     expect(screen.getByText('Cool Video')).toBeTruthy()
-    expect(screen.queryByLabelText('Next media source')).toBeNull()
+    expect(screen.queryByLabelText('Next session')).toBeNull()
   })
 
   it('shows chevrons and switches session on click when multiple sessions exist', () => {
@@ -56,7 +56,7 @@ describe('MediaWidget', () => {
     render(<MediaWidget />)
     expect(screen.getByText('First')).toBeTruthy()
 
-    fireEvent.click(screen.getByLabelText('Previous media source'))
+    fireEvent.click(screen.getByLabelText('Previous session'))
     expect(screen.getByText('Second')).toBeTruthy()
   })
 

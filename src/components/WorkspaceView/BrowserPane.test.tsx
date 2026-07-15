@@ -7,6 +7,7 @@ const invoke = vi.fn().mockResolvedValue(undefined)
 
 vi.mock('../../utils/tauri', () => ({
   invoke: (...args: unknown[]) => invoke(...args),
+  listen: () => Promise.resolve(() => {}),
 }))
 
 vi.mock('@tauri-apps/api/event', () => ({
