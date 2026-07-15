@@ -6,7 +6,9 @@ import { invoke } from '../../utils/tauri'
 import type { BrowserMediaSession } from '../../types'
 
 interface Props {
+  /** Whether the parent sidebar is in its collapsed (icon-rail) state. */
   isCollapsed?: boolean
+  /** Called when the collapsed icon is clicked so the sidebar can expand. */
   onExpand?: () => void
 }
 
@@ -152,7 +154,7 @@ export function MediaWidget({ isCollapsed = false, onExpand }: Props) {
   }
 
   const subtitle = current.pageTitle && current.pageTitle !== current.mediaTitle
-    ? `${current.workspaceName} - ${current.pageTitle}`
+    ? `${current.workspaceName} · ${current.pageTitle}`
     : current.workspaceName
   const hasYouTubeFallbackControls = isYouTubeSession(current)
   const showPrevTrack = current.canPrev || hasYouTubeFallbackControls
@@ -340,7 +342,7 @@ export function MediaWidget({ isCollapsed = false, onExpand }: Props) {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
             <button
               onClick={() => goTo(-1)}
-              aria-label="Previous media source"
+              aria-label="Previous session"
               style={switcherBtnStyle}
               onMouseEnter={ghostHoverIn}
               onMouseLeave={ghostHoverOut}
@@ -374,7 +376,7 @@ export function MediaWidget({ isCollapsed = false, onExpand }: Props) {
 
             <button
               onClick={() => goTo(1)}
-              aria-label="Next media source"
+              aria-label="Next session"
               style={switcherBtnStyle}
               onMouseEnter={ghostHoverIn}
               onMouseLeave={ghostHoverOut}
