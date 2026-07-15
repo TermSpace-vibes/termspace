@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event'
 import { invoke } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
 import { useBrowserMediaStore } from '../../store/useBrowserMediaStore'
+import { useBrowserStartupMediaGate } from '../../hooks/useBrowserStartupMediaGate'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
 import { deleteSqliteUiState, getSqliteUiState, setSqliteUiState } from '../../utils/sqliteUiState'
 import {
@@ -73,6 +74,10 @@ export function BrowserPane({
   const discardTimersRef = useRef<{ [id: string]: ReturnType<typeof setTimeout> }>({})
   const preconnectedUrlsRef = useRef<Set<string>>(new Set())
   const browserTabsRestoredRef = useRef(false)
+
+  // Auto-pause media that starts playing in this (non-focused) pane during the
+  // startup grace window; auto-resume it when the pane becomes focused.
+  useBrowserStartupMediaGate({ isActive, tabIds: tabs.map((t) => t.id) })
 
   // Fetch suggestions
   useEffect(() => {
