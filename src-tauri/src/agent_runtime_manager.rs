@@ -1190,27 +1190,54 @@ fn file_change_from_tool(
 
 /// A one-line, human-readable summary of a tool call — the most descriptive
 /// single field, clipped — never a raw JSON dump.
-fn summarize_tool_input(name: &str, input: Option<&serde_json::Value>) -> String {
-    let Some(input) = input else {
-        return name.to_string();
+/// Reconstructs a human-readable command for a tool call — Traycer's
+/// "portray efficiently" trick. Instead of dumping the raw JSON input, we show
+/// a `$`-prefixed command (e.g. `$ grep -n "login" src`) or a verb + target.
+/// File-changing tools (Edit/Write/MultiEdit) are collapsed to `FileChange`
+/// diff cards elsewhere, so they never reach here.
+fn reconstruct_tool_command(name: &str, input: Option<&serde_json::Value>) -> String {
+    let empty = serde_json::Value::Null;
+    let input = input.unwrap_or(&empty);
+    let get = |key: &str| {
+        input
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
     };
-    for key in [
-        "command",
-        "pattern",
-        "query",
-        "file_path",
-        "path",
-        "url",
-        "description",
-    ] {
-        if let Some(value) = input.get(key).and_then(|v| v.as_str()) {
-            let trimmed = value.trim();
-            if !trimmed.is_empty() {
-                return trimmed.chars().take(120).collect();
+
+    let reconstructed = match name.to_ascii_lowercase().as_str() {
+        "bash" | "shell" | "sh" | "zsh" | "command" => {
+            get("command").or_else(|| get("cmd")).map(|c| format!("$ {c}"))
+        }
+        "grep" | "ripgrep" | "rg" => {
+            let pattern = get("pattern");
+            let target = get("path").or_else(|| get("glob")).or_else(|| get("dir"));
+            match (pattern, target) {
+                (Some(p), Some(t)) => Some(format!("$ grep -n \"{p}\" {t}")),
+                (Some(p), None) => Some(format!("$ grep -n \"{p}\"")),
+                _ => None,
             }
         }
-    }
-    name.to_string()
+        "glob" => get("pattern").map(|p| format!("glob \"{p}\"")),
+        "read" | "view" | "readfile" => {
+            get("file_path").or_else(|| get("path")).map(|p| format!("read {p}"))
+        }
+        "webfetch" | "fetch" => get("url").map(|u| format!("fetch {u}")),
+        "websearch" | "web_search" => get("query").map(|q| format!("web_search \"{q}\"")),
+        "todo" | "todowrite" => get("description").map(|d| format!("todo \"{d}\"")),
+        _ => None,
+    };
+
+    reconstructed.unwrap_or_else(|| {
+        // Fallback: surface the single most informative field, never the raw JSON.
+        for key in ["command", "pattern", "query", "file_path", "path", "url", "description"] {
+            if let Some(value) = get(key) {
+                return value.chars().take(120).collect();
+            }
+        }
+        name.to_string()
+    })
 }
 
 fn parse_claude_session_line(value: &serde_json::Value) -> Vec<AgentRuntimeEvent> {
@@ -1241,7 +1268,7 @@ fn parse_claude_session_line(value: &serde_json::Value) -> Vec<AgentRuntimeEvent
                     match file_change_from_tool(&name, input) {
                         Some(event) => out.push(event),
                         None => out.push(AgentRuntimeEvent::ToolCall {
-                            summary: summarize_tool_input(&name, input),
+                            summary: reconstruct_tool_command(&name, input),
                             name,
                         }),
                     }
@@ -1608,9 +1635,57 @@ mod tests {
                 },
                 AgentRuntimeEvent::ToolCall {
                     name: "Grep".into(),
-                    summary: "login".into(),
+                    summary: "$ grep -n \"login\" src".into(),
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn reconstruct_tool_command_builds_readable_commands() {
+        let grep = r#"{"type":"assistant","message":{"content":[
+            {"type":"tool_use","name":"Grep","input":{"pattern":"login","path":"src"}}
+        ]}}"#;
+        assert_eq!(
+            parse_session_line(AgentProviderId::ClaudeCode, grep),
+            vec![AgentRuntimeEvent::ToolCall {
+                name: "Grep".into(),
+                summary: "$ grep -n \"login\" src".into(),
+            }]
+        );
+
+        let bash = r#"{"type":"assistant","message":{"content":[
+            {"type":"tool_use","name":"Bash","input":{"command":"cargo test"}}
+        ]}}"#;
+        assert_eq!(
+            parse_session_line(AgentProviderId::ClaudeCode, bash),
+            vec![AgentRuntimeEvent::ToolCall {
+                name: "Bash".into(),
+                summary: "$ cargo test".into(),
+            }]
+        );
+
+        let read = r#"{"type":"assistant","message":{"content":[
+            {"type":"tool_use","name":"Read","input":{"file_path":"src/app.ts"}}
+        ]}}"#;
+        assert_eq!(
+            parse_session_line(AgentProviderId::ClaudeCode, read),
+            vec![AgentRuntimeEvent::ToolCall {
+                name: "Read".into(),
+                summary: "read src/app.ts".into(),
+            }]
+        );
+
+        // Unknown tool with no recognizable field falls back to its name.
+        let weird = r#"{"type":"assistant","message":{"content":[
+            {"type":"tool_use","name":"Teleport","input":{"warp":42}}
+        ]}}"#;
+        assert_eq!(
+            parse_session_line(AgentProviderId::ClaudeCode, weird),
+            vec![AgentRuntimeEvent::ToolCall {
+                name: "Teleport".into(),
+                summary: "Teleport".into(),
+            }]
         );
     }
 

@@ -143,7 +143,7 @@ describe('SettingsModal dictation model controls', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Model Loaded' })).toBeInTheDocument()
     })
-    expect(invokeMock).toHaveBeenCalledWith('load_dictation_model')
+    expect(invokeMock).toHaveBeenCalledWith('load_dictation_model', { language: 'en' })
   })
 
   it('renders and saves system-wide dictation settings', async () => {

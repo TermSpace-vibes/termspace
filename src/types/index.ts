@@ -247,6 +247,7 @@ export interface Settings {
   dictationProvider?: 'local' | 'openai' | 'groq'
   dictationApiKey?: string
   dictationPrompt?: string
+  dictationLanguage?: string
   globalDictationEnabled?: boolean
   globalDictationHotkey?: string
   globalDictationAutoPaste?: boolean

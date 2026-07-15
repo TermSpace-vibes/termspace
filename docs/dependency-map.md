@@ -1,6 +1,6 @@
 # Dependency Map
 
-> Auto-generated 2026-07-12 by `node scripts/gen-dep-map.js`. Re-run after structural changes.
+> Auto-generated 2026-07-13 by `node scripts/gen-dep-map.js`. Re-run after structural changes.
 
 ## How to use
 
@@ -34,8 +34,8 @@
 | `src/components/WorkspaceSidebar/WorkspaceItem.tsx` | `src/store/useAppStore.ts`, `src/types/index.ts` |
 | `src/components/WorkspaceSidebar/WorkspaceSidebar.tsx` | `src/components/WorkspaceSidebar/AddWorkspaceButton.tsx`, `src/components/WorkspaceSidebar/MediaWidget.tsx`, `src/components/WorkspaceSidebar/ProjectTasks.tsx`, `src/components/WorkspaceSidebar/WorkspaceItem.tsx`, `src/store/useAppStore.ts`, `src/types/index.ts` |
 | `src/components/WorkspaceView/AgentContextInspector.tsx` | — |
-| `src/components/WorkspaceView/AgentProviderDiagnostics.tsx` | `src/utils/tauri.ts` |
-| `src/components/WorkspaceView/AgentStudioPane.tsx` | `src/components/WorkspaceView/AgentContextInspector.tsx`, `src/components/WorkspaceView/AgentProviderDiagnostics.tsx`, `src/components/WorkspaceView/agentTranscript.ts`, `src/components/WorkspaceView/claudeOutputParser.ts`, `src/store/useAppStore.ts`, `src/types/index.ts`, `src/utils/tauri.ts` |
+| `src/components/WorkspaceView/AgentProviderDiagnostics.tsx` | `src/components/WorkspaceView/AgentStudioPane.tsx`, `src/types/index.ts` |
+| `src/components/WorkspaceView/AgentStudioPane.tsx` | `src/components/WorkspaceView/AgentContextInspector.tsx`, `src/components/WorkspaceView/AgentProviderDiagnostics.tsx`, `src/components/WorkspaceView/ProviderIcons.tsx`, `src/components/WorkspaceView/agentTranscript.ts`, `src/components/WorkspaceView/claudeOutputParser.ts`, `src/store/useAppStore.ts`, `src/types/index.ts`, `src/utils/tauri.ts` |
 | `src/components/WorkspaceView/BrowserPane.tsx` | `src/store/useAppStore.ts`, `src/store/useBrowserMediaStore.ts`, `src/utils/browserPaneTabsState.ts`, `src/utils/sqliteUiState.ts`, `src/utils/tauri.ts` |
 | `src/components/WorkspaceView/ClaudePane.tsx` | `src/components/WorkspaceView/ClaudeRawStream.tsx`, `src/components/WorkspaceView/claudeOutputParser.ts`, `src/components/WorkspaceView/claudeTranscript.ts`, `src/store/useAppStore.ts`, `src/utils/tauri.ts` |
 | `src/components/WorkspaceView/ClaudeRawStream.tsx` | — |
@@ -43,6 +43,7 @@
 | `src/components/WorkspaceView/DockerPaneComponent.tsx` | `src/store/useAppStore.ts`, `src/types/index.ts` |
 | `src/components/WorkspaceView/KubernetesPaneComponent.tsx` | `src/store/useAppStore.ts`, `src/types/index.ts` |
 | `src/components/WorkspaceView/NativeTerminalPane.tsx` | `src/components/ConfirmModal/ConfirmModal.tsx`, `src/components/WorkspaceView/renderers/CanvasRenderer.ts`, `src/components/WorkspaceView/renderers/WebGLRenderer.ts`, `src/components/WorkspaceView/renderers/types.ts`, `src/components/WorkspaceView/selectionUtils.ts`, `src/components/WorkspaceView/useTerminalWorker.ts`, `src/hooks/useGlobalKeybindings.ts`, `src/store/useAppStore.ts`, `src/utils/constants.ts`, `src/utils/tauri.ts` |
+| `src/components/WorkspaceView/ProviderIcons.tsx` | `src/types/index.ts` |
 | `src/components/WorkspaceView/TerminalGrid.tsx` | `src/components/EditorPane.tsx`, `src/components/WorkspaceView/AgentStudioPane.tsx`, `src/components/WorkspaceView/BrowserPane.tsx`, `src/components/WorkspaceView/ClaudePane.tsx`, `src/components/WorkspaceView/DockerPaneComponent.tsx`, `src/components/WorkspaceView/KubernetesPaneComponent.tsx`, `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/TerminalPane.tsx`, `src/components/ui/ErrorBoundary.tsx`, `src/store/useAppStore.ts`, `src/types/index.ts` |
 | `src/components/WorkspaceView/TerminalPane.tsx` | `src/components/ConfirmModal/ConfirmModal.tsx`, `src/hooks/useGlobalKeybindings.ts`, `src/store/useAppStore.ts`, `src/utils/constants.ts`, `src/utils/tauri.ts` |
 | `src/components/WorkspaceView/ToolingPane.tsx` | `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/TerminalPane.tsx`, `src/store/useAppStore.ts`, `src/types/index.ts`, `src/utils/tauri.ts` |
@@ -97,8 +98,8 @@
 | File | Dependent Count | Imported By |
 |------|----------------|-------------|
 | `src/store/useAppStore.ts` | 33 | `src/App.tsx`, `src/components/CommandPalette/CommandPalette.tsx`, `src/components/EditorPane.tsx`, `src/components/EditorWelcomeScreen.tsx`, `src/components/FileTree.tsx`, `src/components/GitPanel.tsx`, `src/components/MarkdownModal/MarkdownModal.tsx`, `src/components/MarkdownPreview.tsx`, `src/components/SearchPanel.tsx`, `src/components/SettingsModal/SettingsModal.tsx`, `src/components/WorkspaceSidebar/ProjectTasks.tsx`, `src/components/WorkspaceSidebar/WorkspaceItem.tsx`, `src/components/WorkspaceSidebar/WorkspaceSidebar.tsx`, `src/components/WorkspaceView/AgentStudioPane.tsx`, `src/components/WorkspaceView/BrowserPane.tsx`, `src/components/WorkspaceView/ClaudePane.tsx`, `src/components/WorkspaceView/DockerPaneComponent.tsx`, `src/components/WorkspaceView/KubernetesPaneComponent.tsx`, `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/TerminalGrid.tsx`, `src/components/WorkspaceView/TerminalPane.tsx`, `src/components/WorkspaceView/ToolingPane.tsx`, `src/components/WorkspaceView/WorkspaceHeader.tsx`, `src/components/WorkspaceView/WorkspaceTabBar.tsx`, `src/components/WorkspaceView/WorkspaceView.tsx`, `src/components/ui/DictationButton.tsx`, `src/components/ui/ToastContainer.tsx`, `src/hooks/useDictation.ts`, `src/hooks/useFileTreeOperations.ts`, `src/hooks/useGlobalKeybindings.ts`, `src/hooks/useGlobalTranscription.ts`, `src/hooks/useNotifications.ts`, `src/hooks/useSqliteUiStateSync.ts` |
-| `src/types/index.ts` | 22 | `src/App.tsx`, `src/components/SettingsModal/SettingsModal.tsx`, `src/components/WorkspaceModal/WorkspaceModal.tsx`, `src/components/WorkspaceSidebar/MediaWidget.tsx`, `src/components/WorkspaceSidebar/ProjectTasks.tsx`, `src/components/WorkspaceSidebar/WorkspaceItem.tsx`, `src/components/WorkspaceSidebar/WorkspaceSidebar.tsx`, `src/components/WorkspaceView/AgentStudioPane.tsx`, `src/components/WorkspaceView/DockerPaneComponent.tsx`, `src/components/WorkspaceView/KubernetesPaneComponent.tsx`, `src/components/WorkspaceView/TerminalGrid.tsx`, `src/components/WorkspaceView/ToolingPane.tsx`, `src/components/WorkspaceView/WorkspaceHeader.tsx`, `src/components/WorkspaceView/WorkspaceTabBar.tsx`, `src/components/WorkspaceView/WorkspaceView.tsx`, `src/components/WorkspaceView/agentTranscript.ts`, `src/hooks/useFileTreeOperations.ts`, `src/hooks/useGlobalKeybindings.ts`, `src/hooks/useNotifications.ts`, `src/store/useAppStore.ts`, `src/store/useBrowserMediaStore.ts`, `src/utils/layout.ts` |
-| `src/utils/tauri.ts` | 16 | `src/App.tsx`, `src/components/SettingsModal/SettingsModal.tsx`, `src/components/WorkspaceSidebar/MediaWidget.tsx`, `src/components/WorkspaceView/AgentProviderDiagnostics.tsx`, `src/components/WorkspaceView/AgentStudioPane.tsx`, `src/components/WorkspaceView/BrowserPane.tsx`, `src/components/WorkspaceView/ClaudePane.tsx`, `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/TerminalPane.tsx`, `src/components/WorkspaceView/ToolingPane.tsx`, `src/components/WorkspaceView/WorkspaceView.tsx`, `src/hooks/useBrowserMediaBridge.ts`, `src/hooks/useFileTreeOperations.ts`, `src/hooks/useGlobalKeybindings.ts`, `src/hooks/useNotifications.ts`, `src/utils/sqliteUiState.ts` |
+| `src/types/index.ts` | 24 | `src/App.tsx`, `src/components/SettingsModal/SettingsModal.tsx`, `src/components/WorkspaceModal/WorkspaceModal.tsx`, `src/components/WorkspaceSidebar/MediaWidget.tsx`, `src/components/WorkspaceSidebar/ProjectTasks.tsx`, `src/components/WorkspaceSidebar/WorkspaceItem.tsx`, `src/components/WorkspaceSidebar/WorkspaceSidebar.tsx`, `src/components/WorkspaceView/AgentProviderDiagnostics.tsx`, `src/components/WorkspaceView/AgentStudioPane.tsx`, `src/components/WorkspaceView/DockerPaneComponent.tsx`, `src/components/WorkspaceView/KubernetesPaneComponent.tsx`, `src/components/WorkspaceView/ProviderIcons.tsx`, `src/components/WorkspaceView/TerminalGrid.tsx`, `src/components/WorkspaceView/ToolingPane.tsx`, `src/components/WorkspaceView/WorkspaceHeader.tsx`, `src/components/WorkspaceView/WorkspaceTabBar.tsx`, `src/components/WorkspaceView/WorkspaceView.tsx`, `src/components/WorkspaceView/agentTranscript.ts`, `src/hooks/useFileTreeOperations.ts`, `src/hooks/useGlobalKeybindings.ts`, `src/hooks/useNotifications.ts`, `src/store/useAppStore.ts`, `src/store/useBrowserMediaStore.ts`, `src/utils/layout.ts` |
+| `src/utils/tauri.ts` | 15 | `src/App.tsx`, `src/components/SettingsModal/SettingsModal.tsx`, `src/components/WorkspaceSidebar/MediaWidget.tsx`, `src/components/WorkspaceView/AgentStudioPane.tsx`, `src/components/WorkspaceView/BrowserPane.tsx`, `src/components/WorkspaceView/ClaudePane.tsx`, `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/TerminalPane.tsx`, `src/components/WorkspaceView/ToolingPane.tsx`, `src/components/WorkspaceView/WorkspaceView.tsx`, `src/hooks/useBrowserMediaBridge.ts`, `src/hooks/useFileTreeOperations.ts`, `src/hooks/useGlobalKeybindings.ts`, `src/hooks/useNotifications.ts`, `src/utils/sqliteUiState.ts` |
 | `src/components/WorkspaceView/renderers/types.ts` | 7 | `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/renderers/CanvasRenderer.ts`, `src/components/WorkspaceView/renderers/WebGLRenderer.ts`, `src/components/WorkspaceView/renderers/terminal.worker.ts`, `src/components/WorkspaceView/renderers/worker-protocol.ts`, `src/components/WorkspaceView/selectionUtils.ts`, `src/components/WorkspaceView/useTerminalWorker.ts` |
 | `src/components/ConfirmModal/ConfirmModal.tsx` | 5 | `src/App.tsx`, `src/components/EditorPane.tsx`, `src/components/FileTree.tsx`, `src/components/WorkspaceView/NativeTerminalPane.tsx`, `src/components/WorkspaceView/TerminalPane.tsx` |
 | `src/store/useBrowserMediaStore.ts` | 4 | `src/components/WorkspaceSidebar/MediaWidget.tsx`, `src/components/WorkspaceView/BrowserPane.tsx`, `src/hooks/useBrowserMediaBridge.ts`, `src/store/useAppStore.ts` |
@@ -108,6 +109,7 @@
 | `src/utils/fs.ts` | 3 | `src/components/EditorPane.tsx`, `src/components/FileTree.tsx`, `src/components/MarkdownModal/MarkdownModal.tsx` |
 | `src/utils/sqliteUiState.ts` | 3 | `src/App.tsx`, `src/components/WorkspaceView/BrowserPane.tsx`, `src/hooks/useSqliteUiStateSync.ts` |
 | `src/components/MarkdownPreview.tsx` | 2 | `src/components/EditorPane.tsx`, `src/components/MarkdownModal/MarkdownModal.tsx` |
+| `src/components/WorkspaceView/AgentStudioPane.tsx` | 2 | `src/components/WorkspaceView/AgentProviderDiagnostics.tsx`, `src/components/WorkspaceView/TerminalGrid.tsx` |
 | `src/components/WorkspaceView/NativeTerminalPane.tsx` | 2 | `src/components/WorkspaceView/TerminalGrid.tsx`, `src/components/WorkspaceView/ToolingPane.tsx` |
 | `src/components/WorkspaceView/TerminalPane.tsx` | 2 | `src/components/WorkspaceView/TerminalGrid.tsx`, `src/components/WorkspaceView/ToolingPane.tsx` |
 | `src/components/WorkspaceView/claudeTranscript.ts` | 2 | `src/components/WorkspaceView/ClaudePane.tsx`, `src/components/WorkspaceView/ClaudeTranscriptView.tsx` |
@@ -137,12 +139,12 @@
 | `src/components/WorkspaceSidebar/WorkspaceSidebar.tsx` | 1 | `src/App.tsx` |
 | `src/components/WorkspaceView/AgentContextInspector.tsx` | 1 | `src/components/WorkspaceView/AgentStudioPane.tsx` |
 | `src/components/WorkspaceView/AgentProviderDiagnostics.tsx` | 1 | `src/components/WorkspaceView/AgentStudioPane.tsx` |
-| `src/components/WorkspaceView/AgentStudioPane.tsx` | 1 | `src/components/WorkspaceView/TerminalGrid.tsx` |
 | `src/components/WorkspaceView/BrowserPane.tsx` | 1 | `src/components/WorkspaceView/TerminalGrid.tsx` |
 | `src/components/WorkspaceView/ClaudePane.tsx` | 1 | `src/components/WorkspaceView/TerminalGrid.tsx` |
 | `src/components/WorkspaceView/ClaudeRawStream.tsx` | 1 | `src/components/WorkspaceView/ClaudePane.tsx` |
 | `src/components/WorkspaceView/DockerPaneComponent.tsx` | 1 | `src/components/WorkspaceView/TerminalGrid.tsx` |
 | `src/components/WorkspaceView/KubernetesPaneComponent.tsx` | 1 | `src/components/WorkspaceView/TerminalGrid.tsx` |
+| `src/components/WorkspaceView/ProviderIcons.tsx` | 1 | `src/components/WorkspaceView/AgentStudioPane.tsx` |
 | `src/components/WorkspaceView/TerminalGrid.tsx` | 1 | `src/components/WorkspaceView/WorkspaceView.tsx` |
 | `src/components/WorkspaceView/ToolingPane.tsx` | 1 | `src/components/WorkspaceView/WorkspaceView.tsx` |
 | `src/components/WorkspaceView/WorkspaceHeader.tsx` | 1 | `src/components/WorkspaceView/WorkspaceView.tsx` |
@@ -181,8 +183,8 @@
 Changes here have a wide blast radius — check all dependents before editing.
 
 - `src/store/useAppStore.ts` — **33 dependents**
-- `src/types/index.ts` — **22 dependents**
-- `src/utils/tauri.ts` — **16 dependents**
+- `src/types/index.ts` — **24 dependents**
+- `src/utils/tauri.ts` — **15 dependents**
 - `src/components/WorkspaceView/renderers/types.ts` — **7 dependents**
 - `src/components/ConfirmModal/ConfirmModal.tsx` — **5 dependents**
 - `src/store/useBrowserMediaStore.ts` — **4 dependents**

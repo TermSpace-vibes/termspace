@@ -185,7 +185,9 @@ export function SettingsModal({ onClose }: Props) {
     let disposed = false
     let unlistenProgress: (() => void) | null = null
 
-    invoke<DictationModelStatus>('get_dictation_model_status')
+    invoke<DictationModelStatus>('get_dictation_model_status', {
+      language: settings.dictationLanguage || 'en',
+    })
       .then((status) => {
         if (disposed) return
         setDictationModelStatus(status)
@@ -219,7 +221,7 @@ export function SettingsModal({ onClose }: Props) {
       disposed = true
       unlistenProgress?.()
     }
-  }, [])
+  }, [settings.dictationLanguage])
 
   async function handleDictationModelAction() {
     const shouldLoadExisting = dictationModelStatus?.state === 'downloaded' && dictationModelStatus.source === 'downloaded'
@@ -228,7 +230,9 @@ export function SettingsModal({ onClose }: Props) {
     setDictationModelError(null)
 
     try {
-      const status = await invoke<DictationModelStatus>(shouldLoadExisting ? 'load_dictation_model' : 'download_dictation_model')
+      const status = await invoke<DictationModelStatus>(shouldLoadExisting ? 'load_dictation_model' : 'download_dictation_model', {
+        language: settings.dictationLanguage || 'en',
+      })
       setDictationModelStatus(status)
       if (!shouldLoadExisting) setDictationModelProgress(100)
       setDictationModelState('idle')
@@ -684,6 +688,35 @@ export function SettingsModal({ onClose }: Props) {
                       borderRadius: 8,
                       marginTop: 4
                     }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <div style={{ fontSize: 13, color: 'var(--text-active)', fontWeight: 600 }}>Transcription language</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.5 }}>
+                            English uses a smaller model. Other languages download a multilingual model on first use.
+                          </div>
+                        </div>
+                        <select
+                          value={settings.dictationLanguage || 'en'}
+                          onChange={(e) => updateSettings({ dictationLanguage: e.target.value })}
+                          style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid var(--border-inactive)', background: 'var(--bg-main)', color: 'var(--text-active)', fontSize: 13 }}
+                        >
+                          <option value="en">English</option>
+                          <option value="auto">Auto-detect</option>
+                          <option value="es">Spanish</option>
+                          <option value="fr">French</option>
+                          <option value="de">German</option>
+                          <option value="it">Italian</option>
+                          <option value="pt">Portuguese</option>
+                          <option value="ru">Russian</option>
+                          <option value="ja">Japanese</option>
+                          <option value="ko">Korean</option>
+                          <option value="zh">Chinese</option>
+                          <option value="hi">Hindi</option>
+                          <option value="ar">Arabic</option>
+                          <option value="nl">Dutch</option>
+                        </select>
+                      </div>
+
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <div style={{ fontSize: 13, color: 'var(--text-active)', fontWeight: 600 }}>Local Model</div>
