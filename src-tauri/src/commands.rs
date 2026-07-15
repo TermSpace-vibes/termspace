@@ -51,7 +51,7 @@ pub struct WhisperState(
 pub enum WhisperLoad {
     Idle,
     Loading,
-    Loaded(WhisperContext),
+    Loaded(WhisperContext, dictation_model::ModelKind),
     Failed(String),
 }
 
@@ -66,32 +66,19 @@ pub fn ensure_whisper_loaded(
     language: &str,
 ) -> Result<(), String> {
     let kind = dictation_model::model_kind_for_language(language);
-
-    // Drop a mismatched already-loaded model so we reload the right one. We only
-    // flip to `Idle` when safely Loaded; an in-flight `Loading` is left to finish
-    // (it'll be for some kind, and the next call re-checks).
-    {
-        let loaded = state.1.lock().unwrap();
-        if *loaded != Some(kind) {
-            let (lock, _cvar) = &*state.0;
-            let mut guard = lock.lock().unwrap();
-            if matches!(*guard, WhisperLoad::Loaded(_)) {
-                *guard = WhisperLoad::Idle;
-            }
-        }
-    }
-
-    let result = ensure_whisper_loaded_with_selected_path(state, || {
+    ensure_whisper_loaded_with_selected_path(state, kind, || {
         dictation_model::selected_model_path(app, language)
-    });
-    if result.is_ok() {
-        *state.1.lock().unwrap() = Some(kind);
-    }
-    result
+    })
 }
 
+/// Loads the model for `kind` into shared state. If a *different* model is
+/// already loaded (e.g. user switched English → Spanish), the loaded context is
+/// dropped and the correct one loaded. Tracks the loaded `ModelKind` both in the
+/// `WhisperLoad::Loaded` variant and in `state.1` so callers can tell what's
+/// resident without re-querying disk.
 fn ensure_whisper_loaded_with_selected_path<F>(
     state: &WhisperState,
+    kind: dictation_model::ModelKind,
     mut selected_model_path: F,
 ) -> Result<(), String>
 where
@@ -101,7 +88,12 @@ where
     let mut guard = lock.lock().unwrap();
     loop {
         match &*guard {
-            WhisperLoad::Loaded(_) => return Ok(()),
+            WhisperLoad::Loaded(_, loaded_kind) if *loaded_kind == kind => return Ok(()),
+            WhisperLoad::Loaded(_, _) => {
+                // A different model is resident; drop it so we load the right one.
+                *guard = WhisperLoad::Idle;
+                continue;
+            }
             WhisperLoad::Failed(e) => return Err(e.clone()),
             WhisperLoad::Loading => {
                 // Another load owns this; wait for it to finish, then re-check.
@@ -120,7 +112,8 @@ where
                 let mut g2 = lock.lock().unwrap();
                 let outcome = match result {
                     Ok(ctx) => {
-                        *g2 = WhisperLoad::Loaded(ctx);
+                        *g2 = WhisperLoad::Loaded(ctx, kind);
+                        *state.1.lock().unwrap() = Some(kind);
                         Ok(())
                     }
                     Err(e) => {
@@ -1656,7 +1649,7 @@ pub fn get_dictation_model_status(
     let status = dictation_model::inspect_app_model_files_for(&app, kind)?;
     let guard = state.0 .0.lock().unwrap();
     match &*guard {
-        WhisperLoad::Loaded(_) => Ok(dictation_model::loaded_status(status)),
+        WhisperLoad::Loaded(_, _) => Ok(dictation_model::loaded_status(status)),
         WhisperLoad::Loading => {
             let mut s = status;
             s.state = "loading".to_string();
@@ -1773,7 +1766,7 @@ pub async fn transcribe_chunk(
 
     let context_opt = state.0 .0.lock().unwrap();
     let ctx = match &*context_opt {
-        WhisperLoad::Loaded(c) => c,
+        WhisperLoad::Loaded(c, _) => c,
         _ => return Err("Download the transcription model first.".into()),
     };
 
@@ -1833,7 +1826,7 @@ mod tests {
         let state = whisper_state();
         let error = "app data dir unavailable".to_string();
 
-        let result = ensure_whisper_loaded_with_selected_path(&state, || Err(error.clone()));
+        let result = ensure_whisper_loaded_with_selected_path(&state, dictation_model::ModelKind::English, || Err(error.clone()));
 
         assert_eq!(result, Err(error.clone()));
         {
@@ -1843,12 +1836,12 @@ mod tests {
                 WhisperLoad::Failed(stored) => assert_eq!(stored, &error),
                 WhisperLoad::Loading => panic!("model load must not remain stuck in Loading"),
                 WhisperLoad::Idle => panic!("model load failure must not return to Idle"),
-                WhisperLoad::Loaded(_) => panic!("model path lookup error must not load a context"),
+                WhisperLoad::Loaded(_, _) => panic!("model path lookup error must not load a context"),
             }
         }
 
         let mut selected_path_called = false;
-        let retry = ensure_whisper_loaded_with_selected_path(&state, || {
+        let retry = ensure_whisper_loaded_with_selected_path(&state, dictation_model::ModelKind::English, || {
             selected_path_called = true;
             Ok(None)
         });
