@@ -3,8 +3,34 @@ import { describe, expect, it, vi } from 'vitest'
 import { AgentStudioPane } from './AgentStudioPane'
 import { useAppStore } from '../../store/useAppStore'
 
-const tauri = vi.hoisted(() => ({ listen: vi.fn().mockResolvedValue(() => {}), invoke: vi.fn().mockResolvedValue(undefined) }))
+const tauri = vi.hoisted(() => ({ listen: vi.fn().mockResolvedValue(() => {}), invoke: vi.fn() }))
 vi.mock('../../utils/tauri', () => tauri)
+
+// The AgentStudioPane discovers providers + capabilities from the backend via
+// `get_agent_provider_diagnostics`. Without this, `visibleProviders` is just the
+// selected provider and `capsFor` returns NO_CAPABILITIES, so the Access-mode
+// control and other providers stay hidden. Mirror what the real backend reports.
+const fullCaps = {
+  structuredOutput: true,
+  sessionResume: true,
+  modelSelection: true,
+  reasoningEffort: true,
+  permissionRequests: true,
+  fileChangeEvents: true,
+  toolEvents: true,
+  contextContinuation: true,
+}
+const providerDiagnostics = [
+  { provider: 'claude-code', available: true, capabilities: { ...fullCaps } },
+  { provider: 'codex', available: true, capabilities: { ...fullCaps } },
+]
+beforeEach(() => {
+  tauri.invoke.mockImplementation((cmd: string) =>
+    cmd === 'get_agent_provider_diagnostics'
+      ? Promise.resolve(providerDiagnostics)
+      : Promise.resolve(undefined),
+  )
+})
 
 describe('AgentStudioPane', () => {
   it('waits to launch the provider until the user sends their first prompt', async () => {
@@ -28,7 +54,7 @@ describe('AgentStudioPane', () => {
     useAppStore.setState({ agentStudioPanesByTab: { 'tab-1': [{ id: 'agent-1', tabId: 'tab-1', title: 'Agent Studio', cwd: '/tmp', conversationId: null, position: 0, createdAt: 1 }] } })
     render(<AgentStudioPane tabId="tab-1" paneId="agent-1" isActive onFocus={vi.fn()} onClose={vi.fn()} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Access mode' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Access mode' }))
 
     expect(await screen.findByText('Supervised')).toBeVisible()
     expect(screen.getByText('Auto-accept edits')).toBeVisible()
@@ -43,7 +69,7 @@ describe('AgentStudioPane', () => {
     expect(await screen.findByRole('button', { name: 'Sonnet 5' })).toBeVisible()
     expect(screen.queryByRole('button', { name: 'GPT-5.6-Sol' })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Codex' }))
     fireEvent.click(await screen.findByRole('button', { name: 'GPT-5.6-Sol' }))
 
     expect(screen.getByRole('button', { name: 'Choose provider and model' })).toHaveTextContent('Codex')
@@ -54,6 +80,7 @@ describe('AgentStudioPane', () => {
 
     await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith('start_agent_session', {
       sessionId: 'agent-1', provider: 'codex', cwd: '/tmp', model: 'gpt-5.6-sol',
+      accessMode: 'supervised', reasoningEffort: 'default', workflow: 'epic',
     }))
   })
 })
