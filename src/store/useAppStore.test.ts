@@ -364,3 +364,33 @@ describe('launchAgentSession', () => {
     expect(useAppStore.getState().agentStudioPanesByTab['tab-1'] ?? []).toHaveLength(0)
   })
 })
+
+describe('touchWorkspaceLastOpened', () => {
+  beforeEach(() => {
+    useAppStore.setState({ workspaces: [{ ...ws1, id: 'ws-1' }, { ...ws1, id: 'ws-2', name: 'Other' }] })
+    vi.mocked(invoke).mockResolvedValue({})
+  })
+
+  it('optimistically patches the target workspace\'s lastOpenedAt synchronously, before invoke settles', () => {
+    act(() => useAppStore.getState().touchWorkspaceLastOpened('ws-1'))
+
+    const patched = useAppStore.getState().workspaces.find((w) => w.id === 'ws-1')
+    expect(patched?.lastOpenedAt).toBeGreaterThan(0)
+  })
+
+  it('leaves other workspaces untouched', () => {
+    act(() => useAppStore.getState().touchWorkspaceLastOpened('ws-1'))
+
+    const other = useAppStore.getState().workspaces.find((w) => w.id === 'ws-2')
+    expect(other?.lastOpenedAt).toBeUndefined()
+  })
+
+  it('does not throw if the underlying invoke call rejects', () => {
+    vi.mocked(invoke).mockRejectedValue(new Error('offline'))
+    expect(() => act(() => useAppStore.getState().touchWorkspaceLastOpened('ws-1'))).not.toThrow()
+  })
+
+  it('is a no-op if the workspace id is not found', () => {
+    expect(() => act(() => useAppStore.getState().touchWorkspaceLastOpened('does-not-exist'))).not.toThrow()
+  })
+})

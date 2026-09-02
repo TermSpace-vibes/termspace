@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { invoke, listen } from './utils/tauri'
 import { useAppStore } from './store/useAppStore'
 import { WorkspaceSidebar } from './components/WorkspaceSidebar/WorkspaceSidebar'
+import { HomeView } from './components/Home/HomeView'
 import { WorkspaceView } from './components/WorkspaceView/WorkspaceView'
 import { WorkspaceModal } from './components/WorkspaceModal/WorkspaceModal'
 import { SettingsModal } from './components/SettingsModal/SettingsModal'
@@ -62,6 +63,7 @@ export default function App() {
   const addEditorPane = useAppStore((s) => s.addEditorPane)
 
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showHome, setShowHome] = useState(true)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null)
   const [workspaceToDelete, setWorkspaceToDelete] = useState<Workspace | null>(null)
@@ -79,7 +81,7 @@ export default function App() {
   const setUsername = useAppStore((s) => s.setUsername)
 
   const markdownModalFilePath = useAppStore((s) => s.markdownModalFilePath)
-  const isAnyModalOpen = showCreateModal || showSettingsModal || !!editingWorkspace || !!workspaceToDelete || showCommandPalette || username === null || markdownModalFilePath !== null
+  const isAnyModalOpen = showCreateModal || showSettingsModal || !!editingWorkspace || !!workspaceToDelete || showCommandPalette || username === null || markdownModalFilePath !== null || showHome
   
   useEffect(() => {
     setIsModalOpen(isAnyModalOpen)
@@ -313,10 +315,12 @@ export default function App() {
         setWorkspaces([ws])
         setActiveWorkspaceId(ws.id)
         await activateWorkspace(ws.id)
+        useAppStore.getState().touchWorkspaceLastOpened(ws.id)
       } else {
         setWorkspaces(wsList)
         setActiveWorkspaceId(wsList[0].id)
         await activateWorkspace(wsList[0].id)
+        useAppStore.getState().touchWorkspaceLastOpened(wsList[0].id)
       }
     }
     
@@ -349,6 +353,8 @@ export default function App() {
 
     setActiveWorkspaceId(id)
     setActiveTerminalId(null)
+    setShowHome(false)
+    useAppStore.getState().touchWorkspaceLastOpened(id)
 
     // Resolve the active tabId for this workspace so we can check the correct
     // slot in terminalsByTab (which is keyed by tabId, NOT workspaceId).
@@ -403,6 +409,7 @@ export default function App() {
     }
 
     setShowCreateModal(false)
+    setShowHome(false)
     useAppStore.getState().addToast('Workspace created', 'success')
   }
 
@@ -637,12 +644,13 @@ export default function App() {
             }}
             onOpenSettings={() => setShowSettingsModal(true)}
             onDuplicateWorkspace={handleDuplicateWorkspace}
+            onGoHome={() => setShowHome(true)}
           />
         </Panel>
         
         <SidebarResizeHandle />
         
-        <Panel id="main-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Panel id="main-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
           {/* Always show bootstrap/spawn errors prominently at the top */}
           {bootstrapError && (
             <div style={{
@@ -725,6 +733,14 @@ export default function App() {
             </motion.div>
           )}
           </AnimatePresence>
+
+          {showHome && (
+            <HomeView
+              workspaces={workspaces}
+              onSelectWorkspace={handleSelectWorkspace}
+              onNewWorkspace={() => setShowCreateModal(true)}
+            />
+          )}
         </Panel>
       </Group>
 

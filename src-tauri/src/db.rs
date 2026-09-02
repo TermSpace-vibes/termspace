@@ -14,6 +14,7 @@ pub struct Workspace {
     pub created_at: i64,
     pub group_name: Option<String>,
     pub default_path: Option<String>,
+    pub last_opened_at: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -265,6 +266,7 @@ pub fn init_db(path: &Path) -> Result<Connection> {
     let _ = conn.execute("ALTER TABLE terminals ADD COLUMN title TEXT", []);
     let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN group_name TEXT", []);
     let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN default_path TEXT", []);
+    let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN last_opened_at INTEGER", []);
     init_agent_studio_schema(&conn)?;
     Ok(conn)
 }
@@ -408,7 +410,7 @@ pub fn create_tab(
 
 pub fn get_workspaces(conn: &Connection) -> Result<Vec<Workspace>> {
     let mut stmt = conn.prepare(
-        "SELECT id,name,emoji,color,position,created_at,group_name,default_path FROM workspaces ORDER BY position",
+        "SELECT id,name,emoji,color,position,created_at,group_name,default_path,last_opened_at FROM workspaces ORDER BY position",
     )?;
     let rows = stmt
         .query_map([], |r| {
@@ -421,6 +423,7 @@ pub fn get_workspaces(conn: &Connection) -> Result<Vec<Workspace>> {
                 created_at: r.get(5)?,
                 group_name: r.get(6)?,
                 default_path: r.get(7)?,
+                last_opened_at: r.get(8)?,
             })
         })?
         .collect();
@@ -492,6 +495,7 @@ pub fn create_workspace(
         created_at,
         group_name: None,
         default_path: None,
+        last_opened_at: None,
     })
 }
 
@@ -517,6 +521,14 @@ pub fn set_workspace_default_path(
     conn.execute(
         "UPDATE workspaces SET default_path = ?1 WHERE id = ?2",
         rusqlite::params![path, workspace_id],
+    )?;
+    Ok(())
+}
+
+pub fn touch_workspace_last_opened(conn: &Connection, workspace_id: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE workspaces SET last_opened_at = ?1 WHERE id = ?2",
+        rusqlite::params![now_ms(), workspace_id],
     )?;
     Ok(())
 }
@@ -1080,6 +1092,40 @@ mod tests {
         delete_browser_pane(&conn, "bp-1").unwrap();
         let panes3 = get_browser_panes(&conn, "tab-1").unwrap();
         assert_eq!(panes3.len(), 0);
+    }
+
+    #[test]
+    fn touch_workspace_last_opened_updates_timestamp_and_defaults_to_none_before_touch() {
+        let conn = Connection::open_in_memory().unwrap();
+        // Schema as it exists immediately before this migration — group_name/default_path
+        // already present from earlier migrations, last_opened_at not yet added.
+        conn.execute_batch(
+            "CREATE TABLE workspaces (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL,
+                emoji TEXT NOT NULL DEFAULT '💻', color TEXT NOT NULL DEFAULT '#e8a045',
+                position INTEGER NOT NULL, created_at INTEGER NOT NULL,
+                group_name TEXT, default_path TEXT
+            );",
+        )
+        .unwrap();
+        // Simulate the idempotent migration an existing install runs on upgrade.
+        let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN last_opened_at INTEGER", []);
+
+        conn.execute(
+            "INSERT INTO workspaces (id,name,emoji,color,position,created_at) VALUES (?1,?2,?3,?4,?5,?6)",
+            params!["ws-1", "Main", "💻", "#e8a045", 0i64, 1_000i64],
+        )
+        .unwrap();
+
+        let before = get_workspaces(&conn).unwrap();
+        assert_eq!(before.len(), 1);
+        assert_eq!(before[0].last_opened_at, None);
+
+        touch_workspace_last_opened(&conn, "ws-1").unwrap();
+
+        let after = get_workspaces(&conn).unwrap();
+        assert!(after[0].last_opened_at.is_some());
+        assert!(after[0].last_opened_at.unwrap() > 0);
     }
 
     #[test]
