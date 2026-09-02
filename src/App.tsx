@@ -370,7 +370,7 @@ export default function App() {
     }
   }
 
-  async function handleCreateWorkspace(values: { name: string; emoji: string; color: string; defaultPath: string | null }) {
+  async function handleCreateWorkspace(values: { name: string; emoji: string; color: string; defaultPath: string | null; launchSlots: import('./types').LaunchSlot[] }) {
     const ws = await invoke<Workspace>('create_workspace', values)
     addWorkspace(ws)
     if (values.defaultPath !== null) {
@@ -391,7 +391,17 @@ export default function App() {
     prevActiveWorkspaceIdRef.current = ws.id
 
     setActiveWorkspaceId(ws.id)
-    await activateWorkspace(ws.id)
+
+    const hasAgentsToLaunch = values.launchSlots.some((slot) => slot.task.trim().length > 0)
+    if (hasAgentsToLaunch) {
+      // Bypass activateWorkspace's default-tab-seeding path (App.tsx:189) —
+      // it would otherwise create "Tab 1" + a lone default terminal, since
+      // its emptiness check doesn't account for agentStudioPanesByTab.
+      await useAppStore.getState().launchAgentSession(ws.id, values.launchSlots)
+    } else {
+      await activateWorkspace(ws.id)
+    }
+
     setShowCreateModal(false)
     useAppStore.getState().addToast('Workspace created', 'success')
   }
