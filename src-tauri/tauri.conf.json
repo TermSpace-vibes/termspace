@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "Termspace v0.6.2",
+        "title": "Termspace v0.7.1",
         "width": 800,
         "height": 600,
         "transparent": true,

@@ -1,6 +1,6 @@
 # Dependency Map
 
-> Auto-generated 2026-07-15 by `node scripts/gen-dep-map.js`. Re-run after structural changes.
+> Auto-generated 2026-09-02 by `node scripts/gen-dep-map.js`. Re-run after structural changes.
 
 ## How to use
 
@@ -78,7 +78,6 @@
 | `src/store/useAppStore.ts` | `src/store/useBrowserMediaStore.ts`, `src/types/index.ts`, `src/utils/layout.ts` |
 | `src/store/useBrowserMediaStore.ts` | `src/types/index.ts` |
 | `src/test-setup.ts` | — |
-| `src/test_version.ts` | — |
 | `src/types/index.ts` | — |
 | `src/utils/browserPaneTabsState.ts` | — |
 | `src/utils/constants.ts` | — |
@@ -176,7 +175,6 @@
 | `src/components/WorkspaceView/renderers/terminal.worker.ts` | 0 | — |
 | `src/main.tsx` | 0 | — |
 | `src/test-setup.ts` | 0 | — |
-| `src/test_version.ts` | 0 | — |
 | `src/utils/dragState.ts` | 0 | — |
 | `src/vscode-extensions/extensions.ts` | 0 | — |
 
