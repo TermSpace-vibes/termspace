@@ -56,6 +56,7 @@ interface AppState {
   setWorkspaces: (workspaces: Workspace[]) => void
   addWorkspace: (workspace: Workspace) => void
   updateWorkspace: (workspace: Workspace) => void
+  touchWorkspaceLastOpened: (workspaceId: string) => void
   removeWorkspace: (id: string) => void
   setWorkspaceDefaultPath: (workspaceId: string, defaultPath: string | null) => Promise<void>
   setActiveWorkspaceId: (id: string | null) => void
@@ -284,6 +285,14 @@ export const useAppStore = create<AppState>()(
         set((s) => ({
           workspaces: s.workspaces.map((w) => (w.id === workspace.id ? workspace : w)),
         })),
+
+      touchWorkspaceLastOpened: (workspaceId) => {
+        const ws = useAppStore.getState().workspaces.find((w) => w.id === workspaceId)
+        if (ws) {
+          useAppStore.getState().updateWorkspace({ ...ws, lastOpenedAt: Date.now() })
+        }
+        invoke('touch_workspace_last_opened', { workspaceId }).catch(() => {})
+      },
 
       removeWorkspace: (id) =>
         set((s) => {

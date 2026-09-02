@@ -11,6 +11,7 @@ export interface Workspace {
   isPinned?: boolean
   isArchived?: boolean
   defaultPath?: string
+  lastOpenedAt?: number
 }
 
 export interface Terminal {
