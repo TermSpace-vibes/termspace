@@ -498,6 +498,14 @@ pub fn set_workspace_default_path(
 }
 
 #[tauri::command]
+pub fn touch_workspace_last_opened(
+    db: State<DbState>,
+    workspace_id: String,
+) -> Result<(), String> {
+    db::touch_workspace_last_opened(&db.0.lock(), &workspace_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn rename_tab(id: String, name: String, db: tauri::State<'_, DbState>) -> Result<(), String> {
     let conn = db.0.lock();
     db::rename_tab(&conn, &id, &name).map_err(|e| e.to_string())

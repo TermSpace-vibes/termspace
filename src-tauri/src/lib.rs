@@ -256,6 +256,7 @@ pub fn run() {
             commands::get_agent_context_bundle,
             commands::update_workspace,
             commands::set_workspace_default_path,
+            commands::touch_workspace_last_opened,
             commands::delete_workspace,
             commands::delete_tab,
             commands::rename_tab,
