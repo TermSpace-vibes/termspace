@@ -211,6 +211,8 @@ export interface AgentStudioPane {
   conversationId: string | null
   position: number
   createdAt: number
+  initialDraft?: string
+  initialProvider?: AgentProviderId
 }
 
 export interface Keybindings {

@@ -246,6 +246,15 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
     setModelQuery('')
   }
 
+  const seededRef = useRef(false)
+  useEffect(() => {
+    if (seededRef.current) return
+    seededRef.current = true
+    if (pane?.initialProvider) chooseProvider(pane.initialProvider)
+    if (pane?.initialDraft) setDraft(pane.initialDraft)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const isEmpty = transcript.rows.length === 0
   const selectedWindow = model.runtimeModel ? (providerModelWindow[model.runtimeModel] ?? 200_000) : 200_000
   const contextView = useMemo(() => {

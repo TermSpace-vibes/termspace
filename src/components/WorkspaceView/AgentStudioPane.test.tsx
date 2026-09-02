@@ -83,4 +83,29 @@ describe('AgentStudioPane', () => {
       accessMode: 'supervised', reasoningEffort: 'default', workflow: 'epic',
     }))
   })
+
+  it('seeds provider and composer text from initialProvider/initialDraft once, and does not re-seed on a later update', async () => {
+    useAppStore.setState({
+      agentStudioPanesByTab: {
+        'tab-1': [{
+          id: 'agent-1', tabId: 'tab-1', title: 'Agent Studio', cwd: '/tmp',
+          conversationId: null, position: 0, createdAt: 1,
+          initialProvider: 'codex', initialDraft: 'Set up the CI pipeline',
+        }],
+      },
+    })
+    render(<AgentStudioPane tabId="tab-1" paneId="agent-1" isActive onFocus={vi.fn()} onClose={vi.fn()} />)
+
+    const textarea = screen.getByRole('textbox', { name: 'Ask Agent Studio' }) as HTMLTextAreaElement
+    await waitFor(() => expect(textarea.value).toBe('Set up the CI pipeline'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
+    await waitFor(() =>
+      expect(tauri.invoke).toHaveBeenCalledWith('start_agent_session', expect.objectContaining({ provider: 'codex' })),
+    )
+
+    // Editing the draft after mount must not get clobbered by a re-seed.
+    fireEvent.change(textarea, { target: { value: 'A different task entirely' } })
+    expect(textarea.value).toBe('A different task entirely')
+  })
 })
