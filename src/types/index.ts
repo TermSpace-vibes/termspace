@@ -203,6 +203,12 @@ export interface AgentRuntimeEnvelope {
   event: AgentRuntimeEvent
 }
 
+export interface LaunchSlot {
+  provider: AgentProviderId
+  task: string
+  subPath?: string
+}
+
 export interface AgentStudioPane {
   id: string
   tabId: string
@@ -211,6 +217,8 @@ export interface AgentStudioPane {
   conversationId: string | null
   position: number
   createdAt: number
+  initialDraft?: string
+  initialProvider?: AgentProviderId
 }
 
 export interface Keybindings {

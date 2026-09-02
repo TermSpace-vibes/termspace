@@ -23,6 +23,22 @@ export function sortNodes(nodes: FileNode[]): FileNode[] {
   })
 }
 
+/**
+ * Joins subPath onto workspacePath for the multi-agent launch flow. Returns
+ * null (reject the slot) rather than silently clamping, if subPath contains
+ * a `.` or `..` segment after normalization — an agent slot must not be able
+ * to point its cwd outside the workspace root via a crafted subpath.
+ */
+export function resolveWorkspaceSubPath(workspacePath: string, subPath?: string): string | null {
+  const trimmed = (subPath ?? '').trim()
+  if (!trimmed) return workspacePath
+  const stripped = trimmed.replace(/^\/+/, '')
+  if (!stripped) return workspacePath
+  const segments = stripped.split('/')
+  if (segments.some((segment) => segment === '..' || segment === '.')) return null
+  return `${workspacePath}/${stripped}`
+}
+
 export async function fetchDirectoryTree(path: string): Promise<FileNode[]> {
   try {
     const entries = await readDir(path)

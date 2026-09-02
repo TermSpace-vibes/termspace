@@ -1,6 +1,8 @@
 # Termspace — AI Project Context
 
-A native macOS keyboard-driven unified developer workspace manager built with Tauri v2 (Rust backend) + React 19/TypeScript frontend. Version 0.5.0.
+A native macOS keyboard-driven unified developer workspace manager built with Tauri v2 (Rust backend) + React 19/TypeScript frontend. Version 0.7.1.
+
+> This file predates several major additions (Docker/Kubernetes panes, Agent Studio, LSP editor integration, local Whisper dictation). For the current full feature list see [`README.md`](README.md) and [`featureslist.md`](featureslist.md); the sections below (Project Structure, Key Components, Features, Pending Work) reflect an earlier snapshot of the app and may not name every current file.
 
 ---
 
@@ -63,13 +65,12 @@ termspace/
 │   ├── src/
 │   │   ├── lib.rs                # Tauri setup, 30+ commands registered
 │   │   ├── commands.rs           # All Tauri command handlers
-│   │   ├── pty_manager.rs        # Native PTY management
+│   │   ├── native_terminal_manager.rs # Native PTY management, OSC parsing
 │   │   ├── browser_pane_manager.rs # Embedded WKWebView management
 │   │   └── db.rs                 # SQLite schema + CRUD
 │   └── tauri.conf.json           # Window config, updater
 │
 ├── AGENTS.md                     # This file
-├── handoff.md                    # Detailed project handoff notes
 ├── vite.config.ts                # Vite + Vitest config
 └── package.json
 ```
