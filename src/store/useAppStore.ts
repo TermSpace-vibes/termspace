@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
-import { AgentStudioPane, Workspace, Terminal, BrowserPane, EditorPane, ClaudePane, LayoutNode, LayoutDirection, Settings, GitStatus, WorkspaceTab } from '../types'
+import { AgentStudioPane, Workspace, Terminal, BrowserPane, EditorPane, ClaudePane, LayoutNode, LayoutDirection, Settings, GitStatus, WorkspaceTab, LaunchSlot } from '../types'
 import { useBrowserMediaStore } from './useBrowserMediaStore'
 import {
   addTerminalToLayout, removeTerminalFromLayout, swapTerminalsInLayout,
@@ -13,6 +13,8 @@ import {
   addClaudePaneToLayout, removeClaudePaneFromLayout,
   addAgentStudioPaneToLayout, removeAgentStudioPaneFromLayout,
 } from '../utils/layout'
+import { tileSlots } from '../utils/launchTiling'
+import { resolveWorkspaceSubPath } from '../utils/fs'
 
 interface AppState {
   workspaces: Workspace[]
@@ -86,6 +88,7 @@ interface AppState {
   addAgentStudioPane: (tabId: string, pane: AgentStudioPane, targetId?: string, direction?: LayoutDirection) => void
   removeAgentStudioPane: (tabId: string, paneId: string) => void
   updateAgentStudioPane: (tabId: string, paneId: string, updates: Partial<AgentStudioPane>) => void
+  launchAgentSession: (workspaceId: string, slots: LaunchSlot[]) => Promise<void>
   updateEditorPaneFile: (tabId: string, editorPaneId: string, openFilePath: string | null, lineNumber?: number) => void
   closeEditorFile: (tabId: string, editorPaneId: string, filePath: string) => void
   updateEditorPaneLayout: (tabId: string, editorPaneId: string, layout: Partial<EditorPane>) => void
@@ -805,6 +808,58 @@ export const useAppStore = create<AppState>()(
             },
           }
         }),
+
+      launchAgentSession: async (workspaceId, slots) => {
+        const workspacePath = useAppStore.getState().workspaces.find((w) => w.id === workspaceId)?.defaultPath ?? ''
+
+        const validSlots = slots
+          .map((slot) => ({ ...slot, task: slot.task.trim() }))
+          .filter((slot) => slot.task.length > 0)
+          .map((slot) => {
+            const cwd = resolveWorkspaceSubPath(workspacePath, slot.subPath)
+            return cwd === null ? null : { ...slot, cwd }
+          })
+          .filter((slot): slot is LaunchSlot & { cwd: string } => slot !== null)
+
+        const tabName = validSlots[0]?.task.slice(0, 40) || 'Agents'
+        const tab = await useAppStore.getState().createTab(workspaceId, tabName)
+        const tabId = tab.id
+
+        if (validSlots.length === 0) return
+
+        const paneIds = validSlots.map(() => crypto.randomUUID())
+        const plan = tileSlots(validSlots.length)
+
+        validSlots.forEach((slot, i) => {
+          const pane: AgentStudioPane = {
+            id: paneIds[i],
+            tabId,
+            title: 'Agent Studio',
+            cwd: slot.cwd,
+            conversationId: null,
+            position: i,
+            createdAt: Date.now(),
+            initialProvider: slot.provider,
+            initialDraft: slot.task,
+          }
+          if (i === 0) {
+            useAppStore.getState().addAgentStudioPane(tabId, pane)
+          } else {
+            const step = plan.steps[i - 1]
+            const targetPaneId = step.targetIndex !== null ? paneIds[step.targetIndex] : undefined
+            useAppStore.getState().addAgentStudioPane(tabId, pane, targetPaneId, step.direction)
+          }
+        })
+
+        for (const rebalance of plan.rebalances) {
+          const [targetIdx, newIdx] = rebalance.pairIndices
+          const splitId = `split-agent-studio-${paneIds[targetIdx]}|agent-studio-${paneIds[newIdx]}`
+          set((s) => {
+            const layout = s.layoutsByTab[tabId] ?? null
+            return { layoutsByTab: { ...s.layoutsByTab, [tabId]: updateSplitSizes(layout, splitId, rebalance.sizes) } }
+          })
+        }
+      },
 
       removeAgentStudioPane: (tabId, paneId) =>
         set((s) => {

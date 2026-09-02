@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { act } from '@testing-library/react'
+import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from './useAppStore'
 import { AgentStudioPane, Workspace, Terminal, BrowserPane, EditorPane, WorkspaceTab, ClaudePane } from '../types'
 
@@ -299,5 +300,67 @@ describe('agent studio pane store', () => {
 
     expect(useAppStore.getState().agentStudioPanesByTab['tab-1']).toEqual([])
     expect(useAppStore.getState().layoutsByTab['tab-1']).toBeNull()
+  })
+})
+
+describe('launchAgentSession', () => {
+  beforeEach(() => {
+    useAppStore.setState({
+      workspaces: [{ ...ws1, id: 'ws-1', defaultPath: '/repo' }],
+      tabsByWorkspace: {},
+      activeTabIds: {},
+      terminalsByTab: {},
+      browserPanesByTab: {},
+      editorPanesByTab: {},
+      claudePanesByTab: {},
+      agentStudioPanesByTab: {},
+      layoutsByTab: {},
+    })
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === 'create_tab') {
+        return Promise.resolve({ id: 'tab-1', workspaceId: 'ws-1', name: 'Set up CI', position: 0, createdAt: 1000 })
+      }
+      return Promise.resolve({})
+    })
+  })
+
+  it('creates a tab and one pane per valid slot, with cwd resolved from workspace path + subPath', async () => {
+    await act(async () => {
+      await useAppStore.getState().launchAgentSession('ws-1', [
+        { provider: 'claude-code', task: 'Set up CI' },
+        { provider: 'codex', task: 'Write tests', subPath: 'backend' },
+      ])
+    })
+
+    const panes = useAppStore.getState().agentStudioPanesByTab['tab-1']
+    expect(panes).toHaveLength(2)
+    expect(panes[0]).toMatchObject({ cwd: '/repo', initialProvider: 'claude-code', initialDraft: 'Set up CI' })
+    expect(panes[1]).toMatchObject({ cwd: '/repo/backend', initialProvider: 'codex', initialDraft: 'Write tests' })
+
+    const layout = useAppStore.getState().layoutsByTab['tab-1']
+    expect(layout).toBeTruthy()
+  })
+
+  it('drops slots with an empty task and slots with a traversal subPath, keeps the rest', async () => {
+    await act(async () => {
+      await useAppStore.getState().launchAgentSession('ws-1', [
+        { provider: 'claude-code', task: '   ' },
+        { provider: 'codex', task: 'Escape the sandbox', subPath: '../../etc' },
+        { provider: 'grok', task: 'Real task' },
+      ])
+    })
+
+    const panes = useAppStore.getState().agentStudioPanesByTab['tab-1']
+    expect(panes).toHaveLength(1)
+    expect(panes[0]).toMatchObject({ initialProvider: 'grok', initialDraft: 'Real task', cwd: '/repo' })
+  })
+
+  it('creates the tab even when every slot is invalid, with zero panes', async () => {
+    await act(async () => {
+      await useAppStore.getState().launchAgentSession('ws-1', [{ provider: 'claude-code', task: '' }])
+    })
+
+    expect(useAppStore.getState().tabsByWorkspace['ws-1']).toHaveLength(1)
+    expect(useAppStore.getState().agentStudioPanesByTab['tab-1'] ?? []).toHaveLength(0)
   })
 })
