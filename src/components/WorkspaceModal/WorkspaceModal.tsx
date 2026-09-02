@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { open } from '@tauri-apps/plugin-dialog'
-import { Workspace } from '../../types'
+import { Workspace, LaunchSlot } from '../../types'
 import * as LucideIcons from 'lucide-react'
+import { AgentLaunchStep } from './AgentLaunchStep'
 
 const ICONS = ['TerminalSquare', 'Server', 'FlaskConical', 'Laptop', 'Rocket', 'Database', 'Boxes', 'LayoutGrid', 'Globe', 'Cpu']
 const COLORS = ['#e8a045', '#4fc3a1', '#7b9ef0', '#e07b7b', '#b17dd4', '#e8d045']
 
 interface Props {
   initial?: Pick<Workspace, 'name' | 'emoji' | 'color'> & { defaultPath?: string }
-  onSave: (values: { name: string; emoji: string; color: string; defaultPath: string | null }) => void
+  onSave: (values: { name: string; emoji: string; color: string; defaultPath: string | null; launchSlots: LaunchSlot[] }) => void
   onCancel: () => void
 }
 
@@ -18,6 +19,7 @@ export function WorkspaceModal({ initial, onSave, onCancel }: Props) {
   const [emoji, setEmoji] = useState(initial?.emoji ?? 'TerminalSquare')
   const [color, setColor] = useState(initial?.color ?? '#e8a045')
   const [defaultPath, setDefaultPath] = useState(initial?.defaultPath ?? '')
+  const [launchSlots, setLaunchSlots] = useState<LaunchSlot[]>([])
 
   return (
     <motion.div
@@ -164,6 +166,12 @@ export function WorkspaceModal({ initial, onSave, onCancel }: Props) {
           </div>
         </div>
 
+        {!initial && (
+          <div>
+            <AgentLaunchStep slots={launchSlots} onChange={setLaunchSlots} />
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
           <button
             aria-label="cancel"
@@ -181,7 +189,7 @@ export function WorkspaceModal({ initial, onSave, onCancel }: Props) {
           </button>
           <button
             aria-label={initial ? 'save' : 'create'}
-            onClick={() => name.trim() && onSave({ name: name.trim(), emoji, color, defaultPath: defaultPath.trim() || null })}
+            onClick={() => name.trim() && onSave({ name: name.trim(), emoji, color, defaultPath: defaultPath.trim() || null, launchSlots })}
             disabled={!name.trim()}
             style={{
               padding: '8px 16px', background: 'var(--accent)',

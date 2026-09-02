@@ -35,4 +35,23 @@ describe('WorkspaceModal', () => {
     )
     expect(screen.getByRole('button', { name: /save/i })).toBeInTheDocument()
   })
+
+  it('does not render the launch-agents step when editing an existing workspace', () => {
+    render(
+      <WorkspaceModal
+        initial={{ name: 'Existing', emoji: '🔥', color: '#e8a045' }}
+        onSave={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText(/launch agents/i)).not.toBeInTheDocument()
+  })
+
+  it('includes launchSlots in onSave payload, empty by default when creating a workspace', () => {
+    const onSave = vi.fn()
+    render(<WorkspaceModal onSave={onSave} onCancel={vi.fn()} />)
+    fireEvent.change(screen.getByPlaceholderText(/Backend/i), { target: { value: 'My Space' } })
+    fireEvent.click(screen.getByRole('button', { name: /create/i }))
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ launchSlots: [] }))
+  })
 })
