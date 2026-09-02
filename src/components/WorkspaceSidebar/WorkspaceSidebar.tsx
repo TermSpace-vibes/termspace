@@ -5,7 +5,7 @@ import { WorkspaceItem } from './WorkspaceItem'
 import { ProjectTasks } from './ProjectTasks'
 import { MediaWidget } from './MediaWidget'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
-import { ChevronRight, ChevronDown, Search } from 'lucide-react'
+import { ChevronRight, ChevronDown, Search, Home } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { Workspace } from '../../types'
@@ -20,9 +20,10 @@ interface Props {
   onEditWorkspace: (id: string) => void
   onOpenSettings: () => void
   onDuplicateWorkspace: (id: string) => void
+  onGoHome: () => void
 }
 
-export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace, onSelectWorkspace, onDeleteWorkspace, onEditWorkspace, onOpenSettings, onDuplicateWorkspace }: Props) {
+export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace, onSelectWorkspace, onDeleteWorkspace, onEditWorkspace, onOpenSettings, onDuplicateWorkspace, onGoHome }: Props) {
   const workspaces = useAppStore((s) => s.workspaces)
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId)
   const terminalsByWorkspace = useAppStore((s) => s.terminalsByTab)
@@ -100,6 +101,19 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
           flexShrink: 0,
         }}
       >
+        <button
+          onClick={onGoHome}
+          title="Home"
+          aria-label="Home"
+          style={{
+            background: 'transparent', border: 'none', color: 'var(--text-inactive)',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', padding: 4,
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-active)'}
+          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-inactive)'}
+        >
+          <Home size={14} />
+        </button>
         <span data-tauri-drag-region>v{appVersion}</span>
       </div>
 

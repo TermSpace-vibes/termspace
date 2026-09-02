@@ -57,4 +57,11 @@ describe('WorkspaceSidebar', () => {
     render(<WorkspaceSidebar isCollapsed={false} onToggleCollapse={vi.fn()} onAddWorkspace={vi.fn()} onSelectWorkspace={vi.fn()} onDeleteWorkspace={vi.fn()} onEditWorkspace={vi.fn()} onOpenSettings={vi.fn()} />)
     expect(screen.getByLabelText('Pause')).toBeTruthy()
   })
+
+  it('calls onGoHome when the Home icon is clicked', () => {
+    const onGoHome = vi.fn()
+    render(<WorkspaceSidebar isCollapsed={false} onToggleCollapse={vi.fn()} onAddWorkspace={vi.fn()} onSelectWorkspace={vi.fn()} onDeleteWorkspace={vi.fn()} onEditWorkspace={vi.fn()} onOpenSettings={vi.fn()} onGoHome={onGoHome} />)
+    fireEvent.click(screen.getByRole('button', { name: /home/i }))
+    expect(onGoHome).toHaveBeenCalled()
+  })
 })

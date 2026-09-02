@@ -644,6 +644,7 @@ export default function App() {
             }}
             onOpenSettings={() => setShowSettingsModal(true)}
             onDuplicateWorkspace={handleDuplicateWorkspace}
+            onGoHome={() => setShowHome(true)}
           />
         </Panel>
         
