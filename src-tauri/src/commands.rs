@@ -2141,6 +2141,64 @@ mod tests {
         assert!(!results[0].success);
         assert!(results[0].error.as_ref().unwrap().contains("Local file not found"));
     }
+
+    #[test]
+    fn test_is_path_in_workspace_filtering() {
+        assert!(is_path_in_workspace("/Users/samir/Projects/app", "/Users/samir/Projects/app"));
+        assert!(is_path_in_workspace("/Users/samir/Projects/app/src", "/Users/samir/Projects/app"));
+        assert!(is_path_in_workspace("/Users/samir/Projects/app", "/Users/samir/Projects/app/subfolder"));
+        assert!(!is_path_in_workspace("/Users/samir/Projects/other", "/Users/samir/Projects/app"));
+        assert!(!is_path_in_workspace("/Users/samir/Documents/Astoria", "/Users/samir/Documents/Personal/Vibecode"));
+    }
+
+    #[test]
+    fn test_detect_session_state_streaming_and_immediate_completion() {
+        use std::io::Write;
+
+        let temp_dir = std::env::temp_dir().join(format!("test_agent_lifecycle_{}", std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let jsonl_path = temp_dir.join("session.jsonl");
+
+        // 1. Streaming state: assistant text without end_turn
+        {
+            let mut f = std::fs::File::create(&jsonl_path).unwrap();
+            writeln!(f, r#"{{"type":"message","role":"assistant","message":{{"content":[{{"type":"text","text":"Generating response..."}}]}}}}"#).unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        let (status, detail) = detect_session_state(Some(&jsonl_path), now);
+        assert_eq!(status, "working", "Actively streaming token should report working");
+        assert_eq!(detail, Some("Working...".to_string()));
+
+        // 2. Immediate completion: assistant emits end_turn
+        {
+            let mut f = std::fs::OpenOptions::new().append(true).open(&jsonl_path).unwrap();
+            writeln!(f, r#"{{"type":"message","role":"assistant","message":{{"role":"assistant","stop_reason":"end_turn","content":[{{"type":"text","text":"Final answer"}}]}}}}"#).unwrap();
+        }
+        let (status_done, detail_done) = detect_session_state(Some(&jsonl_path), now);
+        assert_eq!(status_done, "done", "Explicit end_turn should transition to done immediately with 0ms delay");
+        assert_eq!(detail_done, Some("Done".to_string()));
+
+        // 3. Question / Tool use: assistant emits tool_use awaiting permission
+        {
+            let mut f = std::fs::File::create(&jsonl_path).unwrap();
+            writeln!(f, r#"{{"type":"message","role":"assistant","message":{{"content":[{{"type":"tool_use","id":"tool_1","name":"Bash"}}]}}}}"#).unwrap();
+        }
+        let (status_blocked, detail_blocked) = detect_session_state(Some(&jsonl_path), now);
+        assert_eq!(status_blocked, "blocked", "Pending tool use should report blocked (needs input)");
+        assert_eq!(detail_blocked, Some("Needs input".to_string()));
+
+        // 4. New user turn started after previous completion:
+        // Even if previous turn had end_turn, the new user prompt means Claude is WORKING!
+        {
+            let mut f = std::fs::OpenOptions::new().append(true).open(&jsonl_path).unwrap();
+            writeln!(f, r#"{{"type":"user","message":{{"role":"user","content":[{{"type":"text","text":"what about fable 5.1?"}}]}}}}"#).unwrap();
+        }
+        let (status_new_turn, detail_new_turn) = detect_session_state(Some(&jsonl_path), now);
+        assert_eq!(status_new_turn, "working", "When user starts a new turn, state MUST report working, not done!");
+        assert_eq!(detail_new_turn, Some("Working...".to_string()));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -2849,53 +2907,108 @@ fn is_path_in_workspace(session_cwd: &str, workspace_path: &str) -> bool {
 }
 
 fn detect_session_state(
-    session_status: &str,
     session_jsonl: Option<&std::path::Path>,
-    started_at: i64,
     now: std::time::SystemTime,
 ) -> (String, Option<String>) {
-    let now_secs = now
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let age_secs = now_secs.saturating_sub(started_at / 1000);
-
-    // Inspect last bytes of session JSONL to detect question prompts or tool executions
     if let Some(jsonl_path) = session_jsonl {
-        if let Ok(file) = std::fs::File::open(jsonl_path) {
-            use std::io::{Read, Seek, SeekFrom};
-            let mut file = file;
-            let file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
-            if file_len > 0 {
-                let read_len = file_len.min(4096);
-                let _ = file.seek(SeekFrom::End(-(read_len as i64)));
-                let mut buf = Vec::new();
-                if file.read_to_end(&mut buf).is_ok() {
-                    let text = String::from_utf8_lossy(&buf);
-                    let lower = text.to_lowercase();
-                    if lower.contains("(y/n)")
-                        || lower.contains("do you want to proceed")
-                        || lower.contains("allow this")
-                        || lower.contains("permission")
-                        || lower.contains("trust workspace")
-                        || lower.contains("doyoutrust")
-                        || lower.contains("select an option")
-                        || lower.contains("needs authentication")
-                    {
-                        return ("blocked".to_string(), Some("Needs input".to_string()));
+        if let Ok(metadata) = std::fs::metadata(jsonl_path) {
+            if let Ok(mtime) = metadata.modified() {
+                let diff_secs = now
+                    .duration_since(mtime)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+
+                if let Ok(file) = std::fs::File::open(jsonl_path) {
+                    use std::io::{Read, Seek, SeekFrom};
+                    let mut file = file;
+                    let file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
+                    if file_len > 0 {
+                        let read_len = file_len.min(8192);
+                        let _ = file.seek(SeekFrom::End(-(read_len as i64)));
+                        let mut buf = Vec::new();
+                        if file.read_to_end(&mut buf).is_ok() {
+                            let text = String::from_utf8_lossy(&buf);
+                            let lines: Vec<&str> = text
+                                .lines()
+                                .filter(|l| !l.trim().is_empty())
+                                .collect();
+
+                            let mut latest_speaker: Option<&'static str> = None;
+                            let mut last_assistant_stop: Option<String> = None;
+                            let mut last_tool_use = false;
+
+                            for line in lines.iter().rev().take(25) {
+                                if let Ok(d) = serde_json::from_str::<serde_json::Value>(line) {
+                                    let msg_type = d
+                                        .get("type")
+                                        .and_then(|t| t.as_str())
+                                        .unwrap_or_default();
+                                    let role = d
+                                        .get("message")
+                                        .and_then(|m| m.get("role"))
+                                        .and_then(|r| r.as_str())
+                                        .or_else(|| d.get("role").and_then(|r| r.as_str()))
+                                        .unwrap_or_default();
+
+                                    if msg_type == "user" || role == "user" {
+                                        if latest_speaker.is_none() {
+                                            latest_speaker = Some("user");
+                                        }
+                                        break;
+                                    } else if msg_type == "assistant" || role == "assistant" {
+                                        if latest_speaker.is_none() {
+                                            latest_speaker = Some("assistant");
+                                        }
+                                        if let Some(msg) = d.get("message") {
+                                            if last_assistant_stop.is_none() {
+                                                last_assistant_stop = msg
+                                                    .get("stop_reason")
+                                                    .and_then(|s| s.as_str())
+                                                    .map(|s| s.to_string());
+                                            }
+                                            if let Some(content) = msg.get("content").and_then(|c| c.as_array()) {
+                                                if let Some(last_item) = content.last() {
+                                                    if last_item.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                                                        last_tool_use = true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 1. If user sent a prompt that hasn't completed yet -> Working
+                            if latest_speaker == Some("user") {
+                                return ("working".to_string(), Some("Working...".to_string()));
+                            }
+
+                            // 2. Tool use awaiting user confirmation -> Blocked
+                            if last_tool_use {
+                                return ("blocked".to_string(), Some("Needs input".to_string()));
+                            }
+
+                            // 3. Explicit end_turn received: immediately DONE (0ms delay!)
+                            if last_assistant_stop.as_deref() == Some("end_turn") {
+                                if diff_secs <= 30 {
+                                    return ("done".to_string(), Some("Done".to_string()));
+                                } else {
+                                    return ("idle".to_string(), Some("Idle".to_string()));
+                                }
+                            }
+
+                            // 4. Actively streaming/generating without end_turn -> Working
+                            if diff_secs <= 6 {
+                                return ("working".to_string(), Some("Working...".to_string()));
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    if session_status == "running" || session_status == "working" {
-        ("working".to_string(), Some("Working...".to_string()))
-    } else if age_secs < 120 {
-        ("done".to_string(), Some("Done".to_string()))
-    } else {
-        ("idle".to_string(), Some("Idle".to_string()))
-    }
+    ("idle".to_string(), Some("Idle".to_string()))
 }
 
 #[tauri::command]
@@ -2933,6 +3046,11 @@ pub fn get_claude_agents(project_path: Option<String>) -> Result<Vec<ClaudeAgent
                                 .unwrap_or("Claude")
                                 .to_string();
                             let started_at = val.get("startedAt").and_then(|s| s.as_i64()).unwrap_or(0);
+                            let status_updated_at = val
+                                .get("statusUpdatedAt")
+                                .and_then(|s| s.as_i64())
+                                .or_else(|| val.get("updatedAt").and_then(|s| s.as_i64()))
+                                .unwrap_or(started_at);
                             let raw_status = val
                                 .get("status")
                                 .and_then(|s| s.as_str())
@@ -2946,7 +3064,7 @@ pub fn get_claude_agents(project_path: Option<String>) -> Result<Vec<ClaudeAgent
                                 let is_alive = true;
 
                                 if is_alive && !session_id.is_empty() {
-                                    live_sessions.push((pid_val, session_id, cwd, name, started_at, raw_status));
+                                    live_sessions.push((pid_val, session_id, cwd, name, started_at, status_updated_at, raw_status));
                                 }
                             }
                         }
@@ -2964,7 +3082,7 @@ pub fn get_claude_agents(project_path: Option<String>) -> Result<Vec<ClaudeAgent
         } else {
             live_sessions
                 .into_iter()
-                .filter(|(_, _, cwd, _, _, _)| is_path_in_workspace(cwd, target_clean))
+                .filter(|(_, _, cwd, _, _, _, _)| is_path_in_workspace(cwd, target_clean))
                 .collect()
         }
     } else {
@@ -2977,7 +3095,7 @@ pub fn get_claude_agents(project_path: Option<String>) -> Result<Vec<ClaudeAgent
     let now = std::time::SystemTime::now();
 
     // 3. For each active session, discover subagents and build items
-    for (_pid, session_id, cwd, session_name, started_at, raw_status) in filtered_sessions {
+    for (_pid, session_id, cwd, session_name, started_at, _status_updated_at, _raw_status) in filtered_sessions {
         let clean_proj = clean_claude_project_name(&crate::agent_runtime_manager::sanitize_project_dir(&cwd));
         let sanitized = crate::agent_runtime_manager::sanitize_project_dir(&cwd);
         let proj_path = projects_dir.join(&sanitized);
@@ -2985,9 +3103,7 @@ pub fn get_claude_agents(project_path: Option<String>) -> Result<Vec<ClaudeAgent
         let session_jsonl = proj_path.join(format!("{}.jsonl", &session_id));
 
         let (status, status_detail) = detect_session_state(
-            &raw_status,
             if session_jsonl.exists() { Some(&session_jsonl) } else { None },
-            started_at,
             now,
         );
 

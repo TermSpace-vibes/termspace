@@ -57,3 +57,33 @@ pub fn start_server(app: AppHandle) {
         }
     });
 }
+
+pub fn start_claude_session_watcher(app: AppHandle) {
+    thread::spawn(move || {
+        let home = match std::env::var_os("HOME").map(std::path::PathBuf::from) {
+            Some(h) => h,
+            None => return,
+        };
+        let sessions_dir = home.join(".claude").join("sessions");
+        let projects_dir = home.join(".claude").join("projects");
+        if !sessions_dir.exists() {
+            let _ = std::fs::create_dir_all(&sessions_dir);
+        }
+        if !projects_dir.exists() {
+            let _ = std::fs::create_dir_all(&projects_dir);
+        }
+
+        use notify::{RecursiveMode, Watcher};
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut watcher = match notify::recommended_watcher(tx) {
+            Ok(w) => w,
+            Err(_) => return,
+        };
+
+        let _ = watcher.watch(&sessions_dir, RecursiveMode::NonRecursive);
+        let _ = watcher.watch(&projects_dir, RecursiveMode::Recursive);
+        while let Ok(_event) = rx.recv() {
+            let _ = app.emit("claude-session-update", ());
+        }
+    });
+}

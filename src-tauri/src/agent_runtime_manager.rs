@@ -991,7 +991,7 @@ fn tail_provider_jsonl(
 
 /// Sanitizes an absolute cwd into Claude Code's project-directory name (every
 /// non-alphanumeric char becomes `-`, e.g. `/Users/x/app` → `-Users-x-app`).
-fn sanitize_project_dir(cwd: &str) -> String {
+pub(crate) fn sanitize_project_dir(cwd: &str) -> String {
     cwd.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()

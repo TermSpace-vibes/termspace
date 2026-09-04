@@ -108,4 +108,41 @@ describe('AgentStudioPane', () => {
     fireEvent.change(textarea, { target: { value: 'A different task entirely' } })
     expect(textarea.value).toBe('A different task entirely')
   })
+
+  it('opens Claude Code Terminal Initiator and can launch a terminal', async () => {
+    useAppStore.setState({
+      agentStudioPanesByTab: {
+        'tab-1': [{ id: 'agent-1', tabId: 'tab-1', title: 'Agent Studio', cwd: '/tmp', conversationId: null, position: 0, createdAt: 1 }],
+      },
+      terminalsByTab: { 'tab-1': [] },
+      settings: { ...useAppStore.getState().settings, defaultShell: 'zsh' },
+    })
+    tauri.invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'spawn_terminal') return Promise.resolve({ id: 'term-new', tabId: 'tab-1', cwd: '/tmp', position: 0, sizePercent: 50, createdAt: 1, shell: 'zsh' })
+      return Promise.resolve([])
+    })
+
+    render(<AgentStudioPane tabId="tab-1" paneId="agent-1" isActive onFocus={vi.fn()} onClose={vi.fn()} />)
+    await waitFor(() => expect(tauri.listen).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByRole('button', { name: /terminal claude/i }))
+    expect(screen.getByText('Claude Code Initiator')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+    await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith('spawn_terminal', expect.objectContaining({ tabId: 'tab-1' })))
+  })
+
+  it('populates composer draft when a prompt starter is clicked in the rail', async () => {
+    useAppStore.setState({
+      agentStudioPanesByTab: {
+        'tab-1': [{ id: 'agent-1', tabId: 'tab-1', title: 'Agent Studio', cwd: '/tmp', conversationId: null, position: 0, createdAt: 1 }],
+      },
+    })
+    render(<AgentStudioPane tabId="tab-1" paneId="agent-1" isActive onFocus={vi.fn()} onClose={vi.fn()} />)
+    await waitFor(() => expect(tauri.listen).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByRole('button', { name: /review codebase/i }))
+    const textarea = screen.getByRole('textbox', { name: 'Ask Agent Studio' }) as HTMLTextAreaElement
+    expect(textarea.value).toContain('architectural review')
+  })
 })

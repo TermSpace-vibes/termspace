@@ -213,6 +213,11 @@ export function WorkspaceModal({ initial, onSave, onCancel }: Props) {
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
             Any terminal or tab opened in this workspace will automatically connect to this remote server.
           </span>
+          {sshHost.trim() && !sshHost.includes('@') && (
+            <span style={{ fontSize: 11, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span>💡</span> Tip: Connecting as current user ({sshHost}). If your server needs root or another user, specify <code>root@{sshHost}</code>.
+            </span>
+          )}
         </div>
 
         {!initial && (

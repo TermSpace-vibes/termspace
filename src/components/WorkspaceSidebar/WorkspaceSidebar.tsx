@@ -3,6 +3,7 @@ import { useAppStore } from '../../store/useAppStore'
 import { AddWorkspaceButton } from './AddWorkspaceButton'
 import { WorkspaceItem } from './WorkspaceItem'
 import { ProjectTasks } from './ProjectTasks'
+import { AgentsSidebarSection, type ClaudeAgentItem } from './AgentsSidebarSection'
 import { MediaWidget } from './MediaWidget'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import { ChevronRight, ChevronDown, Search, Home } from 'lucide-react'
@@ -15,7 +16,7 @@ interface Props {
   isCollapsed: boolean
   onToggleCollapse: () => void
   onAddWorkspace: () => void
-  onSelectWorkspace: (id: string) => void
+  onSelectWorkspace: (id: string, targetTerminalId?: string) => void
   onDeleteWorkspace: (id: string) => void
   onEditWorkspace: (id: string) => void
   onOpenSettings: () => void
@@ -83,6 +84,136 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
     }
   }
 
+  const handleSelectAgent = (agent: ClaudeAgentItem) => {
+    const state = useAppStore.getState()
+
+    // 1. If it's a Claude Code pane in any tab/workspace:
+    if (agent.id.startsWith('claude-')) {
+      const paneId = agent.id.replace('claude-', '')
+      for (const w of state.workspaces) {
+        const tabs = state.tabsByWorkspace[w.id] || []
+        for (const tab of tabs) {
+          const panes = state.claudePanesByTab[tab.id] || []
+          if (panes.some((p) => p.id === paneId)) {
+            onSelectWorkspace(w.id, paneId)
+            state.setActiveTabId(w.id, tab.id)
+            state.setActiveTerminalId(paneId)
+            return
+          }
+        }
+      }
+      state.setActiveTerminalId(paneId)
+      return
+    }
+
+    // 2. If it's an Agent Studio pane:
+    if (agent.id.startsWith('agent-studio-')) {
+      const paneId = agent.id.replace('agent-studio-', '')
+      for (const w of state.workspaces) {
+        const tabs = state.tabsByWorkspace[w.id] || []
+        for (const tab of tabs) {
+          const panes = state.agentStudioPanesByTab[tab.id] || []
+          if (panes.some((p) => p.id === paneId)) {
+            onSelectWorkspace(w.id, paneId)
+            state.setActiveTabId(w.id, tab.id)
+            state.setActiveTerminalId(paneId)
+            return
+          }
+        }
+      }
+      state.setActiveTerminalId(paneId)
+      return
+    }
+
+    // 3. Resolve target workspace matching agent.cwd or project_name
+    let targetWorkspace = state.workspaces.find((w) => {
+      if (w.defaultPath && agent.cwd) {
+        const wNorm = w.defaultPath.trim().replace(/\/+$/, '')
+        const aNorm = agent.cwd.trim().replace(/\/+$/, '')
+        return wNorm === aNorm || aNorm.startsWith(wNorm) || wNorm.startsWith(aNorm)
+      }
+      return false
+    })
+
+    if (!targetWorkspace) {
+      for (const w of state.workspaces) {
+        const tabs = state.tabsByWorkspace[w.id] || []
+        const terms = tabs.flatMap((t) => state.terminalsByTab[t.id] || [])
+        const hasMatchingTerm = terms.some((t) => {
+          if (!t.cwd || !agent.cwd) return false
+          const tNorm = t.cwd.trim().replace(/\/+$/, '')
+          const aNorm = agent.cwd.trim().replace(/\/+$/, '')
+          return tNorm === aNorm || aNorm.startsWith(tNorm) || tNorm.startsWith(aNorm)
+        })
+        if (hasMatchingTerm) {
+          targetWorkspace = w
+          break
+        }
+      }
+    }
+
+    if (!targetWorkspace && agent.project_name) {
+      targetWorkspace = state.workspaces.find((w) =>
+        w.name.toLowerCase() === agent.project_name.toLowerCase() ||
+        agent.project_name.toLowerCase().includes(w.name.toLowerCase())
+      )
+    }
+
+    if (!targetWorkspace) {
+      targetWorkspace = state.workspaces.find((w) => w.id === state.activeWorkspaceId) || state.workspaces[0]
+    }
+
+    if (!targetWorkspace) return
+
+    // 4. Find the matching tab and terminal inside that workspace
+    const tabs = state.tabsByWorkspace[targetWorkspace.id] || []
+    let targetTabId: string | null = null
+    let targetTerminalId: string | null = null
+
+    for (const tab of tabs) {
+      const terms = state.terminalsByTab[tab.id] || []
+      const cwdMatch = terms.find((t) => {
+        if (!agent.cwd || !t.cwd) return false
+        const tNorm = t.cwd.trim().replace(/\/+$/, '')
+        const aNorm = agent.cwd.trim().replace(/\/+$/, '')
+        return tNorm === aNorm || aNorm.startsWith(tNorm) || tNorm.startsWith(aNorm)
+      })
+
+      if (cwdMatch) {
+        targetTabId = tab.id
+        targetTerminalId = cwdMatch.id
+        break
+      }
+
+      const runningMatch = terms.find((t) =>
+        t.executionState === 'running' || (t.title && t.title.toLowerCase().includes('claude'))
+      )
+      if (runningMatch) {
+        targetTabId = tab.id
+        targetTerminalId = runningMatch.id
+        break
+      }
+    }
+
+    if (!targetTerminalId && tabs.length > 0) {
+      targetTabId = state.activeTabIds[targetWorkspace.id] || tabs[0].id
+      const terms = state.terminalsByTab[targetTabId] || []
+      if (terms.length > 0) {
+        targetTerminalId = terms[0].id
+      }
+    }
+
+    // 5. Always call onSelectWorkspace to dismiss Home overlay and switch workspace
+    onSelectWorkspace(targetWorkspace.id, targetTerminalId ?? undefined)
+
+    if (targetTabId) {
+      state.setActiveTabId(targetWorkspace.id, targetTabId)
+    }
+    if (targetTerminalId) {
+      state.setActiveTerminalId(targetTerminalId)
+      window.dispatchEvent(new CustomEvent('focus-terminal', { detail: { terminalId: targetTerminalId } }))
+    }
+  }
   return (
     <div
       style={{
@@ -304,6 +435,11 @@ export function WorkspaceSidebar({ isCollapsed, onToggleCollapse, onAddWorkspace
       <motion.div layout transition={{ duration: 0.2 }} style={{ width: '100%' }}>
         <AddWorkspaceButton onClick={onAddWorkspace} isCollapsed={isCollapsed} />
       </motion.div>
+
+      <AgentsSidebarSection
+        isCollapsed={isCollapsed}
+        onSelectAgent={handleSelectAgent}
+      />
 
       <ProjectTasks isCollapsed={isCollapsed} />
 

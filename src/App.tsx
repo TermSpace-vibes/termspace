@@ -337,13 +337,13 @@ export default function App() {
     return () => { isMounted = false; clearTimeout(emergencyTimer); };
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function handleSelectWorkspace(id: string) {
+  async function handleSelectWorkspace(id: string, targetTerminalId?: string) {
     const state = useAppStore.getState()
 
     // Hide browser panes of old workspace before switching.
     // Browser panes are keyed by tabId, so resolve the previous workspace's active tab.
     const prevId = prevActiveWorkspaceIdRef.current
-    if (prevId) {
+    if (prevId && prevId !== id) {
       const prevTabId = state.activeTabIds[prevId]
       const prevPanes = (prevTabId ? state.browserPanesByTab[prevTabId] : null) ?? []
       for (const pane of prevPanes) {
@@ -353,11 +353,10 @@ export default function App() {
     prevActiveWorkspaceIdRef.current = id
 
     setActiveWorkspaceId(id)
-    setActiveTerminalId(null)
+    setActiveTerminalId(targetTerminalId ?? null)
     setShowHome(false)
     setCreatingWorkspaceId(null)
     useAppStore.getState().touchWorkspaceLastOpened(id)
-
     // Resolve the active tabId for this workspace so we can check the correct
     // slot in terminalsByTab (which is keyed by tabId, NOT workspaceId).
     const activeTabId = state.activeTabIds[id]

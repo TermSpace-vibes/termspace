@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, Check, ChevronDown, FilePenLine, ImagePlus, Layers3, LockKeyhole, Mic, Search, SendHorizontal, ShieldCheck, Sparkles, Square, X } from 'lucide-react'
+import { Bot, Check, ChevronDown, FilePenLine, ImagePlus, Layers3, LockKeyhole, Mic, Search, SendHorizontal, ShieldCheck, Sparkles, Square, Terminal, X } from 'lucide-react'
 import { invoke, listen } from '../../utils/tauri'
 import { useAppStore } from '../../store/useAppStore'
 import { appendAgentEnvelope, appendAgentUserMessage, createAgentTranscript } from './agentTranscript'
 import { AgentContextInspector } from './AgentContextInspector'
 import { AgentProviderDiagnostics, type Diagnostic } from './AgentProviderDiagnostics'
+import { ClaudeTerminalInitiator } from './ClaudeTerminalInitiator'
 import { ProviderIcon } from './ProviderIcons'
 import { stripClaudeAnsi } from './claudeOutputParser'
 import type { AgentProviderCapabilities, AgentProviderId, AgentRuntimeEnvelope } from '../../types'
-
 interface Props { tabId: string; paneId: string; isActive: boolean; onFocus: (id: string) => void; onClose: (id: string) => void }
 
 type AccessMode = 'supervised' | 'auto-accept-edits' | 'full-access'
@@ -149,6 +149,7 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([])
   const [usage, setUsage] = useState<{ input: number; output: number; cache: number; window: number } | null>(null)
   const [showEffort, setShowEffort] = useState(false)
+  const [showInitiator, setShowInitiator] = useState(false)
   const sessionStartedRef = useRef(false)
   const currentAccess = useMemo(() => accessModes.find((mode) => mode.id === accessMode) ?? accessModes[2], [accessMode])
   // Show providers that are installed (from diagnostics) plus the currently
@@ -268,12 +269,72 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
     <aside className="agent-studio__rail">
       <div className="agent-studio__mark"><Sparkles size={16} /> <span>Agent Studio</span></div>
       <button className="agent-studio__rail-item agent-studio__rail-item--active" type="button"><Bot size={15} /> <span>New conversation</span></button>
+      <button
+        className="agent-studio__rail-item"
+        type="button"
+        onClick={() => setShowInitiator(true)}
+        title="Launch native Claude Code CLI in a split terminal"
+        style={{
+          color: 'var(--accent)',
+          background: 'color-mix(in srgb, var(--accent) 10%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--accent) 22%, transparent)',
+          marginTop: 2,
+          marginBottom: 4,
+        }}
+      >
+        <Terminal size={15} /> <span>Claude Terminal</span>
+      </button>
       <span className="agent-studio__rail-caption">LOCAL CONTEXT</span>
       <button className="agent-studio__rail-item" type="button" onClick={() => setShowContext((visible) => !visible)}><Layers3 size={15} /> <span>Artifacts</span></button>
+      <span className="agent-studio__rail-caption">PROMPT STARTERS</span>
+      <button
+        className="agent-studio__rail-item"
+        type="button"
+        onClick={() => setDraft('Please perform an architectural review of this codebase, highlighting bottlenecks and debt.')}
+      >
+        <Search size={14} /> <span>Review Codebase</span>
+      </button>
+      <button
+        className="agent-studio__rail-item"
+        type="button"
+        onClick={() => setDraft('Analyze current test coverage and generate comprehensive unit tests for core modules.')}
+      >
+        <Check size={14} /> <span>Generate Tests</span>
+      </button>
+      <button
+        className="agent-studio__rail-item"
+        type="button"
+        onClick={() => setDraft('Analyze recent errors or failed checks and propose a step-by-step resolution.')}
+      >
+        <Bot size={14} /> <span>Debug &amp; Fix</span>
+      </button>
     </aside>
     <main className="agent-studio__main">
       <header className="agent-studio__header">
         <span className="agent-studio__header-title">{pane?.title ?? 'Agent Studio'}</span>
+        <button
+          type="button"
+          onClick={() => setShowInitiator(true)}
+          title="Launch Claude Code in a terminal pane"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '3px 9px',
+            borderRadius: 8,
+            background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--accent) 28%, transparent)',
+            color: 'var(--accent)',
+            fontSize: 11,
+            fontWeight: 650,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <Terminal size={12} strokeWidth={2.5} />
+          <span>Terminal Claude</span>
+        </button>
         <AgentProviderDiagnostics diagnostics={diagnostics} />
         {contextView && <div className="agent-studio__context" title={`${contextView.used.toLocaleString()} used of ${contextView.window.toLocaleString()} tokens`}>
           <div className="agent-studio__context-bar"><div className="agent-studio__context-fill" style={{ width: `${contextView.pct}%` }} /></div>
@@ -283,11 +344,77 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
       </header>
       {showContext && <AgentContextInspector cwd={pane?.cwd ?? ''} />}
       <div className={`agent-studio__transcript ${isEmpty ? 'agent-studio__transcript--empty' : ''}`} aria-live="polite">
-        {isEmpty ? <div className="agent-studio__empty">
+        {isEmpty ? <div className="agent-studio__empty" style={{ maxWidth: 540, padding: '0 16px' }}>
           <div className="agent-studio__orb"><Sparkles size={22} /></div>
-          <p className="agent-studio__eyebrow">LOCAL AGENT WORKSPACE</p>
-          <h2>Ready when you are.</h2>
-          <p>Shape the task, choose exactly what the agent can access, and keep the work grounded in this workspace.</p>
+          <p className="agent-studio__eyebrow">AUTONOMOUS WORKSPACE AGENT</p>
+          <h2 style={{ fontSize: 22, fontWeight: 700, margin: '6px 0', letterSpacing: '-0.02em', color: 'var(--text-active)' }}>
+            Agent Studio
+          </h2>
+          <p style={{ fontSize: 13, color: 'var(--text-inactive)', lineHeight: 1.5, margin: '0 auto 16px', maxWidth: 440 }}>
+            Execute autonomous tasks, run tool commands, inspect file diffs, or launch interactive Claude Code sessions.
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, textAlign: 'left', marginTop: 12 }}>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setShowInitiator(true)}
+              style={{
+                padding: '12px 14px',
+                borderRadius: 10,
+                background: 'color-mix(in srgb, var(--accent) 8%, var(--bg-sidebar))',
+                border: '1px solid color-mix(in srgb, var(--accent) 25%, var(--border-inactive))',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--accent)'
+                e.currentTarget.style.transform = 'translateY(-2px)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--accent) 25%, var(--border-inactive))'
+                e.currentTarget.style.transform = 'translateY(0)'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--accent)', fontWeight: 650, fontSize: 12, marginBottom: 3 }}>
+                <Terminal size={14} />
+                <span>Claude Terminal</span>
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--text-inactive)', margin: 0, lineHeight: 1.35 }}>
+                Spawn native interactive terminal with Claude CLI.
+              </p>
+            </div>
+
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setDraft('Review this repository structure and propose code organization improvements.')}
+              style={{
+                padding: '12px 14px',
+                borderRadius: 10,
+                background: 'color-mix(in srgb, var(--bg-sidebar) 70%, var(--bg-main))',
+                border: '1px solid var(--border-inactive)',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-active)'
+                e.currentTarget.style.transform = 'translateY(-2px)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-inactive)'
+                e.currentTarget.style.transform = 'translateY(0)'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-active)', fontWeight: 650, fontSize: 12, marginBottom: 3 }}>
+                <Sparkles size={14} style={{ color: 'var(--accent)' }} />
+                <span>Review Repo</span>
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--text-inactive)', margin: 0, lineHeight: 1.35 }}>
+                Analyze architecture, design patterns, and structure.
+              </p>
+            </div>
+          </div>
         </div> : transcript.rows.map((row) => {
           if (row.kind === 'reasoning') return <div key={row.id} className="agent-studio__row agent-studio__row--reasoning"><span className="agent-studio__row-badge"><Sparkles size={13} />Thinking</span><p>{row.content}</p></div>
           if (row.kind === 'toolCall') return <div key={row.id} className="agent-studio__row agent-studio__row--tool"><Search size={14} /><span className="agent-studio__tool-name">{row.name}</span><code className="agent-studio__cmd">{row.summary}</code></div>
@@ -350,5 +477,13 @@ export function AgentStudioPane({ tabId, paneId, isActive, onFocus, onClose }: P
         <div className="agent-studio__workspace-meta"><span>Local workspace</span><span>•</span><span>{pane?.cwd || 'No folder linked'}</span><span>•</span><span>{workflowLabels[workflow]} mode</span></div>
       </footer>
     </main>
+    {showInitiator && (
+      <ClaudeTerminalInitiator
+        tabId={tabId}
+        paneId={paneId}
+        cwd={pane?.cwd ?? ''}
+        onClose={() => setShowInitiator(false)}
+      />
+    )}
   </section>
 }

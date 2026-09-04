@@ -34,15 +34,36 @@ const getFlatNodes = (node: LayoutNode | null): LayoutNode[] => {
   return [node]
 }
 
-const MemoizedSplitGroup = React.memo(({ node, onLayoutChange, children }: any) => {
+interface MemoizedSplitGroupProps {
+  node: LayoutNode & { type: 'split' }
+  onLayoutChange: (id: string, sizes: number[]) => void
+  children: React.ReactNode
+}
+
+const MemoizedSplitGroup = React.memo(({ node, onLayoutChange, children }: MemoizedSplitGroupProps) => {
   const handleLayout = React.useCallback((sizes: number[]) => {
     onLayoutChange(node.id, sizes)
   }, [node.id, onLayoutChange])
 
+  const childCount = node.children?.length ?? 0
+  const childIds = node.children ? node.children.map((c: LayoutNode) => c.id).join('|') : ''
+  const groupKey = `group-${node.id}-${node.direction}-${childCount}-${childIds}`
+
+  const hasValidSizes =
+    node.sizes &&
+    node.sizes.length === childCount &&
+    Math.abs(node.sizes.reduce((a: number, b: number) => a + b, 0) - 100) < 0.1
+  const defaultSizes: number[] = hasValidSizes
+    ? node.sizes
+    : Array.from({ length: childCount }, () => 100 / (childCount || 1))
+
   return (
     <Group 
+      key={groupKey}
       orientation={node.direction} 
-      id={node.id} 
+      id={groupKey}
+      // @ts-ignore: defaultLayout accepts number[]
+      defaultLayout={defaultSizes}
       // @ts-ignore: onLayout takes number[]
       onLayout={handleLayout} 
       style={{ width: '100%', height: '100%' }}
@@ -304,8 +325,11 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
     }
 
     if (node.type === 'split') {
+      const childIdsKey = node.children.map((c) => c.id).join('|')
+      const groupKey = `split-${node.id}-${node.direction}-${node.children.length}-${childIdsKey}`
       return (
         <MemoizedSplitGroup 
+          key={groupKey}
           node={node}
           onLayoutChange={handleLayoutChange}
         >
@@ -415,7 +439,9 @@ export const TerminalGrid = React.memo(function TerminalGrid({ workspaceId, tabI
         {/* 2. Layout Grid Layer (In Front) - invisible drop zones and separators */}
         <div style={{ width: '100%', height: '100%', zIndex: 2, position: 'relative', pointerEvents: 'none' }}>
            <div style={{ width: '100%', height: '100%' }}>
-              {renderLayoutPlaceholder(layout)}
+              <ErrorBoundary fallback={<div style={{ width: '100%', height: '100%' }} />}>
+                {renderLayoutPlaceholder(layout)}
+              </ErrorBoundary>
            </div>
         </div>
       </div>

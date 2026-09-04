@@ -4,18 +4,40 @@ import { WorkspaceSidebar } from './WorkspaceSidebar'
 import { useAppStore } from '../../store/useAppStore'
 import { useBrowserMediaStore } from '../../store/useBrowserMediaStore'
 import { Workspace } from '../../types'
-
 const ws1: Workspace = { id: 'ws-1', name: 'Work', emoji: '🔥', color: '#e8a045', position: 0, createdAt: 1000 }
 const ws2: Workspace = { id: 'ws-2', name: 'Side', emoji: '🌿', color: '#e8a045', position: 1, createdAt: 1001 }
 
+const tauri = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  isTauri: vi.fn().mockReturnValue(true),
+  listen: vi.fn().mockResolvedValue(() => {}),
+}))
+vi.mock('@tauri-apps/api/core', () => tauri)
+vi.mock('@tauri-apps/api/event', () => tauri)
 beforeEach(() => {
+  tauri.invoke.mockImplementation((cmd: string) => {
+    if (cmd === 'get_claude_agents') {
+      return Promise.resolve([
+        {
+          id: 'agent-1',
+          name: 'Vibecode',
+          project_name: 'Vibecode',
+          title: 'Claude Code',
+          description: 'Live task',
+          status: 'working',
+          cwd: '/Users/test/vibecode',
+          updated_at: 1000,
+        },
+      ])
+    }
+    return Promise.resolve([])
+  })
   useAppStore.setState({
     workspaces: [ws1, ws2], activeWorkspaceId: 'ws-1',
     activeTerminalId: null, terminalsByTab: {},
   })
   useBrowserMediaStore.setState({ sessions: {}, paneInfo: {} })
 })
-
 describe('WorkspaceSidebar', () => {
   it('renders all workspace names', () => {
     render(<WorkspaceSidebar isCollapsed={false} onToggleCollapse={vi.fn()} onAddWorkspace={vi.fn()} onSelectWorkspace={vi.fn()} onDeleteWorkspace={vi.fn()} onEditWorkspace={vi.fn()} onOpenSettings={vi.fn()} />)
@@ -71,5 +93,55 @@ describe('WorkspaceSidebar', () => {
     render(<WorkspaceSidebar isCollapsed={false} onToggleCollapse={vi.fn()} onAddWorkspace={vi.fn()} onSelectWorkspace={vi.fn()} onDeleteWorkspace={vi.fn()} onEditWorkspace={vi.fn()} onOpenSettings={vi.fn()} />)
     expect(screen.getByText('SSH')).toBeInTheDocument()
     expect(screen.getByText(/ubuntu@remote-server/)).toBeInTheDocument()
+  })
+
+  it('navigates to matching workspace and focuses terminal when an agent is clicked', async () => {
+    const wsClaude: Workspace = {
+      id: 'ws-claude',
+      name: 'Vibecode',
+      emoji: '💻',
+      color: '#e8a045',
+      position: 2,
+      createdAt: 1002,
+      defaultPath: '/Users/test/vibecode',
+    }
+    useAppStore.setState({
+      workspaces: [ws1, wsClaude],
+      activeWorkspaceId: 'ws-claude',
+      tabsByWorkspace: { 'ws-claude': [{ id: 'tab-claude', name: 'Tab 1', position: 0 }] },
+      terminalsByTab: {
+        'tab-claude': [
+          {
+            id: 'term-claude',
+            tabId: 'tab-claude',
+            cwd: '/Users/test/vibecode',
+            position: 0,
+            sizePercent: 100,
+            createdAt: 1,
+            shell: 'zsh',
+            executionState: 'running',
+          },
+        ],
+      },
+    })
+
+    const onSelectWorkspace = vi.fn()
+    render(
+      <WorkspaceSidebar
+        isCollapsed={false}
+        onToggleCollapse={vi.fn()}
+        onAddWorkspace={vi.fn()}
+        onSelectWorkspace={onSelectWorkspace}
+        onDeleteWorkspace={vi.fn()}
+        onEditWorkspace={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    const agentItem = await screen.findByText('Live task')
+    fireEvent.click(agentItem)
+
+    expect(onSelectWorkspace).toHaveBeenCalledWith('ws-claude', 'term-claude')
+    expect(useAppStore.getState().activeTerminalId).toBe('term-claude')
   })
 })
