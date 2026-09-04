@@ -76,14 +76,14 @@ export function WorkspaceSetupView({ workspaceId, onOpenWorkspace }: Props) {
   }
 
   const commitPath = (path: string) => {
-    useAppStore
+    return useAppStore
       .getState()
       .setWorkspaceDefaultPath(workspaceId, path.trim() || null)
       .catch(() => useAppStore.getState().addToast('Failed to save workspace', 'error'))
   }
 
   const commitSshHost = (host: string) => {
-    useAppStore
+    return useAppStore
       .getState()
       .setWorkspaceSshHost(workspaceId, host.trim() || null)
       .catch(() => useAppStore.getState().addToast('Failed to save workspace', 'error'))
@@ -102,12 +102,17 @@ export function WorkspaceSetupView({ workspaceId, onOpenWorkspace }: Props) {
     onOpenWorkspace(workspaceId, launchSlots)
   }
 
+  const handleOpenWorkspaceFromKeyboard = async () => {
+    await Promise.all([commitPath(defaultPath), commitSshHost(sshHost)])
+    handleOpenWorkspaceClick()
+  }
+
   // Keyboard shortcut: Cmd+Enter or Ctrl+Enter to open workspace
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault()
-        handleOpenWorkspaceClick()
+        void handleOpenWorkspaceFromKeyboard()
       }
     }
     window.addEventListener('keydown', handleKeyDown)

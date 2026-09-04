@@ -30,6 +30,7 @@
 - **Ad-blocking Browser Pane:** `adblock` crate filters requests in the embedded browser pane.
 - **Docker & Kubernetes Panes:** Dedicated pane types for container/cluster inspection.
 - **Agent Studio:** Structured transcript parsing, provider diagnostics, and context inspection for AI coding agents running inside a pane.
+- **Herdr-Style Agent Observability & State Tracking:** Native real-time AI coding agent detection engine in Rust (`agent_detection/`) + React sidebar (`AgentsSidebarSection.tsx`). Inspects Alacritty grid screen buffers with sub-300ms latency, identifying `working`, `blocked` (needs input/permission), and `idle` states with latched `done` completion badges. Correlates Claude Code sessions and subagents across all workspaces and panes without third-party daemon dependencies. See [`docs/herdr-agent-system-implementation.md`](docs/herdr-agent-system-implementation.md).
 
 ## In Progress
 

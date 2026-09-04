@@ -27,6 +27,8 @@ const store = vi.hoisted(() => {
     createdAt: number
     status?: string
     error?: string | null
+    initialPrompt?: string
+    skipPermissions?: boolean
   }
   const state = {
     claudePanesByTab: {
@@ -101,6 +103,8 @@ describe('ClaudePaneComponent', () => {
     }
     store.pane.status = undefined
     store.pane.error = undefined
+    store.pane.initialPrompt = undefined
+    store.pane.skipPermissions = undefined
     vi.mocked(invoke).mockResolvedValue(undefined)
   })
 
@@ -125,6 +129,36 @@ describe('ClaudePaneComponent', () => {
         rows: 36,
       })
       expect(store.state.setSessionToPane).toHaveBeenCalledWith(expect.any(String), 'claude-1')
+    })
+  })
+
+  it('starts with preserved permission mode and sends the initial prompt once', async () => {
+    store.pane.initialPrompt = 'Review the repository'
+    store.pane.skipPermissions = true
+
+    render(
+      <ClaudePaneComponent
+        tabId="tab-1"
+        paneId="claude-1"
+        isActive
+        onFocus={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('spawn_claude_session', {
+        sessionId: 'claude-1',
+        cwd: '/tmp',
+        claudeSessionUuid: expect.any(String),
+        cols: 120,
+        rows: 36,
+        skipPermissions: true,
+      })
+      expect(invoke).toHaveBeenCalledWith('write_claude_session', {
+        sessionId: 'claude-1',
+        data: 'Review the repository\r',
+      })
     })
   })
 

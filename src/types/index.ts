@@ -15,6 +15,15 @@ export interface Workspace {
   sshHost?: string
 }
 
+export interface SshPortForward {
+  id: string
+  ssh_host: string
+  remote_port: number
+  local_port: number
+  remote_host: string
+  created_at: number
+}
+
 export interface Terminal {
   id: string
   tabId: string
@@ -104,6 +113,8 @@ export interface ClaudePane {
   createdAt: number
   status?: ClaudePaneStatus
   error?: string | null
+  initialPrompt?: string
+  skipPermissions?: boolean
 }
 
 export type AgentProviderId =

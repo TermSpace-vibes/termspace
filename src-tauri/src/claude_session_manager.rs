@@ -71,11 +71,8 @@ impl ClaudeSessionManager {
         let child_path = claude_child_path(&path_var, home.as_deref());
 
         let mut cmd = portable_pty::CommandBuilder::new(claude_binary);
-        for arg in claude_interactive_args(&claude_session_uuid) {
+        for arg in claude_interactive_args(&claude_session_uuid, skip_permissions) {
             cmd.arg(arg);
-        }
-        if skip_permissions {
-            cmd.arg("--dangerously-skip-permissions");
         }
         cmd.cwd(resolved_cwd);
         cmd.env("TERM", "xterm-256color");
@@ -300,12 +297,16 @@ fn foreground_pgid_from_fd(_raw_fd: Option<i32>) -> Option<u32> {
     None
 }
 
-fn claude_interactive_args(uuid: &str) -> Vec<String> {
-    vec![
+fn claude_interactive_args(uuid: &str, skip_permissions: bool) -> Vec<String> {
+    let mut args = vec![
         "--ax-screen-reader".to_string(),
         "--session-id".to_string(),
         uuid.to_string(),
-    ]
+    ];
+    if skip_permissions {
+        args.push("--dangerously-skip-permissions".to_string());
+    }
+    args
 }
 
 fn resolved_working_directory(cwd: &str, home: Option<&Path>) -> PathBuf {
@@ -416,11 +417,24 @@ mod tests {
     #[test]
     fn builds_interactive_claude_args_for_embedded_plain_text_mode() {
         assert_eq!(
-            claude_interactive_args("test-uuid"),
+            claude_interactive_args("test-uuid", false),
             vec![
                 "--ax-screen-reader".to_string(),
                 "--session-id".to_string(),
                 "test-uuid".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn adds_skip_permissions_only_when_requested() {
+        assert_eq!(
+            claude_interactive_args("test-uuid", true),
+            vec![
+                "--ax-screen-reader".to_string(),
+                "--session-id".to_string(),
+                "test-uuid".to_string(),
+                "--dangerously-skip-permissions".to_string(),
             ]
         );
     }

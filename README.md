@@ -21,6 +21,7 @@ Termspace is more than just a terminal — it's a fully integrated environment t
 - **Settings** — Configure shell, font size, themes, and keybindings
 - **State Persistence** — Restores your entire grid layout and sessions automatically across restarts, backed by SQLite
 - **Agent-Aware Terminal** — Parses OSC sequences and runs a local HTTP hook server so AI coding agents (Claude, Codex, ...) can report state directly into the terminal manager
+- **Herdr-Style Agent Observability** — Real-time AI coding agent state tracking in the sidebar. Inspects live terminal grids with sub-300ms latency to display intelligent status badges (Working, Needs Input, Done, Idle) and metrics for Claude Code sessions and subagents with zero third-party daemons (see [`docs/herdr-agent-system-implementation.md`](docs/herdr-agent-system-implementation.md))
 - **Auto-Updates** — Ships with a Tauri updater wired to GitHub Releases
 
 See [`featureslist.md`](featureslist.md) for the full implemented/planned breakdown and [`docs/buglist.md`](docs/buglist.md) for known issues.

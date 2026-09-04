@@ -132,6 +132,29 @@ describe('AgentStudioPane', () => {
     await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith('spawn_terminal', expect.objectContaining({ tabId: 'tab-1' })))
   })
 
+  it('preserves prompt and permission options when launching a Claude Studio pane', async () => {
+    useAppStore.setState({
+      agentStudioPanesByTab: {
+        'tab-1': [{ id: 'agent-1', tabId: 'tab-1', title: 'Agent Studio', cwd: '/tmp', conversationId: null, position: 0, createdAt: 1 }],
+      },
+      claudePanesByTab: { 'tab-1': [] },
+    })
+
+    render(<AgentStudioPane tabId="tab-1" paneId="agent-1" isActive onFocus={vi.fn()} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /terminal claude/i }))
+    fireEvent.click(screen.getByRole('button', { name: /claude studio pane/i }))
+    fireEvent.change(screen.getByLabelText(/initial task prompt/i), { target: { value: 'Review the repository' } })
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+
+    await waitFor(() => {
+      expect(useAppStore.getState().claudePanesByTab['tab-1']?.[0]).toMatchObject({
+        initialPrompt: 'Review the repository',
+        skipPermissions: true,
+      })
+    })
+  })
+
   it('populates composer draft when a prompt starter is clicked in the rail', async () => {
     useAppStore.setState({
       agentStudioPanesByTab: {

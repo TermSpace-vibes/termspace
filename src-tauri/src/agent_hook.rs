@@ -147,6 +147,11 @@ fn normalize_hook(payload: &str) -> Option<(String, DetectionEvidence)> {
         .or_else(|| value.get("notificationType"))
         .and_then(|kind| kind.as_str())
         .unwrap_or_default();
+    let needs_input = value
+        .get("needsInput")
+        .or_else(|| value.get("needs_input"))
+        .and_then(|needs_input| needs_input.as_bool())
+        .unwrap_or(false);
     let (state, detail) = match event {
         "Stop" | "SessionEnd" => (AgentState::Idle, Some("Done".into())),
         "PermissionRequest" => (AgentState::Blocked, Some("Needs permission".into())),
@@ -154,9 +159,13 @@ fn normalize_hook(payload: &str) -> Option<(String, DetectionEvidence)> {
             (AgentState::Blocked, Some("Needs input".into()))
         }
         "Notification" if notification == "idle_prompt" => (AgentState::Idle, Some("Idle".into())),
-        "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "SubagentStart" | "SubagentStop" => {
-            (AgentState::Working, Some("Working...".into()))
-        }
+        "UserPromptSubmit"
+        | "PreToolUse"
+        | "PostToolUse"
+        | "PostToolUseFailure"
+        | "SubagentStart"
+        | "SubagentStop" => (AgentState::Working, Some("Working...".into())),
+        _ if needs_input => (AgentState::Blocked, Some("Needs input".into())),
         _ => return None,
     };
 
@@ -273,6 +282,18 @@ mod tests {
         let (_, idle) =
             normalize_hook(r#"{"session_id":"uuid-1","hook_event_name":"Stop"}"#).unwrap();
         assert_eq!(idle.state, AgentState::Idle);
+
+        let (_, failed_tool) = normalize_hook(
+            r#"{"session_id":"uuid-1","hook_event_name":"PostToolUseFailure"}"#,
+        )
+        .unwrap();
+        assert_eq!(failed_tool.state, AgentState::Working);
+
+        let (_, needs_input) = normalize_hook(
+            r#"{"session_id":"uuid-1","hook_event_name":"Custom","needsInput":true}"#,
+        )
+        .unwrap();
+        assert_eq!(needs_input.state, AgentState::Blocked);
     }
 
     #[test]

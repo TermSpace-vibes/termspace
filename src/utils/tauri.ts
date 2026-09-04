@@ -65,6 +65,19 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case 'browser_reload':
     case 'browser_media_control':
       return undefined as unknown as T;
+    case 'start_ssh_port_forward':
+      return {
+        id: `mock-tunnel-${Date.now()}`,
+        ssh_host: args?.sshHost || 'user@remote',
+        remote_port: args?.remotePort || 3000,
+        local_port: args?.localPort || args?.remotePort || 3000,
+        remote_host: args?.remoteHost || '127.0.0.1',
+        created_at: Date.now(),
+      } as unknown as T;
+    case 'stop_ssh_port_forward':
+      return undefined as unknown as T;
+    case 'get_active_ssh_port_forwards':
+      return [] as unknown as T;
     default:
       console.warn(`[Mock Tauri] Unhandled command: ${cmd}`);
       return undefined as unknown as T;

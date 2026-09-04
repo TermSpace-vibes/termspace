@@ -1,6 +1,6 @@
 import { Workspace, Terminal } from '../../types'
 import { useAppStore } from '../../store/useAppStore'
-import { Sparkles } from 'lucide-react'
+import { Sparkles, Globe } from 'lucide-react'
 
 interface Props {
   workspace: Workspace
@@ -16,10 +16,11 @@ interface Props {
   onEditWorkspace: () => void
   onSelectTerminal: (id: string) => void
   onCloseTerminal: (id: string) => void
+  onOpenSshBrowser?: () => void
   showTabBar?: boolean
 }
 
-export function WorkspaceHeader({ workspace, terminals, activeTerminalId, onAddTerminal, onAddBrowserPane, onAddEditorPane, onAddKubernetesPane, onAddDockerPane, onAddClaudePane, onAddAgentStudioPane, onSelectTerminal, onCloseTerminal, showTabBar = true }: Props) {
+export function WorkspaceHeader({ workspace, terminals, activeTerminalId, onAddTerminal, onAddBrowserPane, onAddEditorPane, onAddKubernetesPane, onAddDockerPane, onAddClaudePane, onAddAgentStudioPane, onSelectTerminal, onCloseTerminal, onOpenSshBrowser, showTabBar = true }: Props) {
   return (
     <div
       data-tauri-drag-region
@@ -94,24 +95,58 @@ export function WorkspaceHeader({ workspace, terminals, activeTerminalId, onAddT
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 12px', flexShrink: 0 }}>
         {workspace.sshHost && (
-          <div
-            title={`Connected via SSH to ${workspace.sshHost}`}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              background: 'rgba(239, 68, 68, 0.1)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              borderRadius: 4,
-              padding: '2px 7px',
-              color: '#ef4444',
-              fontSize: 10,
-              fontWeight: 600,
-              letterSpacing: 0.2,
-            }}
-          >
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
-            <span>SSH: {workspace.sshHost}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div
+              title={`Connected via SSH to ${workspace.sshHost}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: 4,
+                padding: '2px 7px',
+                color: '#ef4444',
+                fontSize: 10,
+                fontWeight: 600,
+                letterSpacing: 0.2,
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
+              <span>SSH: {workspace.sshHost}</span>
+            </div>
+
+            {onOpenSshBrowser && (
+              <button
+                onClick={onOpenSshBrowser}
+                title="Launch remote browser preview via SSH port forwarding"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '2px 8px',
+                  background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)',
+                  borderRadius: 4,
+                  color: 'var(--accent)',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 22%, transparent)'
+                  e.currentTarget.style.borderColor = 'var(--accent)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 12%, transparent)'
+                  e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--accent) 30%, transparent)'
+                }}
+              >
+                <Globe size={11} strokeWidth={2.2} />
+                <span>SSH Browser</span>
+              </button>
+            )}
           </div>
         )}
         <button

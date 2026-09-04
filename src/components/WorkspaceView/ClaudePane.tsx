@@ -44,6 +44,7 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
   const permissionPromptActiveRef = useRef(false)
   const recentOutputRef = useRef('')
   const lastSentDimensionsRef = useRef<{ cols: number; rows: number } | null>(null)
+  const initialPromptSentRef = useRef(false)
 
   const title = pane?.title || 'Claude Code'
   const status = pane?.status || 'ready'
@@ -79,16 +80,23 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
         cwd: pane?.cwd || '',
         cols,
         rows,
+        ...(pane?.skipPermissions ? { skipPermissions: true } : {}),
       })
       useAppStore.getState().setSessionToPane(claudeSessionUuid, paneId)
       updateClaudePane(tabId, paneId, { status: 'ready', error: null })
+      const initialPrompt = pane?.initialPrompt?.trim()
+      if (initialPrompt && !initialPromptSentRef.current) {
+        initialPromptSentRef.current = true
+        await writeClaudeInput(`${initialPrompt}\r`)
+        setTranscript((prev) => appendClaudeUserPrompt(prev, initialPrompt))
+      }
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err)
       updateClaudePane(tabId, paneId, { status: 'error', error })
       setEventMessage(error)
       setTranscript((prev) => appendClaudeError(prev, error))
     }
-  }, [pane?.cwd, paneId, tabId, updateClaudePane])
+  }, [pane?.cwd, pane?.initialPrompt, pane?.skipPermissions, paneId, tabId, updateClaudePane, writeClaudeInput])
 
   useEffect(() => {
     if (!terminalContainerRef.current) return

@@ -8,6 +8,7 @@ import { ToolingPane } from './ToolingPane'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { open } from '@tauri-apps/plugin-dialog'
+import { SshPortForwardModal } from './SshPortForwardModal'
 
 interface Props {
   workspace: Workspace
@@ -83,6 +84,22 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
   const dockerPanes = useAppStore((s) => activeTabId ? s.dockerPanesByTab[activeTabId] ?? EMPTY_DOCKER_PANES : EMPTY_DOCKER_PANES)
   const claudePanes = useAppStore((s) => activeTabId ? s.claudePanesByTab[activeTabId] ?? EMPTY_CLAUDE_PANES : EMPTY_CLAUDE_PANES)
   const tabs = useAppStore((s) => s.tabsByWorkspace[workspace.id] ?? EMPTY_TABS)
+  const [isSshBrowserModalOpen, setIsSshBrowserModalOpen] = useState(false)
+  const [activeSshModalHost, setActiveSshModalHost] = useState<string>(workspace.sshHost || '')
+
+  useEffect(() => {
+    const handleOpenSshModal = (e: Event) => {
+      const detail = (e as CustomEvent<{ sshHost?: string }>).detail
+      if (detail?.sshHost) {
+        setActiveSshModalHost(detail.sshHost)
+      } else if (workspace.sshHost) {
+        setActiveSshModalHost(workspace.sshHost)
+      }
+      setIsSshBrowserModalOpen(true)
+    }
+    window.addEventListener('open-ssh-browser-modal', handleOpenSshModal)
+    return () => window.removeEventListener('open-ssh-browser-modal', handleOpenSshModal)
+  }, [workspace.sshHost])
   const renderTabs = useMemo(() => {
     if (!activeTabId || tabs.some((tab) => tab.id === activeTabId)) return tabs
     return [...tabs, { id: activeTabId, workspaceId: workspace.id, name: 'Tab 1', position: tabs.length, createdAt: 0 }]
@@ -436,6 +453,10 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
         onEditWorkspace={() => onEditWorkspace(workspace)}
         onSelectTerminal={setActiveTerminalId}
         onCloseTerminal={handleCloseTerminal}
+        onOpenSshBrowser={() => {
+          setActiveSshModalHost(workspace.sshHost || '')
+          setIsSshBrowserModalOpen(true)
+        }}
         showTabBar={settings.showTabBar !== false}
       />
       <WorkspaceTabBar workspaceId={workspace.id} />
@@ -673,6 +694,16 @@ export function WorkspaceView({ workspace, onEditWorkspace }: Props) {
             </div>
           </div>
         </div>
+      )}
+      {isSshBrowserModalOpen && (
+        <SshPortForwardModal
+          isOpen={isSshBrowserModalOpen}
+          sshHost={activeSshModalHost || workspace.sshHost || ''}
+          onClose={() => setIsSshBrowserModalOpen(false)}
+          onLaunchBrowser={(url) => {
+            handleAddBrowserPane(undefined, undefined, url)
+          }}
+        />
       )}
     </div>
   )

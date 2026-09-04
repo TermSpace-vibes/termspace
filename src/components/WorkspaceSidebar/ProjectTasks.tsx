@@ -46,33 +46,55 @@ export function ProjectTasks({ isCollapsed }: { isCollapsed: boolean }) {
     }
   }
 
+  const totalTasks = projects.reduce((sum, p) => sum + p.tasks.length, 0)
+
   return (
-    <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div 
         style={{ 
-          display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px',
-          cursor: 'pointer', userSelect: 'none'
+          display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px',
+          borderRadius: 5, cursor: 'pointer', userSelect: 'none',
+          transition: 'background 0.15s ease'
         }}
         onClick={() => setTasksCollapsed(!tasksCollapsed)}
       >
-        {tasksCollapsed ? <ChevronRight size={14} color="var(--text-dim)" /> : <ChevronDown size={14} color="var(--text-dim)" />}
+        <div style={{ color: 'var(--text-dim)', display: 'flex', alignItems: 'center' }}>
+          {tasksCollapsed ? <ChevronRight size={12} strokeWidth={2.5} /> : <ChevronDown size={12} strokeWidth={2.5} />}
+        </div>
         <span style={{ 
-          fontSize: 10, letterSpacing: 1.5, color: 'var(--text-dim)', fontWeight: 600, textTransform: 'uppercase'
+          fontSize: 10, letterSpacing: '0.08em', color: 'var(--text-dim)', fontWeight: 700, textTransform: 'uppercase'
         }}>
           Detected Scripts
         </span>
+        {totalTasks > 0 && (
+          <span
+            style={{
+              fontSize: 9,
+              fontFamily: 'SF Mono, Menlo, monospace',
+              padding: '1px 5px',
+              borderRadius: 999,
+              background: 'var(--bg-item)',
+              color: 'var(--text-dim)',
+              border: '1px solid color-mix(in srgb, var(--border-inactive) 60%, transparent)',
+              fontWeight: 600,
+              marginLeft: 'auto',
+            }}
+          >
+            {totalTasks}
+          </span>
+        )}
       </div>
       
       {!tasksCollapsed && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 8px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 4px' }}>
           {projects.map((proj, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div style={{ 
-                fontSize: 11, color: 'var(--text-inactive)', fontWeight: 600, 
-                display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 4 
+                fontSize: 10.5, color: 'var(--text-inactive)', fontWeight: 600, 
+                display: 'flex', alignItems: 'center', gap: 5, paddingLeft: 4 
               }}>
-                <TerminalSquare size={12} />
-                {proj.name}
+                <TerminalSquare size={12} strokeWidth={2} style={{ color: 'var(--accent)' }} />
+                <span>{proj.name}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {proj.tasks.map((task, j) => (
@@ -80,24 +102,47 @@ export function ProjectTasks({ isCollapsed }: { isCollapsed: boolean }) {
                     key={j}
                     onClick={() => handleRunTask(task.command)}
                     style={{
-                      background: 'transparent', border: 'none', color: 'var(--text-inactive)',
-                      padding: '4px 8px 4px 16px', borderRadius: 4, cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      fontSize: 12, transition: 'all 0.15s'
+                      background: 'transparent',
+                      border: '1px solid transparent',
+                      color: 'var(--text-inactive)',
+                      padding: '5px 8px 5px 12px',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: 12,
+                      transition: 'all 0.16s ease',
+                      textAlign: 'left',
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = 'var(--bg-item-active)'
                       e.currentTarget.style.color = 'var(--text-active)'
+                      e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--border-inactive) 70%, transparent)'
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = 'transparent'
                       e.currentTarget.style.color = 'var(--text-inactive)'
+                      e.currentTarget.style.borderColor = 'transparent'
                     }}
                   >
-                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, marginRight: 6 }}>
                       {task.name}
                     </span>
-                    <Play size={10} style={{ opacity: 0.5 }} />
+                    <div
+                      style={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: 4,
+                        background: 'var(--bg-item)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Play size={9} style={{ opacity: 0.7, color: 'var(--accent)', marginLeft: 1 }} />
+                    </div>
                   </button>
                 ))}
               </div>

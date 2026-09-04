@@ -14,6 +14,7 @@ use crate::global_shortcut_service::{self, GlobalShortcutState, GlobalShortcutSt
 use crate::native_terminal_manager::NativeTerminalManager;
 use crate::platform_permissions::{self, GlobalDictationPermissionStatus};
 use crate::tray_service::{self, TrayState};
+use crate::ssh_tunnel_manager::{SshPortForward, SshTunnelManager};
 use notify_debouncer_mini::{
     new_debouncer,
     notify::{self, RecursiveMode},
@@ -676,6 +677,33 @@ pub fn upload_files_scp(
     }
 
     Ok(results)
+}
+
+#[tauri::command]
+pub fn start_ssh_port_forward(
+    tunnel_mgr: State<SshTunnelManager>,
+    ssh_host: String,
+    remote_port: u16,
+    local_port: Option<u16>,
+    remote_host: Option<String>,
+) -> Result<SshPortForward, String> {
+    tunnel_mgr.start_forward(&ssh_host, remote_port, local_port, remote_host.as_deref())
+}
+
+#[tauri::command]
+pub fn stop_ssh_port_forward(
+    tunnel_mgr: State<SshTunnelManager>,
+    id: String,
+) -> Result<(), String> {
+    tunnel_mgr.stop_forward(&id)
+}
+
+#[tauri::command]
+pub fn get_active_ssh_port_forwards(
+    tunnel_mgr: State<SshTunnelManager>,
+    ssh_host: Option<String>,
+) -> Result<Vec<SshPortForward>, String> {
+    Ok(tunnel_mgr.get_active_forwards(ssh_host.as_deref()))
 }
 
 #[tauri::command]
@@ -2067,6 +2095,8 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Condvar, Mutex};
 
+    static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
     fn whisper_state() -> WhisperState {
         WhisperState(
             Arc::new((Mutex::new(WhisperLoad::Idle), Condvar::new())),
@@ -2180,14 +2210,14 @@ mod tests {
         assert_eq!(status_done, "done", "Explicit end_turn should transition to done immediately with 0ms delay");
         assert_eq!(detail_done, Some("Done".to_string()));
 
-        // 3. Question / Tool use: assistant emits tool_use awaiting permission
+        // 3. Ordinary tool use is work, not proof that permission is required
         {
             let mut f = std::fs::File::create(&jsonl_path).unwrap();
             writeln!(f, r#"{{"type":"message","role":"assistant","message":{{"content":[{{"type":"tool_use","id":"tool_1","name":"Bash"}}]}}}}"#).unwrap();
         }
-        let (status_blocked, detail_blocked) = detect_session_state(Some(&jsonl_path), now);
-        assert_eq!(status_blocked, "blocked", "Pending tool use should report blocked (needs input)");
-        assert_eq!(detail_blocked, Some("Needs input".to_string()));
+        let (status_tool, detail_tool) = detect_session_state(Some(&jsonl_path), now);
+        assert_eq!(status_tool, "working", "Ordinary tool use should remain working");
+        assert_eq!(detail_tool, Some("Working...".to_string()));
 
         // 4. New user turn started after previous completion:
         // Even if previous turn had end_turn, the new user prompt means Claude is WORKING!
@@ -2207,6 +2237,69 @@ mod tests {
         let item = agent_item_with_target("uuid-1", Some("term-1"));
         let value = serde_json::to_value(item).unwrap();
         assert_eq!(value["targetId"], "term-1");
+    }
+
+    #[test]
+    fn test_get_claude_agents_without_project_returns_all_live_sessions() {
+        use std::io::Write;
+
+        let _home_guard = HOME_ENV_LOCK.lock().unwrap();
+        let original_home = std::env::var_os("HOME");
+        let temp_home = std::env::temp_dir().join(format!(
+            "test_all_claude_agents_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let sessions_dir = temp_home.join(".claude/sessions");
+        let projects_dir = temp_home.join(".claude/projects");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+
+        let pid = std::process::id();
+        for (session_id, cwd, started_at) in [
+            ("session-a", "/tmp/project-a", 1_000_i64),
+            ("session-b", "/tmp/project-b", 2_000_i64),
+        ] {
+            let session = serde_json::json!({
+                "pid": pid,
+                "sessionId": session_id,
+                "cwd": cwd,
+                "name": session_id,
+                "startedAt": started_at,
+                "status": "working"
+            });
+            std::fs::write(
+                sessions_dir.join(format!("{session_id}.json")),
+                session.to_string(),
+            )
+            .unwrap();
+
+            let project_dir =
+                projects_dir.join(crate::agent_runtime_manager::sanitize_project_dir(cwd));
+            std::fs::create_dir_all(&project_dir).unwrap();
+            let mut jsonl =
+                std::fs::File::create(project_dir.join(format!("{session_id}.jsonl"))).unwrap();
+            writeln!(jsonl, r#"{{"type":"assistant","message":{{"role":"assistant","stop_reason":"end_turn","content":[]}}}}"#).unwrap();
+        }
+
+        unsafe { std::env::set_var("HOME", &temp_home) };
+        let coordinator = AgentDetectionCoordinator::new(std::sync::Arc::new(
+            crate::agent_detection::coordinator::NoopStateUpdateSink,
+        ));
+        let result = build_claude_agents(None, &coordinator);
+        match original_home {
+            Some(home) => unsafe { std::env::set_var("HOME", home) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
+        let _ = std::fs::remove_dir_all(&temp_home);
+
+        let agents = result.unwrap();
+        assert_eq!(
+            agents.len(),
+            2,
+            "all mode should include every live Claude session"
+        );
     }
 }
 
@@ -3050,9 +3143,10 @@ fn detect_session_state(
                                 return ("working".to_string(), Some("Working...".to_string()));
                             }
 
-                            // 2. Tool use awaiting user confirmation -> Blocked
+                            // A tool_use record means Claude is executing a tool; it does not
+                            // distinguish automatic execution from a permission prompt.
                             if last_tool_use {
-                                return ("blocked".to_string(), Some("Needs input".to_string()));
+                                return ("working".to_string(), Some("Working...".to_string()));
                             }
 
                             // 3. Explicit end_turn received: immediately DONE (0ms delay!)
@@ -3163,9 +3257,9 @@ fn build_claude_agents(
                 .collect()
         }
     } else {
-        // If no target provided, take only the most recently started live session
+        // No project filter means "all agents".
         live_sessions.sort_by(|a, b| b.4.cmp(&a.4));
-        live_sessions.into_iter().take(1).collect()
+        live_sessions
     };
 
     let mut items = Vec::new();

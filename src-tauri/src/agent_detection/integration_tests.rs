@@ -187,6 +187,27 @@ fn all_runtime_profiles_emit_identical_states_within_visible_transition_budget()
 }
 
 #[test]
+fn multi_turn_screens_with_completion_summary_transition_to_idle_and_done() {
+    const REALISTIC_WORKING_SCREEN: &[u8] =
+        b"\x1b[2J\x1b[HClaude Code v2.1.260\r\n> hey\r\n\xe2\x9c\xbb Thinking\xe2\x80\xa6";
+    const REALISTIC_COMPLETION_SCREEN: &[u8] =
+        b"\x1b[2J\x1b[HClaude Code v2.1.260\r\n> hey\r\n\xe2\x97\x8f What's up?\r\n* Worked for 1s \xc2\xb7 done 10:39 PM\r\n> ";
+
+    let epoch = Instant::now();
+    let mut adapter = RuntimeAdapter::new(RuntimeKind::NativeTerminal, epoch);
+    adapter.feed_after(REALISTIC_WORKING_SCREEN, Duration::ZERO, Duration::ZERO);
+    adapter.feed_after(
+        REALISTIC_COMPLETION_SCREEN,
+        Duration::from_secs(1),
+        VISIBLE_TRANSITION_BUDGET,
+    );
+
+    assert_eq!(adapter.updates, vec![AgentState::Working, AgentState::Idle]);
+    assert_eq!(adapter.tracker.presentation(), AgentPresentation::Done);
+    assert!(adapter.completion_latency.unwrap() <= VISIBLE_TRANSITION_BUDGET);
+}
+
+#[test]
 fn hook_redraw_grace_opens_at_175_ms_without_sleeping() {
     let epoch = Instant::now();
     let mut tracker = AgentTracker::new(AgentTargetId::from("hook-target"));

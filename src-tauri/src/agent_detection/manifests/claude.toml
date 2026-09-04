@@ -2,8 +2,16 @@ provider = "claude"
 aliases = ["claude", "claude-code"]
 
 [identity]
-all = ["(?m)^\\s*[>❯]\\s*"]
-any = ["(?i)Claude Code", "(?i)\\? for shortcuts", "(?i)(bypass permissions|accept edits|plan mode)"]
+all = ["(?m)^\\s*[>❯›]_?\\s*"]
+any = [
+    "(?i)Claude Code",
+    "(?i)\\? for shortcuts",
+    "(?i)(bypass permissions|accept edits|plan mode)",
+    "(?i)(\\bfor\\s+\\d+.*done|·\\s*done\\b)",
+    "(?i)\\[(Sonnet|Opus|Haiku|Claude)",
+    "(?i)auto mode on",
+    "(?i)what should claude do"
+]
 
 [[rules]]
 id = "transcript-viewer"
@@ -42,9 +50,25 @@ detail = "Working..."
 [[rules]]
 id = "spinner"
 priority = 80
-region = "active"
+region = "last:5"
 state = "working"
-any = ["(?m)^\\s*[✢✳✶✻·*]\\s+", "(?i)(thinking|searching|reading|writing|running)…?"]
+any = [
+    "(?im)^\\s*(\\+|[✢✳✶✻✽✱✲·*])\\s+[A-Za-z]+.*(…|\\.{3})",
+    "(?im)^\\s*[✢✳✶✻✽✱✲]\\s+",
+    "(?im)\\b(thinking|searching|reading|writing|running|executing|effecting|checking|inspecting|applying|fetching|building|testing|harmonizing|cogitating|pondering|ruminating|synthesizing)\\b.*(…|\\.{3})",
+    "(?i)\\bthinking with (high|medium|low) effort\\b"
+]
+not = ["(?i)(\\bfor\\s+\\d+.*done|·\\s*done\\b)"]
+evidence = ["visible_working"]
+detail = "Working..."
+
+[[rules]]
+id = "streaming"
+priority = 70
+region = "last:5"
+state = "working"
+all = ["(?m)^\\s*[•●]\\s+"]
+not = ["(?m)^\\s*[>❯›]_?\\s*$", "(?i)(\\bfor\\s+\\d+.*done|·\\s*done\\b)"]
 evidence = ["visible_working"]
 detail = "Working..."
 
@@ -53,8 +77,16 @@ id = "input-prompt"
 priority = 50
 region = "active"
 state = "idle"
-all = ["(?m)^\\s*[>❯]\\s*$"]
-any = ["(?i)Claude Code", "(?i)\\? for shortcuts", "(?i)(bypass permissions|accept edits|plan mode)"]
-not = ["(?m)^\\s*❯\\s*\\d+\\."]
+all = ["(?m)^\\s*[>❯›]_?\\s*$"]
+any = [
+    "(?i)Claude Code",
+    "(?i)\\? for shortcuts",
+    "(?i)(bypass permissions|accept edits|plan mode)",
+    "(?i)(\\bfor\\s+\\d+.*done|·\\s*done\\b)",
+    "(?i)\\[(Sonnet|Opus|Haiku|Claude)",
+    "(?i)auto mode on",
+    "(?i)what should claude do"
+]
+not = ["(?m)^\\s*[>❯›]_?\\s*\\d+\\."]
 evidence = ["visible_idle"]
 detail = "Idle"

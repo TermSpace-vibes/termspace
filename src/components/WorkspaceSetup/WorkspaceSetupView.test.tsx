@@ -135,4 +135,28 @@ describe('WorkspaceSetupView — agents and Open Workspace', () => {
     expect(onOpenWorkspace).toHaveBeenCalledWith('ws-1', [])
     vi.useRealTimers()
   })
+
+  it('commits path and SSH values before Cmd+Enter opens the workspace', async () => {
+    let releasePath!: () => void
+    let releaseSsh!: () => void
+    const pathSaved = new Promise<void>((resolve) => { releasePath = resolve })
+    const sshSaved = new Promise<void>((resolve) => { releaseSsh = resolve })
+    tauri.invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_agent_provider_diagnostics') return Promise.resolve([])
+      if (cmd === 'set_workspace_default_path') return pathSaved
+      if (cmd === 'set_workspace_ssh_host') return sshSaved
+      return Promise.resolve({})
+    })
+    const onOpenWorkspace = vi.fn()
+    render(<WorkspaceSetupView workspaceId="ws-1" onOpenWorkspace={onOpenWorkspace} />)
+    fireEvent.change(screen.getByLabelText(/default path/i), { target: { value: '/projects/app' } })
+    fireEvent.change(screen.getByLabelText(/remote ssh server/i), { target: { value: 'dev@example.com' } })
+
+    fireEvent.keyDown(window, { key: 'Enter', metaKey: true })
+    expect(onOpenWorkspace).not.toHaveBeenCalled()
+
+    releasePath()
+    releaseSsh()
+    await waitFor(() => expect(onOpenWorkspace).toHaveBeenCalledWith('ws-1', []))
+  })
 })

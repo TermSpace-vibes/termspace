@@ -348,4 +348,107 @@ detail = "Needs permission"
         assert!(evidence.preserve_state);
         assert_eq!(evidence.state, AgentState::Unknown);
     }
+
+    #[test]
+    fn claude_manifest_detects_idle_after_turn_completion_summary() {
+        let screen = ScreenSnapshot::for_test(
+            "Claude Code v2.1.260\nSonnet 5 with high effort · Claude Pro\n~/Documents/Personal/Vibecode\n\n⚠ 1 MCP server needs authentication · run /mcp\n\n❯ hey\n\n● What's up? What are we working on today?\n\n* Worked for 1s · done 10:39 PM\n\n❯",
+        );
+        let manifest = CLAUDE_MANIFEST.as_ref().unwrap();
+        let evidence = manifest.evaluate(&screen).expect("Screen must evaluate");
+        assert_eq!(evidence.state, AgentState::Idle);
+        assert!(evidence.visible_idle);
+        assert!(!evidence.visible_working);
+    }
+
+    #[test]
+    fn claude_manifest_detects_idle_after_scrolled_turn_completion() {
+        let screen = ScreenSnapshot::for_test(
+            "Agent memory systems face different challenges. Neural networks can suffer from ...\nConsciousness and Subjective Experience ...\nConclusion ...\n* Churned for 27s · done 7:57 PM\n\n❯",
+        );
+        let manifest = CLAUDE_MANIFEST.as_ref().unwrap();
+        assert!(manifest.matches_identity(&screen));
+        let evidence = manifest.evaluate(&screen).expect("Screen must evaluate");
+        assert_eq!(evidence.state, AgentState::Idle);
+        assert!(evidence.visible_idle);
+    }
+
+    #[test]
+    fn claude_manifest_detects_idle_when_assistant_outputs_markdown_bullets() {
+        let screen = ScreenSnapshot::for_test(
+            "Claude Code v2.1.260\nHere are recommendations:\n* First, verify error boundaries\n* Second, verify test coverage\n\n* Worked for 2s · done 11:00 PM\n\n❯",
+        );
+        let manifest = CLAUDE_MANIFEST.as_ref().unwrap();
+        let evidence = manifest.evaluate(&screen).expect("Screen must evaluate");
+        assert_eq!(evidence.state, AgentState::Idle);
+        assert!(evidence.visible_idle);
+        assert!(!evidence.visible_working);
+    }
+
+    #[test]
+    fn claude_manifest_detects_working_on_active_spinner() {
+        let screen = ScreenSnapshot::for_test(
+            "Claude Code v2.1.260\n❯ hey\n\n✻ Thinking…",
+        );
+        let manifest = CLAUDE_MANIFEST.as_ref().unwrap();
+        let evidence = manifest.evaluate(&screen).expect("Screen must evaluate");
+        assert_eq!(evidence.state, AgentState::Working);
+        assert!(evidence.visible_working);
+    }
+
+    #[test]
+    fn claude_manifest_detects_working_on_active_tool_command() {
+        let screen = ScreenSnapshot::for_test(
+            "Claude Code v2.1.260\n❯ test\n\n✢ Running command: cargo test…",
+        );
+        let manifest = CLAUDE_MANIFEST.as_ref().unwrap();
+        let evidence = manifest.evaluate(&screen).expect("Screen must evaluate");
+        assert_eq!(evidence.state, AgentState::Working);
+        assert!(evidence.visible_working);
+    }
+
+    #[test]
+    fn claude_manifest_detects_working_while_streaming_response() {
+        let screen = ScreenSnapshot::for_test(
+            "Claude Code v2.1.260\n❯ hi\n\n● Hey. What are we working on?",
+        );
+        let manifest = CLAUDE_MANIFEST.as_ref().unwrap();
+        let evidence = manifest.evaluate(&screen).expect("Screen must evaluate");
+        assert_eq!(evidence.state, AgentState::Working);
+        assert!(evidence.visible_working);
+    }
+
+    #[test]
+    fn claude_manifest_detects_idle_after_crunched_summary() {
+        let screen = ScreenSnapshot::for_test(
+            "Claude Code v2.1.260\n❯ hi\n\n● Hey. What are we working on?\n\n* Crunched for 2s · done 10:52 PM\n\n❯",
+        );
+        let manifest = CLAUDE_MANIFEST.as_ref().unwrap();
+        let evidence = manifest.evaluate(&screen).expect("Screen must evaluate");
+        assert_eq!(evidence.state, AgentState::Idle);
+        assert!(evidence.visible_idle);
+        assert!(!evidence.visible_working);
+    }
+
+    #[test]
+    fn claude_manifest_detects_working_on_effecting_command_execution() {
+        let screen = ScreenSnapshot::for_test(
+            "LLM-VISUALIZER CONTENTS  ~/Documents/Personal/Vibecode  main\n> check its git status\nChecking git status and recent log for llm-visualizer\n[ $ cd llm-visualizer && git status && echo --- && git log --oneline -10\n+ Effecting... (3s · ↓ 37 tokens)",
+        );
+        let manifest = CLAUDE_MANIFEST.as_ref().unwrap();
+        let evidence = manifest.evaluate(&screen).expect("Screen must evaluate");
+        assert_eq!(evidence.state, AgentState::Working);
+        assert!(evidence.visible_working);
+    }
+
+    #[test]
+    fn claude_manifest_detects_working_on_harmonizing_thinking() {
+        let screen = ScreenSnapshot::for_test(
+            "LLM-VISUALIZER CONTENTS  ~/Documents/Personal/Vibecode  main\n> write a 3000 word essay on the future of operating systems\n✱ Harmonizing... (10s · thinking with high effort)",
+        );
+        let manifest = CLAUDE_MANIFEST.as_ref().unwrap();
+        let evidence = manifest.evaluate(&screen).expect("Screen must evaluate");
+        assert_eq!(evidence.state, AgentState::Working);
+        assert!(evidence.visible_working);
+    }
 }

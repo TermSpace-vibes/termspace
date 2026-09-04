@@ -144,4 +144,33 @@ describe('WorkspaceSidebar', () => {
     expect(onSelectWorkspace).toHaveBeenCalledWith('ws-claude', 'term-claude')
     expect(useAppStore.getState().activeTerminalId).toBe('term-claude')
   })
+
+  it('does not confuse workspaces whose paths only share a string prefix', async () => {
+    const appWorkspace: Workspace = { ...ws1, id: 'ws-app', defaultPath: '/projects/app' }
+    const applicationWorkspace: Workspace = { ...ws2, id: 'ws-application', defaultPath: '/projects/application' }
+    useAppStore.setState({
+      workspaces: [appWorkspace, applicationWorkspace],
+      activeWorkspaceId: 'ws-application',
+      tabsByWorkspace: {
+        'ws-app': [{ id: 'tab-app', name: 'App', position: 0 }],
+        'ws-application': [{ id: 'tab-application', name: 'Application', position: 0 }],
+      },
+      terminalsByTab: {
+        'tab-app': [{ id: 'term-app', tabId: 'tab-app', cwd: '/projects/app', position: 0, sizePercent: 100, createdAt: 1, shell: 'zsh' }],
+        'tab-application': [{ id: 'term-application', tabId: 'tab-application', cwd: '/projects/application', position: 0, sizePercent: 100, createdAt: 1, shell: 'zsh' }],
+      },
+    })
+    tauri.invoke.mockImplementation((cmd: string) => cmd === 'get_claude_agents'
+      ? Promise.resolve([{
+          id: 'agent-application', name: 'Application', project_name: 'Application', title: 'Claude Code',
+          description: 'Application task', status: 'working', cwd: '/projects/application', updated_at: 1000,
+        }])
+      : Promise.resolve([]))
+
+    const onSelectWorkspace = vi.fn()
+    render(<WorkspaceSidebar isCollapsed={false} onToggleCollapse={vi.fn()} onAddWorkspace={vi.fn()} onSelectWorkspace={onSelectWorkspace} onDeleteWorkspace={vi.fn()} onEditWorkspace={vi.fn()} onOpenSettings={vi.fn()} onDuplicateWorkspace={vi.fn()} onGoHome={vi.fn()} />)
+
+    fireEvent.click(await screen.findByText('Application task'))
+    expect(onSelectWorkspace).toHaveBeenCalledWith('ws-application', 'term-application')
+  })
 })

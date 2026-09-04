@@ -20,7 +20,7 @@ describe('AgentLaunchStep', () => {
   it('starts with zero slots and adds one on "Add agent"', async () => {
     const onChange = vi.fn()
     render(<AgentLaunchStep slots={[]} onChange={onChange} />)
-    await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith('get_agent_provider_diagnostics'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /add agent/i })).toBeEnabled())
 
     fireEvent.click(screen.getByRole('button', { name: /add agent/i }))
     expect(onChange).toHaveBeenCalledWith([{ provider: 'claude-code', task: '', subPath: '' }])

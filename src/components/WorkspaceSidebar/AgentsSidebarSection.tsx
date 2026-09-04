@@ -238,8 +238,10 @@ export function AgentsSidebarSection({ isCollapsed, onSelectAgent }: Props) {
   const [viewMode, setViewMode] = useState<'grouped' | 'all'>('grouped')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const coordinatedStatesRef = useRef<CoordinatedAgentStates>(new Map())
+  const loadInFlightRef = useRef(false)
+  const reloadQueuedRef = useRef(false)
 
-  const loadAgents = useCallback(async () => {
+  const loadAgentsOnce = useCallback(async () => {
     const state = useAppStore.getState()
     const currentWorkspaceId = state.activeWorkspaceId
     const currentWorkspace = state.workspaces.find((w) => w.id === currentWorkspaceId)
@@ -335,6 +337,23 @@ export function AgentsSidebarSection({ isCollapsed, onSelectAgent }: Props) {
       }
     }
   }, [viewMode])
+
+  const loadAgents = useCallback(async () => {
+    if (loadInFlightRef.current) {
+      reloadQueuedRef.current = true
+      return
+    }
+
+    loadInFlightRef.current = true
+    try {
+      do {
+        reloadQueuedRef.current = false
+        await loadAgentsOnce()
+      } while (reloadQueuedRef.current)
+    } finally {
+      loadInFlightRef.current = false
+    }
+  }, [loadAgentsOnce])
 
   useEffect(() => {
     loadAgents()

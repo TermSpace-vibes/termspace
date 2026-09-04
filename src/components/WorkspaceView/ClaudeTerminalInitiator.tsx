@@ -76,6 +76,8 @@ export function ClaudeTerminalInitiator({ tabId, paneId, cwd, onClose }: Props) 
           createdAt: Date.now(),
           status: 'ready',
           error: null,
+          initialPrompt: taskPrompt.trim() || undefined,
+          skipPermissions,
         }
         state.addClaudePane(tabId, pane, paneId, 'horizontal')
         state.setActiveTerminalId(pane.id)

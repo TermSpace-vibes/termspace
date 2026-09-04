@@ -12,7 +12,7 @@ import '@xterm/xterm/css/xterm.css'
 import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager'
 import { AnimatePresence } from 'framer-motion'
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal'
-import { UploadCloud } from 'lucide-react'
+import { UploadCloud, Globe } from 'lucide-react'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { open } from '@tauri-apps/plugin-dialog'
 import { ScpUploadOverlay, type UploadFileItem } from './ScpUploadOverlay'
@@ -750,6 +750,13 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
           },
           ...(workspace?.sshHost ? [
             { separator: true, label: '', onClick: () => {} },
+            {
+              label: 'Launch Remote Browser (Port Forward)...',
+              icon: <Globe size={14} />,
+              onClick: () => {
+                window.dispatchEvent(new CustomEvent('open-ssh-browser-modal', { detail: { sshHost: workspace.sshHost } }))
+              },
+            },
             {
               label: 'Upload Files via SCP...',
               icon: <UploadCloud size={14} />,

@@ -18,6 +18,8 @@ pub mod lsp_manager;
 mod native_terminal_manager;
 mod platform_permissions;
 mod tray_service;
+pub mod ssh_tunnel_manager;
+use ssh_tunnel_manager::SshTunnelManager;
 
 use agent_detection::coordinator::{AgentDetectionCoordinator, TauriStateUpdateSink};
 use agent_runtime_manager::AgentRuntimeManager;
@@ -162,6 +164,7 @@ pub fn run() {
             )));
             app.manage(global_shortcut_service::GlobalShortcutState::default());
             app.manage(tray_service::TrayState::default());
+            app.manage(SshTunnelManager::new());
 
             // Loading the whisper model (whisper_init_from_file_with_params_no_state
             // on a ~150MB file) synchronously here blocked the window from appearing
@@ -282,6 +285,9 @@ pub fn run() {
             commands::set_workspace_ssh_host,
             commands::get_ssh_hosts,
             commands::upload_files_scp,
+            commands::start_ssh_port_forward,
+            commands::stop_ssh_port_forward,
+            commands::get_active_ssh_port_forwards,
             commands::touch_workspace_last_opened,
             commands::delete_workspace,
             commands::delete_tab,
