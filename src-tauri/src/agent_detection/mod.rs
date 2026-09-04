@@ -4,3 +4,6 @@ pub mod process;
 pub mod screen;
 pub mod tracker;
 pub mod types;
+
+#[cfg(test)]
+mod integration_tests;
