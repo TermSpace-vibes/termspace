@@ -1,0 +1,60 @@
+provider = "claude"
+aliases = ["claude", "claude-code"]
+
+[identity]
+all = ["(?m)^\\s*[>❯]\\s*"]
+any = ["(?i)Claude Code", "(?i)\\? for shortcuts", "(?i)(bypass permissions|accept edits|plan mode)"]
+
+[[rules]]
+id = "transcript-viewer"
+priority = 120
+region = "active"
+preserve_state = true
+any = ["(?i)transcript", "(?i)press q to (quit|exit)"]
+
+[[rules]]
+id = "permission"
+priority = 110
+region = "active"
+state = "blocked"
+all = ["(?i)(allow|approve|permission)", "(?m)^\\s*❯?\\s*1\\.\\s*(yes|allow)"]
+evidence = ["visible_blocker"]
+detail = "Needs permission"
+
+[[rules]]
+id = "question"
+priority = 100
+region = "active"
+state = "blocked"
+all = ["(?m)^\\s*❯\\s*\\d+\\.", "(?m)^\\s*\\d+\\.\\s+"]
+evidence = ["visible_blocker"]
+detail = "Needs input"
+
+[[rules]]
+id = "background-work"
+priority = 90
+region = "active"
+state = "working"
+any = ["(?i)(working|running).*(background|agent|tool)", "(?i)(esc|ctrl-c) to interrupt"]
+evidence = ["visible_working"]
+detail = "Working..."
+
+[[rules]]
+id = "spinner"
+priority = 80
+region = "active"
+state = "working"
+any = ["(?m)^\\s*[✢✳✶✻·*]\\s+", "(?i)(thinking|searching|reading|writing|running)…?"]
+evidence = ["visible_working"]
+detail = "Working..."
+
+[[rules]]
+id = "input-prompt"
+priority = 50
+region = "active"
+state = "idle"
+all = ["(?m)^\\s*[>❯]\\s*$"]
+any = ["(?i)Claude Code", "(?i)\\? for shortcuts", "(?i)(bypass permissions|accept edits|plan mode)"]
+not = ["(?m)^\\s*❯\\s*\\d+\\."]
+evidence = ["visible_idle"]
+detail = "Idle"

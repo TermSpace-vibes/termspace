@@ -5609,6 +5609,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tiny_http",
+ "toml 0.8.2",
  "uuid",
  "whisper-rs",
 ]

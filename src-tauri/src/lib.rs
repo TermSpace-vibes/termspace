@@ -1,5 +1,6 @@
 #![allow(unexpected_cfgs)]
 mod agent_context;
+mod agent_detection;
 mod agent_hook;
 mod agent_runtime_manager;
 mod audio;
