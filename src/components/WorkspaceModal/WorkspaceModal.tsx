@@ -4,9 +4,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { Workspace, LaunchSlot } from '../../types'
 import * as LucideIcons from 'lucide-react'
 import { AgentLaunchStep } from './AgentLaunchStep'
-
-const ICONS = ['TerminalSquare', 'Server', 'FlaskConical', 'Laptop', 'Rocket', 'Database', 'Boxes', 'LayoutGrid', 'Globe', 'Cpu']
-const COLORS = ['#e8a045', '#4fc3a1', '#7b9ef0', '#e07b7b', '#b17dd4', '#e8d045']
+import { ICONS, COLORS } from './workspaceStyleOptions'
 
 interface Props {
   initial?: Pick<Workspace, 'name' | 'emoji' | 'color'> & { defaultPath?: string }
@@ -70,10 +68,12 @@ export function WorkspaceModal({ initial, onSave, onCancel }: Props) {
           <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Icon</label>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {ICONS.map((i) => {
-              const IconComp = (LucideIcons as any)[i]
+              const IconComp = (LucideIcons as unknown as Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>>)[i]
               return (
               <button
                 key={i}
+                aria-label={i}
+                title={i}
                 onClick={() => setEmoji(i)}
                 style={{
                   color: emoji === i ? 'var(--accent)' : 'var(--text-inactive)',
@@ -92,20 +92,23 @@ export function WorkspaceModal({ initial, onSave, onCancel }: Props) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label style={{ fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 }}>Color</label>
           <div style={{ display: 'flex', gap: 8 }}>
-            {COLORS.map((c) => (
+            {COLORS.map(({ hex, label }) => (
               <button
-                key={c}
-                onClick={() => setColor(c)}
+                key={hex}
+                aria-label={label}
+                title={label}
+                onClick={() => setColor(hex)}
                 style={{
-                  width: 28, height: 28, borderRadius: '50%', background: c, cursor: 'pointer',
-                  border: color === c ? '2px solid var(--text-active)' : '2px solid transparent',
-                  boxShadow: color === c ? `0 0 0 2px ${c}` : 'none',
+                  width: 28, height: 28, borderRadius: '50%', background: hex, cursor: 'pointer',
+                  border: color === hex ? '2px solid var(--text-active)' : '2px solid transparent',
+                  boxShadow: color === hex ? `0 0 0 2px ${hex}` : 'none',
                   transition: 'all 0.15s'
                 }}
               />
             ))}
           </div>
         </div>
+
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <label style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>

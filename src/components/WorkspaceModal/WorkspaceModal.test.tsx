@@ -54,4 +54,14 @@ describe('WorkspaceModal', () => {
     fireEvent.click(screen.getByRole('button', { name: /create/i }))
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ launchSlots: [] }))
   })
+
+  it('gives each icon button an accessible name matching the icon', () => {
+    render(<WorkspaceModal onSave={vi.fn()} onCancel={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Rocket' })).toBeInTheDocument()
+  })
+
+  it('gives each color button an accessible name', () => {
+    render(<WorkspaceModal onSave={vi.fn()} onCancel={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Green' })).toBeInTheDocument()
+  })
 })
