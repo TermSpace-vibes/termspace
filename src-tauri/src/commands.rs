@@ -1,4 +1,6 @@
 use crate::agent_context::{self, ContextRequest};
+use crate::agent_detection::coordinator::AgentDetectionCoordinator;
+use crate::agent_detection::types::{AgentState, AgentTargetId, DetectionEvidence, StateSource};
 use crate::agent_runtime_manager::{
     AgentAccessMode, AgentProviderDiagnostic, AgentProviderId, AgentReasoningEffort,
     AgentRuntimeManager, AgentWorkflowMode,
@@ -2199,6 +2201,13 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn claude_agent_item_serializes_correlated_target_id() {
+        let item = agent_item_with_target("uuid-1", Some("term-1"));
+        let value = serde_json::to_value(item).unwrap();
+        assert_eq!(value["targetId"], "term-1");
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -2874,6 +2883,12 @@ pub fn close_claude_session(
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ClaudeAgentItem {
     pub id: String,
+    #[serde(
+        rename = "targetId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub target_id: Option<String>,
     pub name: String,
     pub project_name: String,
     pub title: String,
@@ -2887,6 +2902,27 @@ pub struct ClaudeAgentItem {
     pub cwd: String,
     pub pid: Option<u32>,
     pub updated_at: i64,
+}
+
+#[cfg(test)]
+fn agent_item_with_target(id: &str, target_id: Option<&str>) -> ClaudeAgentItem {
+    ClaudeAgentItem {
+        id: id.into(),
+        target_id: target_id.map(str::to_string),
+        name: "Claude".into(),
+        project_name: "project".into(),
+        title: "Claude Code".into(),
+        description: "Session".into(),
+        status: "idle".into(),
+        status_detail: None,
+        progress_percent: None,
+        tokens: None,
+        duration: None,
+        agent_type: "main".into(),
+        cwd: "/tmp".into(),
+        pid: None,
+        updated_at: 0,
+    }
 }
 
 fn clean_claude_project_name(raw: &str) -> String {
@@ -3033,7 +3069,17 @@ fn detect_session_state(
 }
 
 #[tauri::command]
-pub fn get_claude_agents(project_path: Option<String>) -> Result<Vec<ClaudeAgentItem>, String> {
+pub fn get_claude_agents(
+    coordinator: State<AgentDetectionCoordinator>,
+    project_path: Option<String>,
+) -> Result<Vec<ClaudeAgentItem>, String> {
+    build_claude_agents(project_path, &coordinator)
+}
+
+fn build_claude_agents(
+    project_path: Option<String>,
+    coordinator: &AgentDetectionCoordinator,
+) -> Result<Vec<ClaudeAgentItem>, String> {
     let home = std::env::var_os("HOME")
         .map(std::path::PathBuf::from)
         .ok_or_else(|| "HOME environment variable not found".to_string())?;
@@ -3174,6 +3220,7 @@ pub fn get_claude_agents(project_path: Option<String>) -> Result<Vec<ClaudeAgent
 
                                 subagent_items.push(ClaudeAgentItem {
                                     id: format!("{}-{}", session_id, subagent_id),
+                                    target_id: None,
                                     name: clean_proj.clone(),
                                     project_name: clean_proj.clone(),
                                     title: if agent_type == "fork" {
@@ -3200,8 +3247,36 @@ pub fn get_claude_agents(project_path: Option<String>) -> Result<Vec<ClaudeAgent
         }
 
         // Add main Claude Code instance
+        let target_id = coordinator.target_for_session(&session_id);
+        if session_jsonl.exists() {
+            if let Some(target) = &target_id {
+                let state = match status.as_str() {
+                    "working" | "running" => AgentState::Working,
+                    "blocked" => AgentState::Blocked,
+                    "done" | "idle" => AgentState::Idle,
+                    _ => AgentState::Unknown,
+                };
+                coordinator.observe_jsonl(
+                    &AgentTargetId::from(target.clone()),
+                    session_id.clone(),
+                    DetectionEvidence {
+                        state,
+                        source: StateSource::Jsonl,
+                        ingress_sequence: 0,
+                        screen_revision: None,
+                        visible_idle: false,
+                        visible_blocker: false,
+                        visible_working: false,
+                        preserve_state: false,
+                        alt_screen: false,
+                        detail: status_detail.clone(),
+                    },
+                );
+            }
+        }
         items.push(ClaudeAgentItem {
             id: session_id.clone(),
+            target_id,
             name: clean_proj.clone(),
             project_name: clean_proj,
             title: "Claude Code".into(),

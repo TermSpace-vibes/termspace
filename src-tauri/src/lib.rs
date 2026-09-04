@@ -214,8 +214,11 @@ pub fn run() {
             }
 
             // Start local HTTP hook server
-            agent_hook::start_server(app.handle().clone());
-            agent_hook::start_claude_session_watcher(app.handle().clone());
+            agent_hook::start_server(app.handle().clone(), agent_detection.clone());
+            agent_hook::start_claude_session_watcher(
+                app.handle().clone(),
+                agent_detection.clone(),
+            );
 
             #[cfg(target_os = "macos")]
             {
