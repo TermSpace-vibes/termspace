@@ -36,9 +36,12 @@ The semantic state is one of:
 
 `done` is not a semantic state. It is a presentation latched when the state transitions from `working` or `blocked` to `idle`. It remains latched until one of these events occurs:
 
-- The user views or focuses the owning pane.
+- The user views or focuses an owning pane that was not already focused at completion.
+- If the owning pane was already focused at completion, the next user keystroke in that pane or a two-second display timeout occurs.
 - A new `working` or `blocked` observation arrives.
 - The Claude process/session exits or is replaced.
+
+The focused-pane timeout starts when `done` is emitted. If that pane loses focus before the timeout or a keystroke clears the presentation, the timer is cancelled and `done` remains latched until the pane is viewed again. This prevents a completion from disappearing while the user switches elsewhere.
 
 An agent that is first discovered while already idle does not produce a completion.
 
@@ -58,7 +61,9 @@ Every tracker entry has a stable `AgentTargetId`:
 
 A target may also have provider session aliases such as Claude's session UUID. `ClaudeSessionManager::spawn` registers the known UUID-to-pane relationship with the coordinator. Hook reports use that alias to reach the same tracker.
 
-For a Claude process launched manually in a normal terminal, screen and process detection use the terminal ID. If an HTTP hook report cannot be safely correlated to that terminal, it remains session-scoped and is not allowed to claim an unrelated terminal.
+For normal native and daemon terminal spawns, Termspace injects `TERMSPACE_TERMINAL_ID=<terminal-id>` into the shell environment. A Claude process launched manually in that shell inherits the value. Hook integrations may forward it as a `termspace_terminal_id` payload field or `X-Termspace-Terminal-Id` HTTP header. The hook server treats this as a target hint and accepts it only when it names a registered terminal whose current Claude process association is compatible with the report.
+
+Termspace also keeps an in-memory index of Claude's session metadata: session UUID to Claude PID. The session watcher updates this index outside PTY paths. The coordinator correlates the Claude PID to a tracked terminal when that PID is the terminal foreground process or a recursive descendant of its shell PID. This supplies the UUID-to-terminal alias for unmodified existing hook commands and JSONL discovery. If neither the explicit target hint nor PID ancestry safely resolves a hook report, it remains session-scoped and cannot claim an unrelated terminal.
 
 ## Signal Authority and Arbitration
 
@@ -68,7 +73,7 @@ Signals are handled as follows:
 
 1. **Process exit or target removal** releases the agent and clears its latched presentation.
 2. **Newer valid screen evidence** determines Claude semantic state.
-3. **Hooks** provide provisional low-latency evidence and request an immediate screen evaluation. A hook observation remains visible until newer screen evidence confirms or contradicts it; it cannot override a newer screen observation.
+3. **Hooks** provide provisional low-latency evidence immediately. On ingress, the coordinator records the target's current screen revision as a barrier but does not request an immediate evaluation of that pre-render buffer. Only a later PTY revision may confirm or contradict the hook, and screen evaluation is deferred until a 175 ms grace window has elapsed so partial TUI redraws coalesce. A hook observation cannot override screen evidence captured after that barrier and grace window.
 4. **JSONL** may seed or reconcile state during startup and recovery but cannot overwrite newer screen or hook evidence.
 
 Every observation receives an ingress sequence when its source captures the evidence, before asynchronous evaluation begins. Evaluation preserves that sequence, so an older screen snapshot cannot become newer merely because its regex work completed later. The coordinator rejects evidence older than the last accepted observation for the same target/source. Source authority still applies: for example, a later JSONL read cannot overwrite established live screen evidence.
@@ -135,13 +140,17 @@ Rules inspect live bottom-screen regions. They do not search unlimited terminal 
 
 ### `agent_detection/screen.rs`
 
-Extracts normalized text from an `alacritty_terminal::Term`. It reads at most the bottom 32 live rows, preserves row boundaries, normalizes blank and wide-character spacer cells, and enforces a 64 KiB text limit. Detection addresses the active live grid independently of the user's display offset, so scrolling into history cannot manufacture a state change.
+Extracts normalized text from an `alacritty_terminal::Term`. It first finds the last active row as the greater of the cursor row and the final nonblank row, then reads at most the 32 rows ending there. This prevents a tall, cleared, or newly initialized terminal from returning only blank padding below a prompt near the top. Extraction preserves row boundaries, normalizes blank and wide-character spacer cells, strips trailing whitespace from every row, and enforces a 64 KiB text limit. It addresses the active live grid independently of the user's display offset, so scrolling into history cannot manufacture a state change.
+
+When `TermMode::ALT_SCREEN` is active, screen evidence may preserve or assert `working`, but it cannot transition the target to `idle`. This prevents pagers and editors launched by or over a Claude session from looking like the live Claude prompt.
 
 The grid lock is held only while copying characters. Manifest evaluation occurs after the lock is released.
 
 ### `agent_detection/process.rs`
 
-Maintains one recursively searchable process-tree snapshot shared by all targets. Refreshing is performed outside PTY parsing and only while at least one terminal is registered. The initial interval is 500 ms, with immediate refresh requests when a terminal is spawned or its foreground job changes.
+Maintains one recursively searchable process index shared by all targets. On Unix, native and dedicated Claude PTYs query `MasterPty::process_group_leader()` on output batches; the vendored portable-pty implementation obtains this with `tcgetpgrp`. Daemon output messages add an optional `foregroundPgid` field, populated by the daemon from its PTY master, so older daemon/client combinations remain wire-compatible. OSC 0/133 changes may request the same update but are supplementary rather than required.
+
+Refreshing is performed outside PTY parsing and only while at least one terminal is registered. Normal refreshes use `ProcessesToUpdate::Some` for tracked shell roots, current foreground process-group leaders, and already known descendants. Because targeted `sysinfo` refreshes cannot discover an unknown newly forked descendant, an unresolved identity or newly observed wrapper may request a rate-limited discovery refresh, shared globally and no more often than once every two seconds. There is no recurring 500 ms full-system refresh.
 
 Executable matching uses normalized basenames and command arguments. Descendant traversal is recursive so launchers such as Node or shell scripts do not hide Claude.
 
@@ -153,7 +162,7 @@ Pure transition logic per target:
 - Applies source freshness and authority rules.
 - Deduplicates unchanged output.
 - Latches and acknowledges `done` presentation.
-- Confirms ambiguous `working -> idle` transitions three times at 100 ms intervals, capped at 700 ms.
+- Confirms ambiguous `working -> idle` transitions with an initial candidate and two timer-driven rechecks at 100 ms intervals. The candidate has a fixed 700 ms deadline that is not extended by additional ambiguous revisions. Definite `working` or `blocked` evidence cancels it. At the deadline, a latest evaluable idle candidate is accepted; if no idle screen remains evaluable, the tracker preserves `working`.
 - Accepts visible live-prompt idle evidence immediately.
 - Releases state on process/session exit.
 
@@ -174,17 +183,17 @@ It emits the single `agent-state-changed` Tauri event stream.
 
 ### Native terminals
 
-After a batched PTY chunk is parsed into the existing Alacritty grid, the parse thread copies the bounded live-screen text and submits it to the coordinator. Evaluation occurs outside the grid lock. Repeated snapshots with the same relevant content are ignored.
+After a batched PTY chunk is parsed into the existing Alacritty grid, the parse thread increments an atomic screen revision and submits only the target ID and revision to the coordinator. The background evaluator coalesces queued revisions, locks the registered grid briefly, copies the latest bounded live-screen text, and performs manifest evaluation after releasing the grid lock. Repeated snapshots with the same relevant content are ignored.
 
 ### Daemon-backed terminals
 
-The Rust `DaemonClient` already mirrors daemon output into a local Alacritty grid. After applying each output batch, it copies the same bounded screen input and submits it to the coordinator after releasing the terminal lock. The detector therefore behaves identically in daemon and in-process modes without changing the daemon wire protocol or moving detection into React.
+The Rust `DaemonClient` already mirrors daemon output into a local Alacritty grid. After applying each output batch, it increments and submits the same lightweight revision request used by native terminals. The optional foreground-PGID field is recorded before scheduling evaluation. The detector therefore behaves identically in daemon and in-process modes without moving detection into React.
 
 ### Dedicated Claude panes
 
 `ClaudeSessionManager` adds a lightweight Alacritty terminal model beside its existing PTY reader. Output remains emitted unchanged to the existing React/xterm renderer. The backend grid exists only to supply the shared detector and does not replace the frontend renderer.
 
-The manager registers the pane ID and Claude session UUID before reading output and unregisters them on close or process exit.
+The manager stores the PTY master alongside the grid and registers the pane ID and Claude session UUID before reading output. `spawn_claude_session` receives the fitted frontend rows and columns instead of assuming 100x30. A new `resize_claude_session` command is called after subsequent xterm fits; it resizes both the PTY master, which sends `SIGWINCH`, and the backend Alacritty term before scheduling a new revision. The manager unregisters the target and alias on close or process exit.
 
 ## Scheduling
 
@@ -192,8 +201,8 @@ Detection is output-driven rather than a permanent grid-polling loop:
 
 - A parsed PTY batch increments the target's screen revision and requests evaluation.
 - Multiple revisions queued together coalesce to the latest snapshot.
-- A pending ambiguous idle transition schedules 100 ms rechecks and stops after confirmation or 700 ms.
-- A hook requests immediate evaluation.
+- A pending ambiguous idle transition uses coordinator timers for 100 ms rechecks and a fixed 700 ms deadline; PTY reader threads never sleep for confirmation.
+- A hook publishes provisional state immediately, records a screen-revision barrier, and makes post-barrier revisions eligible only after the 175 ms redraw grace window.
 - Unchanged idle terminals do not rescan their grids.
 
 The process-tree cache refreshes independently so PTY parsing never waits for `sysinfo`.
@@ -204,8 +213,10 @@ The Phase 1 event handling is migrated to the richer `AgentStateUpdate` contract
 
 - Rejects event sequences older than the last rendered event sequence for a target.
 - Renders semantic state and presentation.
-- Sends an acknowledgement when the owning pane is viewed.
+- Sends focus, blur, and user-input acknowledgements needed for `done` presentation lifetime.
 - Uses JSONL results only for initial/recovery rows that have no newer coordinator state.
+
+`get_claude_agents` asks the coordinator for each session UUID's current target alias and adds an optional `targetId` to `ClaudeAgentItem`. A sidebar row is keyed for state updates by `targetId` when present and by its session UUID otherwise. `AgentStateUpdate` carries both `targetId` and `providerSessionId` after correlation, so a terminal-backed update and its JSONL-discovered Claude row converge on the same item without frontend PID matching.
 
 The existing raw `agent-hook-event` remains available to the notification engine for backward compatibility during this phase.
 
@@ -226,10 +237,11 @@ The existing raw `agent-hook-event` remains available to the notification engine
 - Ambiguous completion resolves within 700 ms.
 - A visible blocked prompt is emitted within 300 ms.
 - Screen extraction examines no more than 32 rows or 64 KiB.
+- PTY parse threads enqueue revision identifiers rather than allocating screen text.
 - Regexes are compiled once and never in a PTY-output path.
 - No filesystem operations or process refreshes occur while holding a terminal-grid lock.
 - Unchanged state produces no frontend event.
-- All terminals share one process-tree refresh.
+- All terminals share process discovery, and steady-state refreshes are restricted to tracked process IDs.
 
 ## Testing
 
@@ -242,6 +254,9 @@ Use literal captured/representative Claude screens for:
 - Permission prompt.
 - User question and selection form.
 - Visible idle prompt.
+- Tall terminal with active content above trailing blank rows.
+- Per-row terminal padding with end-anchored rules.
+- Alternate-screen pager/editor output that cannot transition to idle.
 - Transcript viewer that must preserve state.
 - Prompt-like text in scrollback that must not appear blocked or idle.
 - High-confidence SSH identity matching and near-miss rejection.
@@ -254,23 +269,24 @@ Cover:
 - Immediate visible idle transition.
 - Three-confirmation ambiguous idle transition and 700 ms cap.
 - Hook evidence followed by confirming and contradicting screen evidence.
+- Hook redraw grace, pre-hook revision rejection, and post-hook revision confirmation.
 - Stale ingress sequences and stale emitted event sequences.
 - No completion when first discovered idle.
-- Done latching, acknowledgement, and reset on new work.
+- Done latching, acknowledgement, focused-pane keystroke clearing, focused-pane timeout, and reset on new work.
 - Process exit, target replacement, and late-event rejection.
 - Session alias replacement and stale alias rejection.
 
 ### Process tests
 
-Use synthetic process snapshots for direct, recursively nested, absent, replaced, and SSH foreground processes.
+Use synthetic process snapshots for direct, recursively nested, absent, replaced, and SSH foreground processes. Verify target-hint validation, session-PID ancestry correlation, foreground-PGID changes, targeted refresh sets, and discovery-refresh rate limiting.
 
 ### Runtime tests
 
-Feed identical ANSI output through native-terminal, daemon-client, and Claude-session integration helpers and assert identical coordinator updates. Confirm screen evaluation occurs outside the terminal lock and repeated content does not emit duplicates.
+Feed identical ANSI output through native-terminal, daemon-client, and Claude-session integration helpers and assert identical coordinator updates. Confirm native and daemon shells receive `TERMSPACE_TERMINAL_ID`, parse threads enqueue only revisions, background screen evaluation occurs outside the terminal lock, repeated content does not emit duplicates, daemon messages tolerate a missing foreground PGID, and Claude grid/PTY resizing stays synchronized.
 
 ### Frontend tests
 
-Verify rendering of semantic state and presentation, sequence rejection, done acknowledgement, and JSONL fallback behavior. Retain the Phase 1 regression proving a hook completion does not wait for the one-second poll.
+Verify rendering of semantic state and presentation, sequence rejection, focus/input acknowledgements, target-ID/session-ID row correlation, and JSONL fallback behavior. Retain the Phase 1 regression proving a hook completion does not wait for the one-second poll.
 
 ## Rollout and Compatibility
 
@@ -284,6 +300,6 @@ Phase 2 initially enables screen authority only for Claude. If no valid Claude m
 - Visible Claude completion and blocked states meet the latency targets under automated timing tests.
 - A stale hook, JSONL scan, or screen observation cannot regress newer state.
 - Ordinary shell output and prompt-like historical text do not claim Claude state.
-- Done presentation persists until acknowledgement or new work.
+- Done presentation persists for an unfocused pane until acknowledgement or new work; a pane already focused at completion displays it for at most two seconds or until the next keystroke.
 - PTY parsing remains non-blocking with bounded screen work.
 - Existing frontend, Rust, daemon, and production-build verification passes.
