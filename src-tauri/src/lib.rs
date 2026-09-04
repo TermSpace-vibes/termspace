@@ -19,6 +19,7 @@ mod native_terminal_manager;
 mod platform_permissions;
 mod tray_service;
 
+use agent_detection::coordinator::{AgentDetectionCoordinator, TauriStateUpdateSink};
 use agent_runtime_manager::AgentRuntimeManager;
 use browser_pane_manager::BrowserPaneManager;
 use claude_session_manager::ClaudeSessionManager;
@@ -95,6 +96,13 @@ pub fn run() {
                 sysinfo::System::new(),
                 sysinfo::Networks::new_with_refreshed_list(),
             ))));
+            if let Err(error) = agent_detection::manifest::CLAUDE_MANIFEST.as_ref() {
+                eprintln!("[agent-detection] Claude manifest disabled: {error}");
+            }
+            let agent_detection = AgentDetectionCoordinator::new(Arc::new(
+                TauriStateUpdateSink::new(app.handle().clone()),
+            ));
+            app.manage(agent_detection);
             app.manage(NativeTerminalManager::new());
 
             // Start daemon and connect; fall back to in-process PTY if unavailable.

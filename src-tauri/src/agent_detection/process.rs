@@ -136,6 +136,10 @@ impl ClaudeSessionIndex {
     pub fn session_for_pid(&self, pid: u32) -> Option<&str> {
         self.by_pid.get(&pid).map(String::as_str)
     }
+
+    pub fn session_ids(&self) -> Vec<String> {
+        self.by_session.keys().cloned().collect()
+    }
 }
 
 pub struct IdentityResolver<'a> {

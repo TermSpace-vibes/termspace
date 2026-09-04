@@ -1,3 +1,4 @@
+pub mod coordinator;
 pub mod manifest;
 pub mod process;
 pub mod screen;
