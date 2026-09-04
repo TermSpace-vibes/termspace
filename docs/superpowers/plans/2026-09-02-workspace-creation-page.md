@@ -32,7 +32,7 @@
 
 Today's icon and color picker buttons in `WorkspaceModal.tsx` have no accessible name (no `aria-label`/`title`), which also means they can't be targeted in tests via `getByRole('button', { name: ... })`. This task extracts the option lists into a shared file (so Task 2's new page doesn't duplicate them) and adds labels while doing it, since Task 2's tests need to query these buttons by name.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `src/components/WorkspaceModal/WorkspaceModal.test.tsx`, inside the existing `describe('WorkspaceModal', ...)` block:
 
@@ -48,12 +48,12 @@ Add to `src/components/WorkspaceModal/WorkspaceModal.test.tsx`, inside the exist
   })
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run src/components/WorkspaceModal/WorkspaceModal.test.tsx -t "accessible name"`
 Expected: FAIL — neither button has an accessible name yet, so `getByRole` finds nothing.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/components/WorkspaceModal/workspaceStyleOptions.ts`:
 
@@ -130,23 +130,23 @@ Update the color-button block (currently lines 94-107) — `COLORS` is now a lis
           </div>
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run src/components/WorkspaceModal/WorkspaceModal.test.tsx`
 Expected: PASS (all 8 tests — the existing 6 plus the 2 new ones).
 
-- [ ] **Step 5: Regenerate the dependency map**
+- [x] **Step 5: Regenerate the dependency map**
 
 ```bash
 node scripts/gen-dep-map.js
 ```
 
-- [ ] **Step 6: Run the full test suite and typecheck**
+- [x] **Step 6: Run the full test suite and typecheck**
 
 Run: `npx vitest run && npx tsc --noEmit`
 Expected: All tests pass, zero type errors.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/components/WorkspaceModal/workspaceStyleOptions.ts src/components/WorkspaceModal/WorkspaceModal.tsx src/components/WorkspaceModal/WorkspaceModal.test.tsx docs/dependency-map.md
@@ -167,7 +167,7 @@ git commit -m "refactor: extract workspace icon/color options, add accessible la
 
 This task builds the page's identity-field editing (name/icon/color/default path) with live saves. Task 3 adds the agent-launch section and the "Open Workspace" button on top of the same file.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 // src/components/WorkspaceSetup/WorkspaceSetupView.test.tsx
@@ -264,12 +264,12 @@ describe('WorkspaceSetupView — identity fields', () => {
 })
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run src/components/WorkspaceSetup/WorkspaceSetupView.test.tsx`
 Expected: FAIL — `Cannot find module './WorkspaceSetupView'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```tsx
 // src/components/WorkspaceSetup/WorkspaceSetupView.tsx
@@ -444,7 +444,7 @@ export function WorkspaceSetupView({ workspaceId, onOpenWorkspace }: Props) {
 
 Note: `onOpenWorkspace` is already part of `Props` and destructured in this step (Task 2's own tests below pass it), but nothing calls it yet — Task 3 adds the "Open Workspace" button that does. `tsconfig.json` has `noUnusedParameters` enabled, so an unused destructured prop may fail `tsc --noEmit`; see the fallback in Step 4. `launchSlots` itself is *not* declared until Task 3 — there's no `AgentLaunchStep` in this step, so a `useState` for it here would be dead code and trip `noUnusedLocals` instead.
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run src/components/WorkspaceSetup/WorkspaceSetupView.test.tsx`
 Expected: PASS (6 tests).
@@ -452,13 +452,13 @@ Expected: PASS (6 tests).
 Also run: `npx tsc --noEmit`
 Expected: zero errors. If `onOpenWorkspace` is flagged as an unused prop (it's destructured in `Props` but not called yet), reference it defensively for now: add `void onOpenWorkspace` as the first line of the function body — Task 3 removes this line once the prop is actually used.
 
-- [ ] **Step 5: Regenerate the dependency map**
+- [x] **Step 5: Regenerate the dependency map**
 
 ```bash
 node scripts/gen-dep-map.js
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/WorkspaceSetup/WorkspaceSetupView.tsx src/components/WorkspaceSetup/WorkspaceSetupView.test.tsx docs/dependency-map.md
@@ -477,7 +477,7 @@ git commit -m "feat: add WorkspaceSetupView with live-saving name/icon/color/pat
 - Consumes: `AgentLaunchStep` (`src/components/WorkspaceModal/AgentLaunchStep.tsx`), unchanged — same `{ slots, onChange }` props it already takes.
 - Produces: completes `onOpenWorkspace(workspaceId, launchSlots)` — this is what Task 4's `handleOpenCreatedWorkspace` in `App.tsx` consumes.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `src/components/WorkspaceSetup/WorkspaceSetupView.test.tsx`, add this import at the top alongside the existing ones:
 
@@ -529,12 +529,12 @@ describe('WorkspaceSetupView — agents and Open Workspace', () => {
 })
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run src/components/WorkspaceSetup/WorkspaceSetupView.test.tsx -t "Open Workspace"`
 Expected: FAIL — `getByRole('button', { name: /open workspace/i })` finds nothing (no such button rendered yet), and `getByRole('button', { name: /add agent/i })` also finds nothing.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 In `src/components/WorkspaceSetup/WorkspaceSetupView.tsx`, add the `AgentLaunchStep` import alongside the existing imports:
 
@@ -583,17 +583,17 @@ Add the agent-launch section and the primary CTA at the end of the returned JSX,
       </button>
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run src/components/WorkspaceSetup/WorkspaceSetupView.test.tsx`
 Expected: PASS (9 tests — the 6 from Task 2 plus these 3).
 
-- [ ] **Step 5: Run the full test suite and typecheck**
+- [x] **Step 5: Run the full test suite and typecheck**
 
 Run: `npx vitest run && npx tsc --noEmit`
 Expected: All tests pass, zero type errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/WorkspaceSetup/WorkspaceSetupView.tsx src/components/WorkspaceSetup/WorkspaceSetupView.test.tsx
@@ -612,7 +612,7 @@ git commit -m "feat: add agent launch slots and Open Workspace CTA to WorkspaceS
 
 This task has no isolated unit to TDD against — `App.tsx` is wired directly to Tauri IPC and has zero existing test coverage (same situation the Home view plan's `App.tsx` task was in). Task 2's and Task 3's own tests already cover the logic being wired together here. Treat this as a direct edit, verified by Step 2's manual QA pass.
 
-- [ ] **Step 1: Make the edits**
+- [x] **Step 1: Make the edits**
 
 Add the import, alongside the other component imports:
 
@@ -750,12 +750,12 @@ Run: `npm run tauri dev`
 
 Expected: all six behaviors hold; no console errors.
 
-- [ ] **Step 3: Run the full test suite and typecheck**
+- [x] **Step 3: Run the full test suite and typecheck**
 
 Run: `npx vitest run && npx tsc --noEmit`
 Expected: All tests pass (unchanged from Task 3's count — this task adds no new test files), zero type errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/App.tsx
