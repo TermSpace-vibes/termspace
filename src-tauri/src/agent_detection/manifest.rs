@@ -273,6 +273,7 @@ impl CompiledManifest {
                 visible_blocker: rule.visible_blocker,
                 visible_working: rule.visible_working,
                 preserve_state: rule.preserve_state,
+                alt_screen: screen.alt_screen,
                 detail: rule.detail.clone(),
             })
         })

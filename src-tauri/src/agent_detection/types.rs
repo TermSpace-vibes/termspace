@@ -86,6 +86,7 @@ pub struct DetectionEvidence {
     pub visible_blocker: bool,
     pub visible_working: bool,
     pub preserve_state: bool,
+    pub alt_screen: bool,
     pub detail: Option<String>,
 }
 
