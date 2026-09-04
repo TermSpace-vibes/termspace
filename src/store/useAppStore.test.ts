@@ -394,3 +394,29 @@ describe('touchWorkspaceLastOpened', () => {
     expect(() => act(() => useAppStore.getState().touchWorkspaceLastOpened('does-not-exist'))).not.toThrow()
   })
 })
+
+describe('setWorkspaceSshHost', () => {
+  beforeEach(() => {
+    useAppStore.setState({ workspaces: [{ ...ws1, id: 'ws-1' }] })
+    vi.mocked(invoke).mockResolvedValue({})
+  })
+
+  it('invokes set_workspace_ssh_host and updates the workspace in state', async () => {
+    await useAppStore.getState().setWorkspaceSshHost('ws-1', 'root@62.238.54.148')
+    expect(invoke).toHaveBeenCalledWith('set_workspace_ssh_host', {
+      workspaceId: 'ws-1',
+      sshHost: 'root@62.238.54.148',
+    })
+    expect(useAppStore.getState().workspaces.find((w) => w.id === 'ws-1')?.sshHost).toBe('root@62.238.54.148')
+  })
+
+  it('clears sshHost when null is passed', async () => {
+    useAppStore.setState({ workspaces: [{ ...ws1, id: 'ws-1', sshHost: 'old-host' }] })
+    await useAppStore.getState().setWorkspaceSshHost('ws-1', null)
+    expect(invoke).toHaveBeenCalledWith('set_workspace_ssh_host', {
+      workspaceId: 'ws-1',
+      sshHost: null,
+    })
+    expect(useAppStore.getState().workspaces.find((w) => w.id === 'ws-1')?.sshHost).toBeUndefined()
+  })
+})

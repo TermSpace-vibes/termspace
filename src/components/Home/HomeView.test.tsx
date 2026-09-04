@@ -62,4 +62,72 @@ describe('HomeView', () => {
     render(<HomeView workspaces={[]} onSelectWorkspace={vi.fn()} onNewWorkspace={vi.fn()} />)
     await waitFor(() => expect(screen.getByRole('button', { name: /new workspace/i })).toHaveFocus())
   })
+
+  it('renders Lucide icons as SVG rather than raw text strings', () => {
+    render(
+      <HomeView
+        workspaces={[
+          ws({ id: 'ws-lucide', name: 'AI Workflow', emoji: 'TerminalSquare' }),
+          ws({ id: 'ws-emoji', name: 'Laptop App', emoji: '💻' }),
+        ]}
+        onSelectWorkspace={vi.fn()}
+        onNewWorkspace={vi.fn()}
+      />,
+    )
+    // Ensure 'TerminalSquare' is NOT rendered as raw text
+    expect(screen.queryByText('TerminalSquare')).toBeNull()
+    expect(screen.getByText('AI Workflow')).toBeDefined()
+    expect(screen.getByText('💻')).toBeDefined()
+  })
+
+  it('filters workspaces by search query in real time', () => {
+    render(
+      <HomeView
+        workspaces={[
+          ws({ id: 'ws-1', name: 'Frontend React' }),
+          ws({ id: 'ws-2', name: 'Backend Go' }),
+        ]}
+        onSelectWorkspace={vi.fn()}
+        onNewWorkspace={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Frontend React')).toBeDefined()
+    expect(screen.getByText('Backend Go')).toBeDefined()
+
+    const searchInput = screen.getByPlaceholderText(/filter workspaces/i)
+    fireEvent.change(searchInput, { target: { value: 'Frontend' } })
+
+    expect(screen.getByText('Frontend React')).toBeDefined()
+    expect(screen.queryByText('Backend Go')).toBeNull()
+  })
+
+  it('calls onNewWorkspace when companion grid card is clicked', () => {
+    const onNewWorkspace = vi.fn()
+    render(
+      <HomeView
+        workspaces={[ws({ id: 'ws-1', name: 'Frontend' })]}
+        onSelectWorkspace={vi.fn()}
+        onNewWorkspace={onNewWorkspace}
+      />,
+    )
+    fireEvent.click(screen.getByText('Create Workspace'))
+    expect(onNewWorkspace).toHaveBeenCalled()
+  })
+
+  it('displays separate Pinned and Recent sections when pinned workspaces exist', () => {
+    render(
+      <HomeView
+        workspaces={[
+          ws({ id: 'ws-pinned', name: 'Pinned Project', isPinned: true }),
+          ws({ id: 'ws-recent', name: 'Recent Project', isPinned: false }),
+        ]}
+        onSelectWorkspace={vi.fn()}
+        onNewWorkspace={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/pinned workspaces/i)).toBeDefined()
+    expect(screen.getByText(/recent workspaces/i)).toBeDefined()
+    expect(screen.getByText('Pinned Project')).toBeDefined()
+    expect(screen.getByText('Recent Project')).toBeDefined()
+  })
 })

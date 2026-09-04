@@ -64,4 +64,12 @@ describe('WorkspaceSidebar', () => {
     fireEvent.click(screen.getByRole('button', { name: /home/i }))
     expect(onGoHome).toHaveBeenCalled()
   })
+
+  it('renders the SSH badge when a workspace has sshHost configured', () => {
+    const sshWs: Workspace = { id: 'ws-ssh', name: 'Cloud VM', emoji: '💻', color: '#e8a045', position: 2, createdAt: 1002, sshHost: 'ubuntu@remote-server' }
+    useAppStore.setState({ workspaces: [ws1, sshWs] })
+    render(<WorkspaceSidebar isCollapsed={false} onToggleCollapse={vi.fn()} onAddWorkspace={vi.fn()} onSelectWorkspace={vi.fn()} onDeleteWorkspace={vi.fn()} onEditWorkspace={vi.fn()} onOpenSettings={vi.fn()} />)
+    expect(screen.getByText('SSH')).toBeInTheDocument()
+    expect(screen.getByText(/ubuntu@remote-server/)).toBeInTheDocument()
+  })
 })

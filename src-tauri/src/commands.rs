@@ -506,6 +506,58 @@ pub fn touch_workspace_last_opened(
 }
 
 #[tauri::command]
+pub fn set_workspace_ssh_host(
+    db: State<DbState>,
+    workspace_id: String,
+    ssh_host: Option<String>,
+) -> Result<(), String> {
+    let clean_host = ssh_host.and_then(|h| {
+        let t = h.trim().to_string();
+        if t.is_empty() {
+            None
+        } else {
+            Some(t)
+        }
+    });
+    db::set_workspace_ssh_host(&db.0.lock(), &workspace_id, clean_host.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_ssh_hosts() -> Result<Vec<String>, String> {
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let config_path = std::path::Path::new(&home).join(".ssh").join("config");
+    if !config_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let content = match std::fs::read_to_string(&config_path) {
+        Ok(c) => c,
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    let mut hosts = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.len() >= 2 && parts[0].eq_ignore_ascii_case("Host") {
+            for host in &parts[1..] {
+                if !host.contains('*') && !host.contains('?') && !hosts.contains(&host.to_string()) {
+                    hosts.push(host.to_string());
+                }
+            }
+        }
+    }
+    Ok(hosts)
+}
+
+#[tauri::command]
 pub fn rename_tab(id: String, name: String, db: tauri::State<'_, DbState>) -> Result<(), String> {
     let conn = db.0.lock();
     db::rename_tab(&conn, &id, &name).map_err(|e| e.to_string())
@@ -656,6 +708,27 @@ pub async fn get_terminal_active_cwd(
     Err("Could not determine cwd".into())
 }
 
+pub fn build_ssh_command(ssh_host: &str, remote_path: Option<&str>) -> String {
+    let clean_host = ssh_host.trim();
+    let fallback_msg = "\\n\\033[33m[SSH connection failed. Press Enter to drop to local shell...]\\033[0m\\n";
+
+    if let Some(path) = remote_path {
+        let trimmed_path = path.trim();
+        if !trimmed_path.is_empty() {
+            let escaped_path = trimmed_path.replace('\'', "'\\''");
+            return format!(
+                "ssh -t {} 'cd \"{}\" 2>/dev/null || cd ~; exec $SHELL -l' || (printf \"{}\" && read -r && exec $SHELL -l)",
+                clean_host, escaped_path, fallback_msg
+            );
+        }
+    }
+
+    format!(
+        "ssh -t {} || (printf \"{}\" && read -r && exec $SHELL -l)",
+        clean_host, fallback_msg
+    )
+}
+
 #[tauri::command]
 pub fn spawn_terminal(
     app: AppHandle,
@@ -681,8 +754,24 @@ pub fn spawn_terminal(
     } else {
         shell.clone()
     };
-
     let temp_id = uuid::Uuid::new_v4().to_string();
+
+    let (ssh_args, ssh_title) = {
+        let conn = db.0.lock();
+        if let Ok(Some((Some(host), default_path))) =
+            db::get_workspace_ssh_info_by_tab_or_workspace_id(&conn, &tab_id)
+        {
+            if !host.trim().is_empty() {
+                let clean_host = host.trim().to_string();
+                let cmd = build_ssh_command(&clean_host, default_path.as_deref());
+                (Some(vec!["-c".to_string(), cmd]), Some(format!("SSH: {}", clean_host)))
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        }
+    };
 
     let via_daemon = {
         let dc_guard = dc.0.lock();
@@ -691,6 +780,7 @@ pub fn spawn_terminal(
                 .spawn(
                     temp_id.clone(),
                     resolved_shell.clone(),
+                    ssh_args.clone(),
                     resolved_cwd.clone(),
                     80,
                     24,
@@ -707,13 +797,14 @@ pub fn spawn_terminal(
             temp_id.clone(),
             app.clone(),
             &resolved_shell,
+            ssh_args.as_deref(),
             &resolved_cwd,
             80,
             24,
         )?;
     }
 
-    let terminal = {
+    let mut terminal = {
         let conn = db.0.lock();
         db::create_terminal_with_id(&conn, &temp_id, &tab_id, &resolved_shell, &resolved_cwd)
             .map_err(|e| {
@@ -727,6 +818,12 @@ pub fn spawn_terminal(
             })?
     };
 
+    if let Some(title) = ssh_title {
+        let conn = db.0.lock();
+        let _ = db::rename_terminal(&conn, &temp_id, &title);
+        terminal.title = Some(title);
+    }
+
     Ok(terminal)
 }
 
@@ -735,6 +832,7 @@ pub fn respawn_terminal(
     app: AppHandle,
     ntm: State<NativeTerminalManager>,
     dc: State<DaemonClientState>,
+    db: State<DbState>,
     id: String,
     shell: String,
     cwd: String,
@@ -753,6 +851,23 @@ pub fn respawn_terminal(
         shell.clone()
     };
 
+    let ssh_args = {
+        let conn = db.0.lock();
+        if let Ok(Some((Some(host), default_path))) =
+            db::get_workspace_ssh_info_by_terminal_id(&conn, &id)
+        {
+            if !host.trim().is_empty() {
+                let clean_host = host.trim().to_string();
+                let cmd = build_ssh_command(&clean_host, default_path.as_deref());
+                Some(vec!["-c".to_string(), cmd])
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
     let via_daemon = {
         let dc_guard = dc.0.lock();
         if let Some(ref client) = *dc_guard {
@@ -762,6 +877,7 @@ pub fn respawn_terminal(
                 .spawn(
                     id.clone(),
                     resolved_shell.clone(),
+                    ssh_args.clone(),
                     resolved_cwd.clone(),
                     80,
                     24,
@@ -779,6 +895,7 @@ pub fn respawn_terminal(
             id.clone(),
             app.clone(),
             &resolved_shell,
+            ssh_args.as_deref(),
             &resolved_cwd,
             80,
             24,
@@ -1856,6 +1973,27 @@ mod tests {
 
         assert_eq!(retry, Err(error));
         assert!(!selected_path_called, "failed state should return promptly");
+    }
+
+    #[test]
+    fn test_build_ssh_command_without_path() {
+        let cmd = build_ssh_command("user@example.com", None);
+        assert!(cmd.starts_with("ssh -t user@example.com"));
+        assert!(cmd.contains("exec $SHELL -l"));
+        assert!(cmd.contains("SSH connection failed"));
+    }
+
+    #[test]
+    fn test_build_ssh_command_with_path() {
+        let cmd = build_ssh_command("root@192.168.1.100", Some("/var/www/app"));
+        assert!(cmd.starts_with("ssh -t root@192.168.1.100 'cd \"/var/www/app\""));
+        assert!(cmd.contains("exec $SHELL -l"));
+    }
+
+    #[test]
+    fn test_build_ssh_command_trims_whitespace() {
+        let cmd = build_ssh_command("   my-server   ", Some("   "));
+        assert!(cmd.starts_with("ssh -t my-server ||"));
     }
 }
 

@@ -19,6 +19,8 @@ export function WorkspaceSetupView({ workspaceId, onOpenWorkspace }: Props) {
   const [emoji, setEmoji] = useState(workspace?.emoji ?? 'TerminalSquare')
   const [color, setColor] = useState(workspace?.color ?? '#e8a045')
   const [defaultPath, setDefaultPath] = useState(workspace?.defaultPath ?? '')
+  const [sshHost, setSshHost] = useState(workspace?.sshHost ?? '')
+  const [availableHosts, setAvailableHosts] = useState<string[]>([])
   const [launchSlots, setLaunchSlots] = useState<LaunchSlot[]>([])
   const debounceRef = useRef<number | null>(null)
 
@@ -41,6 +43,14 @@ export function WorkspaceSetupView({ workspaceId, onOpenWorkspace }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name])
 
+  useEffect(() => {
+    invoke<string[]>('get_ssh_hosts')
+      .then((hosts) => {
+        if (Array.isArray(hosts)) setAvailableHosts(hosts)
+      })
+      .catch(() => {})
+  }, [])
+
   const selectIcon = (i: string) => {
     setEmoji(i)
     clearTimeout(debounceRef.current ?? undefined)
@@ -54,6 +64,11 @@ export function WorkspaceSetupView({ workspaceId, onOpenWorkspace }: Props) {
   }
   const commitPath = (path: string) => {
     useAppStore.getState().setWorkspaceDefaultPath(workspaceId, path.trim() || null)
+      .catch(() => useAppStore.getState().addToast('Failed to save workspace', 'error'))
+  }
+
+  const commitSshHost = (host: string) => {
+    useAppStore.getState().setWorkspaceSshHost(workspaceId, host.trim() || null)
       .catch(() => useAppStore.getState().addToast('Failed to save workspace', 'error'))
   }
 
@@ -176,6 +191,36 @@ export function WorkspaceSetupView({ workspaceId, onOpenWorkspace }: Props) {
         </div>
       </div>
 
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <label htmlFor="workspace-ssh-host" style={fieldLabelStyle}>
+            Remote SSH Server <span style={{ opacity: 0.6, fontWeight: 400 }}>(optional)</span>
+          </label>
+          {sshHost.trim() && (
+            <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', fontWeight: 600 }}>
+              SSH ENABLED
+            </span>
+          )}
+        </div>
+        <input
+          id="workspace-ssh-host"
+          list="setup-ssh-hosts"
+          value={sshHost}
+          onChange={(e) => setSshHost(e.target.value)}
+          onBlur={() => commitSshHost(sshHost)}
+          placeholder="e.g. user@hostname or ssh-config alias"
+          style={{
+            background: 'var(--bg-sidebar)', border: '1px solid var(--border-inactive)',
+            borderRadius: 6, padding: '10px 14px', color: 'var(--text-active)', fontSize: 14, outline: 'none',
+          }}
+        />
+        <datalist id="setup-ssh-hosts">
+          {availableHosts.map((h) => <option key={h} value={h} />)}
+        </datalist>
+        <span style={{ fontSize: 11, color: 'var(--text-inactive)', opacity: 0.8 }}>
+          Any terminal or tab opened in this workspace will automatically connect to this remote server.
+        </span>
+      </div>
       <div style={sectionStyle}>
         <AgentLaunchStep slots={launchSlots} onChange={setLaunchSlots} />
       </div>

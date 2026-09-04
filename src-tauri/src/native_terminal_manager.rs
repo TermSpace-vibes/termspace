@@ -168,6 +168,7 @@ impl NativeTerminalManager {
         terminal_id: String,
         app: AppHandle,
         shell: &str,
+        args: Option<&[String]>,
         cwd: &str,
         cols: u16,
         rows: u16,
@@ -199,6 +200,11 @@ impl NativeTerminalManager {
 
         let mut cmd = portable_pty::CommandBuilder::new(&resolved_shell);
         cmd.arg("-l");
+        if let Some(extra_args) = args {
+            for arg in extra_args {
+                cmd.arg(arg);
+            }
+        }
         cmd.cwd(&resolved_cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("TERM_PROGRAM", "Apple_Terminal");

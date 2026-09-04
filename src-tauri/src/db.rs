@@ -15,6 +15,7 @@ pub struct Workspace {
     pub group_name: Option<String>,
     pub default_path: Option<String>,
     pub last_opened_at: Option<i64>,
+    pub ssh_host: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -267,6 +268,7 @@ pub fn init_db(path: &Path) -> Result<Connection> {
     let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN group_name TEXT", []);
     let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN default_path TEXT", []);
     let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN last_opened_at INTEGER", []);
+    let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN ssh_host TEXT", []);
     init_agent_studio_schema(&conn)?;
     Ok(conn)
 }
@@ -410,7 +412,7 @@ pub fn create_tab(
 
 pub fn get_workspaces(conn: &Connection) -> Result<Vec<Workspace>> {
     let mut stmt = conn.prepare(
-        "SELECT id,name,emoji,color,position,created_at,group_name,default_path,last_opened_at FROM workspaces ORDER BY position",
+        "SELECT id,name,emoji,color,position,created_at,group_name,default_path,last_opened_at,ssh_host FROM workspaces ORDER BY position",
     )?;
     let rows = stmt
         .query_map([], |r| {
@@ -424,6 +426,7 @@ pub fn get_workspaces(conn: &Connection) -> Result<Vec<Workspace>> {
                 group_name: r.get(6)?,
                 default_path: r.get(7)?,
                 last_opened_at: r.get(8)?,
+                ssh_host: r.get(9)?,
             })
         })?
         .collect();
@@ -483,8 +486,8 @@ pub fn create_workspace(
     )?;
     let created_at = now_ms();
     conn.execute(
-        "INSERT INTO workspaces (id,name,emoji,color,position,created_at,group_name,default_path) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
-        params![id, name, emoji, color, position, created_at, Option::<String>::None, Option::<String>::None],
+        "INSERT INTO workspaces (id,name,emoji,color,position,created_at,group_name,default_path,ssh_host) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        params![id, name, emoji, color, position, created_at, Option::<String>::None, Option::<String>::None, Option::<String>::None],
     )?;
     Ok(Workspace {
         id,
@@ -496,6 +499,7 @@ pub fn create_workspace(
         group_name: None,
         default_path: None,
         last_opened_at: None,
+        ssh_host: None,
     })
 }
 
@@ -531,6 +535,64 @@ pub fn touch_workspace_last_opened(conn: &Connection, workspace_id: &str) -> rus
         rusqlite::params![now_ms(), workspace_id],
     )?;
     Ok(())
+}
+
+pub fn set_workspace_ssh_host(
+    conn: &Connection,
+    workspace_id: &str,
+    ssh_host: Option<&str>,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE workspaces SET ssh_host = ?1 WHERE id = ?2",
+        rusqlite::params![ssh_host, workspace_id],
+    )?;
+    Ok(())
+}
+
+pub fn get_workspace_ssh_info_by_tab_or_workspace_id(
+    conn: &Connection,
+    tab_or_workspace_id: &str,
+) -> Result<Option<(Option<String>, Option<String>)>> {
+    // First try as tab_id
+    let res: Result<(Option<String>, Option<String>), _> = conn.query_row(
+        "SELECT w.ssh_host, w.default_path FROM tabs t JOIN workspaces w ON t.workspace_id = w.id WHERE t.id = ?1",
+        params![tab_or_workspace_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    );
+
+    if let Ok(info) = res {
+        return Ok(Some(info));
+    }
+
+    // Next try directly as workspace_id
+    let res2: Result<(Option<String>, Option<String>), _> = conn.query_row(
+        "SELECT ssh_host, default_path FROM workspaces WHERE id = ?1",
+        params![tab_or_workspace_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    );
+
+    if let Ok(info) = res2 {
+        return Ok(Some(info));
+    }
+
+    Ok(None)
+}
+
+pub fn get_workspace_ssh_info_by_terminal_id(
+    conn: &Connection,
+    terminal_id: &str,
+) -> Result<Option<(Option<String>, Option<String>)>> {
+    let res: Result<(Option<String>, Option<String>), _> = conn.query_row(
+        "SELECT w.ssh_host, w.default_path FROM terminals t JOIN tabs tb ON t.tab_id = tb.id JOIN workspaces w ON tb.workspace_id = w.id WHERE t.id = ?1",
+        params![terminal_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    );
+
+    match res {
+        Ok(info) => Ok(Some(info)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 pub fn rename_tab(conn: &Connection, id: &str, name: &str) -> Result<()> {
@@ -1110,6 +1172,7 @@ mod tests {
         .unwrap();
         // Simulate the idempotent migration an existing install runs on upgrade.
         let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN last_opened_at INTEGER", []);
+        let _ = conn.execute("ALTER TABLE workspaces ADD COLUMN ssh_host TEXT", []);
 
         conn.execute(
             "INSERT INTO workspaces (id,name,emoji,color,position,created_at) VALUES (?1,?2,?3,?4,?5,?6)",
@@ -1126,6 +1189,67 @@ mod tests {
         let after = get_workspaces(&conn).unwrap();
         assert!(after[0].last_opened_at.is_some());
         assert!(after[0].last_opened_at.unwrap() > 0);
+    }
+
+    #[test]
+    fn test_workspace_ssh_host_crud_and_lookup() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE workspaces (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL,
+                emoji TEXT NOT NULL DEFAULT '💻', color TEXT NOT NULL DEFAULT '#e8a045',
+                position INTEGER NOT NULL, created_at INTEGER NOT NULL,
+                group_name TEXT, default_path TEXT, last_opened_at INTEGER, ssh_host TEXT
+            );
+            CREATE TABLE tabs (
+                id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                name TEXT NOT NULL, position INTEGER NOT NULL, created_at INTEGER NOT NULL
+            );
+            CREATE TABLE terminals (
+                id TEXT PRIMARY KEY, tab_id TEXT NOT NULL REFERENCES tabs(id) ON DELETE CASCADE,
+                title TEXT, shell TEXT NOT NULL DEFAULT 'zsh', cwd TEXT NOT NULL,
+                position INTEGER NOT NULL, size_percent REAL NOT NULL DEFAULT 50, created_at INTEGER NOT NULL
+            );",
+        )
+        .unwrap();
+
+        conn.execute(
+            "INSERT INTO workspaces (id,name,emoji,color,position,created_at,group_name,default_path,last_opened_at,ssh_host)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+            params!["ws-1", "Remote Server", "💻", "#e8a045", 0i64, 1_000i64, Option::<String>::None, Some("/var/www"), Option::<i64>::None, Option::<String>::None],
+        ).unwrap();
+
+        let ws_list = get_workspaces(&conn).unwrap();
+        assert_eq!(ws_list[0].ssh_host, None);
+
+        // Update SSH host
+        set_workspace_ssh_host(&conn, "ws-1", Some("root@62.238.54.148")).unwrap();
+
+        let after = get_workspaces(&conn).unwrap();
+        assert_eq!(after[0].ssh_host, Some("root@62.238.54.148".to_string()));
+
+        // Create tab and terminal
+        conn.execute(
+            "INSERT INTO tabs (id, workspace_id, name, position, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params!["tab-1", "ws-1", "Tab 1", 0i64, 1_000i64],
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO terminals (id, tab_id, shell, cwd, position, size_percent, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params!["term-1", "tab-1", "zsh", "", 0i64, 50.0f64, 1_000i64],
+        ).unwrap();
+
+        // Lookup by tab_id
+        let tab_info = get_workspace_ssh_info_by_tab_or_workspace_id(&conn, "tab-1").unwrap();
+        assert_eq!(tab_info, Some((Some("root@62.238.54.148".to_string()), Some("/var/www".to_string()))));
+
+        // Lookup directly by workspace_id
+        let ws_info = get_workspace_ssh_info_by_tab_or_workspace_id(&conn, "ws-1").unwrap();
+        assert_eq!(ws_info, Some((Some("root@62.238.54.148".to_string()), Some("/var/www".to_string()))));
+
+        // Lookup by terminal_id
+        let term_info = get_workspace_ssh_info_by_terminal_id(&conn, "term-1").unwrap();
+        assert_eq!(term_info, Some((Some("root@62.238.54.148".to_string()), Some("/var/www".to_string()))));
     }
 
     #[test]

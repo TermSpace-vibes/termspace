@@ -100,7 +100,7 @@ export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isP
           border: '1px solid var(--border-inactive)',
           pointerEvents: 'none'
         }}>
-          {workspace.name}
+          {workspace.name}{workspace.sshHost ? ` (SSH: ${workspace.sshHost})` : ''}
           <div style={{
             position: 'absolute',
             left: '-4px',
@@ -121,6 +121,25 @@ export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isP
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: isActive ? 500 : 400 }}>
               {workspace.name}
             </span>
+            {workspace.sshHost && (
+              <span
+                title={`Remote SSH: ${workspace.sshHost}`}
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: '1px 4px',
+                  borderRadius: 3,
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  color: '#ef4444',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  letterSpacing: 0.5,
+                  lineHeight: 1,
+                  flexShrink: 0,
+                }}
+              >
+                SSH
+              </span>
+            )}
             {hasGitStatus && (
               <div style={{
                 width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
@@ -140,7 +159,7 @@ export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isP
               </div>
             )}
           </div>
-          {showPathHint && workspace.defaultPath && (
+          {showPathHint && (workspace.sshHost || workspace.defaultPath) && (
             <div
               style={{
                 fontSize: 10,
@@ -154,12 +173,21 @@ export function WorkspaceItem({ workspace, isActive, canDelete, isCollapsed, isP
                 gap: 3,
                 marginTop: 1,
               }}
-              title={workspace.defaultPath}
+              title={workspace.sshHost ? `${workspace.sshHost}${workspace.defaultPath ? `:${workspace.defaultPath}` : ''}` : workspace.defaultPath}
             >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-              </svg>
-              {shortenPath(workspace.defaultPath)}
+              {workspace.sshHost ? (
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect width="20" height="8" x="2" y="2" rx="2" ry="2"/>
+                  <rect width="20" height="8" x="2" y="14" rx="2" ry="2"/>
+                  <line x1="6" x2="6.01" y1="6" y2="6"/>
+                  <line x1="6" x2="6.01" y1="18" y2="18"/>
+                </svg>
+              ) : (
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                </svg>
+              )}
+              {workspace.sshHost ? `${workspace.sshHost}${workspace.defaultPath ? `:${shortenPath(workspace.defaultPath)}` : ''}` : shortenPath(workspace.defaultPath!)}
             </div>
           )}
         </div>

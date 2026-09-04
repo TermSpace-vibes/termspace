@@ -38,6 +38,8 @@ enum AppMsg {
     Spawn {
         id: String,
         shell: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        args: Option<Vec<String>>,
         cwd: String,
         cols: u16,
         rows: u16,
@@ -149,6 +151,7 @@ impl DaemonClient {
         &self,
         id: String,
         shell: String,
+        args: Option<Vec<String>>,
         cwd: String,
         cols: u16,
         rows: u16,
@@ -187,6 +190,7 @@ impl DaemonClient {
         self.send_msg(&AppMsg::Spawn {
             id,
             shell,
+            args,
             cwd,
             cols,
             rows,
@@ -590,6 +594,7 @@ mod tests {
         let s = serde_json::to_string(&AppMsg::Spawn {
             id: "t-1".into(),
             shell: "/bin/zsh".into(),
+            args: None,
             cwd: "/home".into(),
             cols: 80,
             rows: 24,

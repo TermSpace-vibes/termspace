@@ -111,7 +111,17 @@ pub fn run() {
                                     for tab in tabs {
                                         if let Ok(terminals) = db::get_terminals(&conn, &tab.id) {
                                             for t in terminals {
-                                                let _ = dc.spawn(t.id, t.shell, t.cwd, 80, 24);
+                                                let ssh_args = if let Some(ref host) = ws.ssh_host {
+                                                    if !host.trim().is_empty() {
+                                                        let cmd = commands::build_ssh_command(host, ws.default_path.as_deref());
+                                                        Some(vec!["-c".to_string(), cmd])
+                                                    } else {
+                                                        None
+                                                    }
+                                                } else {
+                                                    None
+                                                };
+                                                let _ = dc.spawn(t.id, t.shell, ssh_args, t.cwd, 80, 24);
                                             }
                                         }
                                     }
@@ -256,6 +266,8 @@ pub fn run() {
             commands::get_agent_context_bundle,
             commands::update_workspace,
             commands::set_workspace_default_path,
+            commands::set_workspace_ssh_host,
+            commands::get_ssh_hosts,
             commands::touch_workspace_last_opened,
             commands::delete_workspace,
             commands::delete_tab,

@@ -59,6 +59,7 @@ interface AppState {
   touchWorkspaceLastOpened: (workspaceId: string) => void
   removeWorkspace: (id: string) => void
   setWorkspaceDefaultPath: (workspaceId: string, defaultPath: string | null) => Promise<void>
+  setWorkspaceSshHost: (workspaceId: string, sshHost: string | null) => Promise<void>
   setActiveWorkspaceId: (id: string | null) => void
   setActiveToolingTerminalId: (id: string | null) => void
   addToolingTerminal: (workspaceId: string, terminal: Terminal) => void
@@ -325,6 +326,15 @@ export const useAppStore = create<AppState>()(
         set((s) => ({
           workspaces: s.workspaces.map((w) =>
             w.id === workspaceId ? { ...w, defaultPath: defaultPath ?? undefined } : w
+          ),
+        }))
+      },
+
+      setWorkspaceSshHost: async (workspaceId, sshHost) => {
+        await invoke('set_workspace_ssh_host', { workspaceId, sshHost: sshHost ?? null })
+        set((s) => ({
+          workspaces: s.workspaces.map((w) =>
+            w.id === workspaceId ? { ...w, sshHost: sshHost ?? undefined } : w
           ),
         }))
       },

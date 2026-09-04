@@ -26,7 +26,11 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
     case 'update_workspace':
     case 'delete_workspace':
     case 'respawn_terminal':
+    case 'set_workspace_default_path':
+    case 'set_workspace_ssh_host':
       return undefined as unknown as T;
+    case 'get_ssh_hosts':
+      return [] as unknown as T;
     case 'spawn_terminal':
       return {
         id: `mock-term-${mockTerminalCounter++}`,

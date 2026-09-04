@@ -7,8 +7,8 @@ import { AgentLaunchStep } from './AgentLaunchStep'
 import { ICONS, COLORS } from './workspaceStyleOptions'
 
 interface Props {
-  initial?: Pick<Workspace, 'name' | 'emoji' | 'color'> & { defaultPath?: string }
-  onSave: (values: { name: string; emoji: string; color: string; defaultPath: string | null; launchSlots: LaunchSlot[] }) => void
+  initial?: Pick<Workspace, 'name' | 'emoji' | 'color'> & { defaultPath?: string; sshHost?: string }
+  onSave: (values: { name: string; emoji: string; color: string; defaultPath: string | null; sshHost: string | null; launchSlots: LaunchSlot[] }) => void
   onCancel: () => void
 }
 
@@ -17,7 +17,19 @@ export function WorkspaceModal({ initial, onSave, onCancel }: Props) {
   const [emoji, setEmoji] = useState(initial?.emoji ?? 'TerminalSquare')
   const [color, setColor] = useState(initial?.color ?? '#e8a045')
   const [defaultPath, setDefaultPath] = useState(initial?.defaultPath ?? '')
+  const [sshHost, setSshHost] = useState(initial?.sshHost ?? '')
+  const [availableHosts, setAvailableHosts] = useState<string[]>([])
   const [launchSlots, setLaunchSlots] = useState<LaunchSlot[]>([])
+
+  useState(() => {
+    import('../../utils/tauri').then(({ invoke }) => {
+      invoke<string[]>('get_ssh_hosts')
+        .then((hosts) => {
+          if (Array.isArray(hosts)) setAvailableHosts(hosts)
+        })
+        .catch(() => {})
+    })
+  })
 
   return (
     <motion.div
@@ -169,6 +181,40 @@ export function WorkspaceModal({ initial, onSave, onCancel }: Props) {
           </div>
         </div>
 
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <label style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>
+              Remote SSH Server <span style={{ opacity: 0.6, fontWeight: 400 }}>(optional)</span>
+            </label>
+            {sshHost.trim() && (
+              <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 3, background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', fontWeight: 600 }}>
+                SSH ENABLED
+              </span>
+            )}
+          </div>
+          <input
+            type="text"
+            list="modal-ssh-hosts"
+            value={sshHost}
+            onChange={(e) => setSshHost(e.target.value)}
+            placeholder="e.g. user@hostname or ssh-config alias"
+            style={{
+              background: 'var(--bg-input)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: '6px 10px',
+              color: 'var(--text-primary)',
+              fontSize: 13,
+            }}
+          />
+          <datalist id="modal-ssh-hosts">
+            {availableHosts.map((h) => <option key={h} value={h} />)}
+          </datalist>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            Any terminal or tab opened in this workspace will automatically connect to this remote server.
+          </span>
+        </div>
+
         {!initial && (
           <div>
             <AgentLaunchStep slots={launchSlots} onChange={setLaunchSlots} />
@@ -192,7 +238,7 @@ export function WorkspaceModal({ initial, onSave, onCancel }: Props) {
           </button>
           <button
             aria-label={initial ? 'save' : 'create'}
-            onClick={() => name.trim() && onSave({ name: name.trim(), emoji, color, defaultPath: defaultPath.trim() || null, launchSlots })}
+            onClick={() => name.trim() && onSave({ name: name.trim(), emoji, color, defaultPath: defaultPath.trim() || null, sshHost: sshHost.trim() || null, launchSlots })}
             disabled={!name.trim()}
             style={{
               padding: '8px 16px', background: 'var(--accent)',

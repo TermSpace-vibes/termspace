@@ -75,6 +75,14 @@ describe('WorkspaceSetupView — identity fields', () => {
     expect(tauri.invoke).toHaveBeenCalledWith('set_workspace_default_path', { workspaceId: 'ws-1', path: '~/projects/app' })
   })
 
+  it('saves the SSH host when the input loses focus', () => {
+    render(<WorkspaceSetupView workspaceId="ws-1" onOpenWorkspace={vi.fn()} />)
+    const sshInput = screen.getByLabelText(/remote ssh server/i)
+    fireEvent.change(sshInput, { target: { value: 'root@62.238.54.148' } })
+    fireEvent.blur(sshInput)
+    expect(tauri.invoke).toHaveBeenCalledWith('set_workspace_ssh_host', { workspaceId: 'ws-1', sshHost: 'root@62.238.54.148' })
+  })
+
   it('shows an error toast if a field save fails', async () => {
     // Command-aware rejection, not mockRejectedValueOnce: once Task 3 adds
     // AgentLaunchStep, its own get_agent_provider_diagnostics call fires on

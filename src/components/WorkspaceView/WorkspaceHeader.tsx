@@ -19,7 +19,7 @@ interface Props {
   showTabBar?: boolean
 }
 
-export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, onAddBrowserPane, onAddEditorPane, onAddKubernetesPane, onAddDockerPane, onAddClaudePane, onAddAgentStudioPane, onSelectTerminal, onCloseTerminal, showTabBar = true }: Props) {
+export function WorkspaceHeader({ workspace, terminals, activeTerminalId, onAddTerminal, onAddBrowserPane, onAddEditorPane, onAddKubernetesPane, onAddDockerPane, onAddClaudePane, onAddAgentStudioPane, onSelectTerminal, onCloseTerminal, showTabBar = true }: Props) {
   return (
     <div
       data-tauri-drag-region
@@ -93,6 +93,27 @@ export function WorkspaceHeader({ terminals, activeTerminalId, onAddTerminal, on
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 12px', flexShrink: 0 }}>
+        {workspace.sshHost && (
+          <div
+            title={`Connected via SSH to ${workspace.sshHost}`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: 4,
+              padding: '2px 7px',
+              color: '#ef4444',
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: 0.2,
+            }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
+            <span>SSH: {workspace.sshHost}</span>
+          </div>
+        )}
         <button
           onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
           style={{

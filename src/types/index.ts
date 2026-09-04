@@ -12,6 +12,7 @@ export interface Workspace {
   isArchived?: boolean
   defaultPath?: string
   lastOpenedAt?: number
+  sshHost?: string
 }
 
 export interface Terminal {

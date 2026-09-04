@@ -26,6 +26,8 @@ enum AppMessage {
         cwd: String,
         cols: u16,
         rows: u16,
+        #[serde(default)]
+        args: Option<Vec<String>>,
     },
     Input {
         id: String,
@@ -160,7 +162,8 @@ fn dispatch(
             cwd,
             cols,
             rows,
-        } => handle_spawn(&id, &shell, &cwd, cols, rows, registry, conn_id, tx),
+            args,
+        } => handle_spawn(&id, &shell, args.as_deref(), &cwd, cols, rows, registry, conn_id, tx),
         AppMessage::Input { id, data } => handle_input(&id, &data, registry),
         AppMessage::Resize { id, cols, rows } => handle_resize(&id, cols, rows, registry),
         AppMessage::Detach { id } => handle_detach(&id, registry, conn_id),
@@ -193,6 +196,7 @@ fn handle_list(registry: &Registry, tx: &std::sync::mpsc::Sender<String>) {
 fn handle_spawn(
     id: &str,
     shell: &str,
+    args: Option<&[String]>,
     cwd: &str,
     cols: u16,
     rows: u16,
@@ -247,6 +251,11 @@ fn handle_spawn(
 
     let mut cmd = CommandBuilder::new(&resolved_shell);
     cmd.arg("-l");
+    if let Some(extra_args) = args {
+        for arg in extra_args {
+            cmd.arg(arg);
+        }
+    }
     cmd.cwd(&resolved_cwd);
     cmd.env("TERM", "xterm-256color");
     cmd.env("TERM_PROGRAM", "Apple_Terminal");
@@ -469,6 +478,7 @@ mod tests {
             cwd,
             cols,
             rows,
+            args: _,
         } = msg
         {
             assert_eq!(id, "t-1");

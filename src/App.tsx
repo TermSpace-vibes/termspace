@@ -444,12 +444,13 @@ export default function App() {
     }
   }
 
-  async function handleEditWorkspace(values: { name: string; emoji: string; color: string; defaultPath: string | null }) {
+  async function handleEditWorkspace(values: { name: string; emoji: string; color: string; defaultPath: string | null; sshHost: string | null }) {
     if (!editingWorkspace) return
-    const { defaultPath, ...workspaceValues } = values
+    const { defaultPath, sshHost, ...workspaceValues } = values
     await invoke('update_workspace', { id: editingWorkspace.id, ...workspaceValues })
     updateWorkspace({ ...editingWorkspace, ...workspaceValues })
     useAppStore.getState().setWorkspaceDefaultPath(editingWorkspace.id, defaultPath)
+    useAppStore.getState().setWorkspaceSshHost(editingWorkspace.id, sshHost)
     setEditingWorkspace(null)
     useAppStore.getState().addToast('Workspace updated', 'success')
   }

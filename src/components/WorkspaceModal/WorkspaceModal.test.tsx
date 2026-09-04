@@ -64,4 +64,17 @@ describe('WorkspaceModal', () => {
     render(<WorkspaceModal onSave={vi.fn()} onCancel={vi.fn()} />)
     expect(screen.getByRole('button', { name: 'Green' })).toBeInTheDocument()
   })
+
+  it('includes sshHost in onSave payload when saving changes', () => {
+    const onSave = vi.fn()
+    render(
+      <WorkspaceModal
+        initial={{ name: 'Prod', emoji: 'TerminalSquare', color: '#e8a045', sshHost: 'root@prod' }}
+        onSave={onSave}
+        onCancel={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ sshHost: 'root@prod' }))
+  })
 })
