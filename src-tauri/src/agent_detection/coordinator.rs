@@ -24,6 +24,14 @@ pub trait StateUpdateSink: Send + Sync {
     fn emit(&self, update: AgentStateUpdate) -> Result<(), String>;
 }
 
+pub struct NoopStateUpdateSink;
+
+impl StateUpdateSink for NoopStateUpdateSink {
+    fn emit(&self, _update: AgentStateUpdate) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 pub struct TauriStateUpdateSink {
     app: tauri::AppHandle,
 }

@@ -19,6 +19,11 @@
 // commands). Suppress dead-code noise until those land.
 #![allow(dead_code)]
 
+use crate::agent_detection::coordinator::{
+    AgentDetectionCoordinator, NoopStateUpdateSink, ScreenReader, TargetRegistration,
+};
+use crate::agent_detection::screen::extract_live_screen;
+use crate::agent_detection::types::AgentTargetId;
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line};
@@ -37,6 +42,7 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
@@ -91,6 +97,7 @@ pub struct NativeTerminalHandle {
     pub title: Arc<Mutex<String>>,
     pub app_handle: AppHandle,
     pub detected_ports: Arc<std::sync::Mutex<HashSet<String>>>,
+    pub screen_revision: Arc<AtomicU64>,
 }
 
 /// `EventListener` implementation that bridges `alacritty_terminal` lifecycle
@@ -137,20 +144,63 @@ impl EventListener for TermEventSender {
 /// Owns the per-terminal native emulation handles, keyed by terminal id.
 pub struct NativeTerminalManager {
     pub handles: Mutex<HashMap<String, NativeTerminalHandle>>,
+    coordinator: AgentDetectionCoordinator,
 }
 
 impl NativeTerminalManager {
-    pub fn new() -> Self {
+    pub fn new(coordinator: AgentDetectionCoordinator) -> Self {
         NativeTerminalManager {
             handles: Mutex::new(HashMap::new()),
+            coordinator,
         }
     }
 }
 
 impl Default for NativeTerminalManager {
     fn default() -> Self {
-        Self::new()
+        Self::new(AgentDetectionCoordinator::new(Arc::new(
+            NoopStateUpdateSink,
+        )))
     }
+}
+
+fn terminal_environment(terminal_id: &str) -> HashMap<String, String> {
+    HashMap::from([
+        ("TERM".into(), "xterm-256color".into()),
+        ("TERM_PROGRAM".into(), "Apple_Terminal".into()),
+        ("TERMSPACE_TERMINAL_ID".into(), terminal_id.into()),
+    ])
+}
+
+fn next_screen_revision(revision: &AtomicU64) -> u64 {
+    revision.fetch_add(1, Ordering::AcqRel) + 1
+}
+
+fn native_screen_reader<L>(term: Arc<Mutex<Term<L>>>, target_id: AgentTargetId) -> ScreenReader
+where
+    L: EventListener + Send + 'static,
+{
+    Arc::new(move |revision, ingress_sequence, foreground_pgid| {
+        let term = term.lock();
+        Some(extract_live_screen(
+            &*term,
+            target_id.clone(),
+            revision,
+            ingress_sequence,
+            foreground_pgid,
+        ))
+    })
+}
+
+#[cfg(unix)]
+fn foreground_pgid_from_fd(raw_fd: Option<portable_pty::unix::RawFd>) -> Option<u32> {
+    let pgid = unsafe { libc::tcgetpgrp(raw_fd?) };
+    (pgid > 0).then(|| u32::try_from(pgid).ok()).flatten()
+}
+
+#[cfg(not(unix))]
+fn foreground_pgid_from_fd(_raw_fd: Option<i32>) -> Option<u32> {
+    None
 }
 
 impl NativeTerminalManager {
@@ -206,13 +256,15 @@ impl NativeTerminalManager {
             }
         }
         cmd.cwd(&resolved_cwd);
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("TERM_PROGRAM", "Apple_Terminal");
+        for (key, value) in terminal_environment(&terminal_id) {
+            cmd.env(key, value);
+        }
 
         let child = pair
             .slave
             .spawn_command(cmd)
             .map_err(|e| format!("spawn failed: {e}"))?;
+        let shell_pid = child.process_id();
         // Drop the slave handle: the child holds its own fd, and keeping the
         // parent copy open would prevent EOF on the master when the shell exits.
         drop(pair.slave);
@@ -220,6 +272,10 @@ impl NativeTerminalManager {
         // `try_clone_reader`/`take_writer` take `&self`, so `master` remains
         // owned and storable for later SIGWINCH-bearing resizes.
         let master: Box<dyn portable_pty::MasterPty + Send> = pair.master;
+        #[cfg(unix)]
+        let master_raw_fd = master.as_raw_fd();
+        #[cfg(not(unix))]
+        let master_raw_fd = None;
         let mut reader = master
             .try_clone_reader()
             .map_err(|e| format!("clone reader: {e}"))?;
@@ -248,6 +304,16 @@ impl NativeTerminalManager {
             &TermSize::new(cols as usize, rows as usize),
             listener,
         )));
+        let screen_revision = Arc::new(AtomicU64::new(0));
+        self.coordinator.register_target(TargetRegistration {
+            target_id: AgentTargetId::from(terminal_id.clone()),
+            provider_hint: None,
+            shell_pid,
+            screen_reader: native_screen_reader(
+                Arc::clone(&term),
+                AgentTargetId::from(terminal_id.clone()),
+            ),
+        });
 
         // Reader thread: the sole producer of grid mutations and snapshots.
         //
@@ -270,6 +336,8 @@ impl NativeTerminalManager {
             let ports_clone = Arc::clone(&detected_ports);
             let app_clone = app.clone();
             let id = terminal_id.clone();
+            let coordinator = self.coordinator.clone();
+            let revision_counter = Arc::clone(&screen_revision);
 
             let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
 
@@ -391,8 +459,15 @@ impl NativeTerminalManager {
                         )
                     };
                     acc.clear();
+                    let revision = next_screen_revision(&revision_counter);
+                    coordinator.observe_screen_revision(
+                        &AgentTargetId::from(id.clone()),
+                        revision,
+                        foreground_pgid_from_fd(master_raw_fd),
+                    );
                     let _ = app_clone.emit(&format!("native-terminal-update-{id}"), snapshot);
                 }
+                coordinator.unregister_target(&AgentTargetId::from(id));
             });
         }
 
@@ -412,6 +487,7 @@ impl NativeTerminalManager {
                 title: title_arc,
                 app_handle: app,
                 detected_ports,
+                screen_revision,
             },
         );
         Ok(())
@@ -431,7 +507,13 @@ impl NativeTerminalManager {
             Arc::clone(&h.writer)
         };
         let mut guard = writer.lock();
-        guard.write_all(data.as_bytes()).map_err(|e| e.to_string())
+        guard
+            .write_all(data.as_bytes())
+            .map_err(|e| e.to_string())?;
+        drop(guard);
+        self.coordinator
+            .observe_user_input(&AgentTargetId::from(terminal_id));
+        Ok(())
     }
 
     /// Resize both the emulator grid and the PTY (the latter delivers SIGWINCH
@@ -495,6 +577,8 @@ impl NativeTerminalManager {
         if let Some(mut h) = self.handles.lock().remove(terminal_id) {
             let _ = h.child.kill();
         }
+        self.coordinator
+            .unregister_target(&AgentTargetId::from(terminal_id));
     }
 
     /// Scroll the visible viewport within scrollback by `delta` lines
@@ -1101,6 +1185,44 @@ mod tests {
     }
 
     #[test]
+    fn terminal_spawn_environment_contains_stable_target_id() {
+        assert_eq!(
+            terminal_environment("term-42").get("TERMSPACE_TERMINAL_ID"),
+            Some(&"term-42".to_string())
+        );
+    }
+
+    #[test]
+    fn screen_revisions_are_monotonic() {
+        let revision = std::sync::atomic::AtomicU64::new(0);
+        assert_eq!(next_screen_revision(&revision), 1);
+        assert_eq!(next_screen_revision(&revision), 2);
+    }
+
+    #[test]
+    fn native_screen_reader_extracts_the_requested_revision() {
+        let config = Config {
+            scrolling_history: 100,
+            ..Default::default()
+        };
+        let size = TermSize::new(80, 24);
+        let mut term = Term::new(config, &size, NullListener);
+        let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
+        for byte in b"Claude Code" {
+            parser.advance(&mut term, *byte);
+        }
+        let term = Arc::new(Mutex::new(term));
+        let reader = native_screen_reader(Arc::clone(&term), AgentTargetId::from("term-1"));
+
+        let screen = reader(9, 12, Some(42)).unwrap();
+
+        assert_eq!(screen.revision, 9);
+        assert_eq!(screen.ingress_sequence, 12);
+        assert_eq!(screen.foreground_pgid, Some(42));
+        assert!(screen.text.contains("Claude Code"));
+    }
+
+    #[test]
     fn snapshot_has_correct_dimensions() {
         let config = Config {
             scrolling_history: 100,
@@ -1155,7 +1277,7 @@ mod tests {
     fn spawn_returns_error_on_duplicate_id() {
         // Exercises the registry guard / construction path without a real shell
         // (spawning a PTY needs an AppHandle, which isn't available in unit tests).
-        let mgr = NativeTerminalManager::new();
+        let mgr = NativeTerminalManager::default();
         assert!(mgr.handles.lock().is_empty());
         drop(mgr); // does not panic
     }

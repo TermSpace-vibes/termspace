@@ -102,8 +102,8 @@ pub fn run() {
             let agent_detection = AgentDetectionCoordinator::new(Arc::new(
                 TauriStateUpdateSink::new(app.handle().clone()),
             ));
-            app.manage(agent_detection);
-            app.manage(NativeTerminalManager::new());
+            app.manage(agent_detection.clone());
+            app.manage(NativeTerminalManager::new(agent_detection));
 
             // Start daemon and connect; fall back to in-process PTY if unavailable.
             let daemon_client_opt: Option<DaemonClient> = if ensure_daemon_running(app.handle()) {
