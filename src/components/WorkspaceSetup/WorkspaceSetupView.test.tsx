@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { useAppStore } from '../../store/useAppStore'
 import { WorkspaceSetupView } from './WorkspaceSetupView'
 import type { Workspace } from '../../types'
@@ -32,9 +32,8 @@ describe('WorkspaceSetupView — identity fields', () => {
     fireEvent.change(nameInput, { target: { value: 'B' } })
     fireEvent.change(nameInput, { target: { value: 'Ba' } })
     fireEvent.change(nameInput, { target: { value: 'Backend' } })
-
-    expect(tauri.invoke).not.toHaveBeenCalled()
-
+    const updateCallsBefore = tauri.invoke.mock.calls.filter(([cmd]) => cmd === 'update_workspace')
+    expect(updateCallsBefore).toHaveLength(0)
     await vi.advanceTimersByTimeAsync(500)
 
     // Filtered by command, not a raw call count: Task 3 adds AgentLaunchStep,
@@ -87,5 +86,45 @@ describe('WorkspaceSetupView — identity fields', () => {
     render(<WorkspaceSetupView workspaceId="ws-1" onOpenWorkspace={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Rocket' }))
     await waitFor(() => expect(useAppStore.getState().toasts.some((t) => t.type === 'error')).toBe(true))
+  })
+})
+
+describe('WorkspaceSetupView — agents and Open Workspace', () => {
+  it('calls onOpenWorkspace with the staged launch slots when clicked', async () => {
+    const onOpenWorkspace = vi.fn()
+    render(<WorkspaceSetupView workspaceId="ws-1" onOpenWorkspace={onOpenWorkspace} />)
+    // AgentLaunchStep disables "Add agent" until its own diagnostics fetch
+    // resolves (success or failure) — same wait AgentLaunchStep.test.tsx uses.
+    await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith('get_agent_provider_diagnostics'))
+
+    fireEvent.click(screen.getByRole('button', { name: /add agent/i }))
+    fireEvent.click(screen.getByRole('button', { name: /open workspace/i }))
+
+    expect(onOpenWorkspace).toHaveBeenCalledWith('ws-1', [{ provider: expect.any(String), task: '', subPath: '' }])
+  })
+
+  it('calls onOpenWorkspace with an empty array when no agents were added', () => {
+    const onOpenWorkspace = vi.fn()
+    render(<WorkspaceSetupView workspaceId="ws-1" onOpenWorkspace={onOpenWorkspace} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /open workspace/i }))
+
+    expect(onOpenWorkspace).toHaveBeenCalledWith('ws-1', [])
+  })
+
+  it('flushes a pending debounced name-save before calling onOpenWorkspace', async () => {
+    vi.useFakeTimers()
+    const onOpenWorkspace = vi.fn()
+    render(<WorkspaceSetupView workspaceId="ws-1" onOpenWorkspace={onOpenWorkspace} />)
+
+    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'Backend' } })
+    // Click immediately — well before the 500ms debounce would fire on its own.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /open workspace/i }))
+    })
+
+    expect(tauri.invoke).toHaveBeenCalledWith('update_workspace', { id: 'ws-1', name: 'Backend', emoji: 'TerminalSquare', color: '#e8a045' })
+    expect(onOpenWorkspace).toHaveBeenCalledWith('ws-1', [])
+    vi.useRealTimers()
   })
 })

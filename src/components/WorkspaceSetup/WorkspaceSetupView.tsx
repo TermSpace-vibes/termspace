@@ -5,6 +5,7 @@ import * as LucideIcons from 'lucide-react'
 import { useAppStore } from '../../store/useAppStore'
 import { ICONS, COLORS } from '../WorkspaceModal/workspaceStyleOptions'
 import type { LaunchSlot } from '../../types'
+import { AgentLaunchStep } from '../WorkspaceModal/AgentLaunchStep'
 
 interface Props {
   workspaceId: string
@@ -12,14 +13,13 @@ interface Props {
 }
 
 export function WorkspaceSetupView({ workspaceId, onOpenWorkspace }: Props) {
-  void onOpenWorkspace
   const workspace = useAppStore((s) => s.workspaces.find((w) => w.id === workspaceId))
 
   const [name, setName] = useState(workspace?.name ?? '')
   const [emoji, setEmoji] = useState(workspace?.emoji ?? 'TerminalSquare')
   const [color, setColor] = useState(workspace?.color ?? '#e8a045')
   const [defaultPath, setDefaultPath] = useState(workspace?.defaultPath ?? '')
-
+  const [launchSlots, setLaunchSlots] = useState<LaunchSlot[]>([])
   const debounceRef = useRef<number | null>(null)
 
   const saveIdentity = (next: { name: string; emoji: string; color: string }) => {
@@ -55,6 +55,19 @@ export function WorkspaceSetupView({ workspaceId, onOpenWorkspace }: Props) {
   const commitPath = (path: string) => {
     useAppStore.getState().setWorkspaceDefaultPath(workspaceId, path.trim() || null)
       .catch(() => useAppStore.getState().addToast('Failed to save workspace', 'error'))
+  }
+
+  const flushPendingName = () => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current)
+      debounceRef.current = null
+      saveIdentity({ name, emoji, color })
+    }
+  }
+
+  const handleOpenWorkspaceClick = () => {
+    flushPendingName()
+    onOpenWorkspace(workspaceId, launchSlots)
   }
 
   const fieldLabelStyle = { fontSize: 13, color: 'var(--text-inactive)', fontWeight: 500 } as const
@@ -162,6 +175,20 @@ export function WorkspaceSetupView({ workspaceId, onOpenWorkspace }: Props) {
           </button>
         </div>
       </div>
+
+      <div style={sectionStyle}>
+        <AgentLaunchStep slots={launchSlots} onChange={setLaunchSlots} />
+      </div>
+
+      <button
+        onClick={handleOpenWorkspaceClick}
+        style={{
+          padding: '12px 28px', background: 'var(--accent)', border: 'none', borderRadius: 8,
+          color: 'var(--bg-main)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 12,
+        }}
+      >
+        Open Workspace
+      </button>
     </div>
   )
 }
