@@ -1,4 +1,9 @@
 #![allow(dead_code)]
+use crate::agent_detection::coordinator::{
+    AgentDetectionCoordinator, ScreenReader, TargetRegistration,
+};
+use crate::agent_detection::screen::extract_live_screen;
+use crate::agent_detection::types::AgentTargetId;
 use crate::native_terminal_manager::{
     alt_screen_wheel_bytes, get_all_text, scan_osc_sequences, search_term, serialize_snapshot,
     PortPayload, SearchMatch, TermEventSender, LOCALHOST_RE,
@@ -14,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::os::unix::net::UnixStream;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -24,11 +30,27 @@ const SOCK_SUFFIX: &str = "/.termspace/daemon.sock";
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum DaemonMsg {
-    Output { id: String, data: String },
-    Spawned { id: String, pid: u32 },
-    Exited { id: String, code: Option<i32> },
-    Sessions { sessions: Vec<SessionInfo> },
-    Error { id: String, msg: String },
+    Output {
+        id: String,
+        data: String,
+        #[serde(default)]
+        foreground_pgid: Option<u32>,
+    },
+    Spawned {
+        id: String,
+        pid: u32,
+    },
+    Exited {
+        id: String,
+        code: Option<i32>,
+    },
+    Sessions {
+        sessions: Vec<SessionInfo>,
+    },
+    Error {
+        id: String,
+        msg: String,
+    },
     Pong,
 }
 
@@ -77,6 +99,7 @@ struct LocalTermState {
     title: Arc<Mutex<String>>,
     detected_ports: Arc<std::sync::Mutex<HashSet<String>>>,
     pid: Arc<std::sync::Mutex<Option<u32>>>,
+    screen_revision: Arc<AtomicU64>,
 }
 
 // ── DaemonClient ──────────────────────────────────────────────────────────────
@@ -86,12 +109,13 @@ pub struct DaemonClient {
     terms: Arc<Mutex<HashMap<String, LocalTermState>>>,
     sessions: Vec<SessionInfo>,
     app: AppHandle,
+    coordinator: AgentDetectionCoordinator,
 }
 
 impl DaemonClient {
     /// Connect to the daemon socket, perform ping/pong handshake,
     /// fetch session list, then start the async reader thread.
-    pub fn connect(app: AppHandle) -> Result<Self, String> {
+    pub fn connect(app: AppHandle, coordinator: AgentDetectionCoordinator) -> Result<Self, String> {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
         let sock = format!("{}{}", home, SOCK_SUFFIX);
 
@@ -122,8 +146,9 @@ impl DaemonClient {
         {
             let terms_clone = Arc::clone(&terms);
             let app_clone = app.clone();
+            let coordinator_clone = coordinator.clone();
             std::thread::spawn(move || {
-                reader_thread(buf_reader, terms_clone, app_clone);
+                reader_thread(buf_reader, terms_clone, app_clone, coordinator_clone);
             });
         }
 
@@ -132,6 +157,7 @@ impl DaemonClient {
             terms,
             sessions,
             app,
+            coordinator,
         })
     }
 
@@ -178,23 +204,38 @@ impl DaemonClient {
             listener,
         )));
 
+        let screen_revision = Arc::new(AtomicU64::new(0));
         let state = LocalTermState {
-            term,
+            term: Arc::clone(&term),
             cwd: Arc::new(Mutex::new(resolved_cwd.clone())),
             title: title_arc,
             detected_ports: Arc::new(std::sync::Mutex::new(HashSet::new())),
             pid: Arc::new(std::sync::Mutex::new(None)),
+            screen_revision,
         };
         self.terms.lock().insert(id.clone(), state);
 
-        self.send_msg(&AppMsg::Spawn {
-            id,
+        let target_id = AgentTargetId::from(id.clone());
+        self.coordinator.register_target(TargetRegistration {
+            target_id: target_id.clone(),
+            provider_hint: None,
+            shell_pid: None,
+            screen_reader: daemon_screen_reader(term, target_id.clone()),
+        });
+
+        let result = self.send_msg(&AppMsg::Spawn {
+            id: id.clone(),
             shell,
             args,
             cwd,
             cols,
             rows,
-        })
+        });
+        if result.is_err() {
+            self.terms.lock().remove(&id);
+            self.coordinator.unregister_target(&target_id);
+        }
+        result
     }
 
     pub fn write(&self, id: &str, data: &str) -> Result<(), String> {
@@ -202,7 +243,10 @@ impl DaemonClient {
         self.send_msg(&AppMsg::Input {
             id: id.to_string(),
             data: encoded,
-        })
+        })?;
+        self.coordinator
+            .observe_user_input(&AgentTargetId::from(id));
+        Ok(())
     }
 
     pub fn resize(&self, id: &str, cols: u16, rows: u16) -> Result<(), String> {
@@ -225,10 +269,12 @@ impl DaemonClient {
     pub fn detach(&self, id: &str) {
         let _ = self.send_msg(&AppMsg::Detach { id: id.to_string() });
         self.terms.lock().remove(id);
+        self.coordinator.unregister_target(&AgentTargetId::from(id));
     }
 
     pub fn kill(&self, id: &str) -> Result<(), String> {
         self.terms.lock().remove(id);
+        self.coordinator.unregister_target(&AgentTargetId::from(id));
         self.send_msg(&AppMsg::Kill { id: id.to_string() })
     }
 
@@ -361,12 +407,29 @@ fn read_line_sync(r: &mut BufReader<UnixStream>) -> Result<String, String> {
     Ok(line)
 }
 
+fn daemon_screen_reader<L>(term: Arc<Mutex<Term<L>>>, target_id: AgentTargetId) -> ScreenReader
+where
+    L: alacritty_terminal::event::EventListener + Send + 'static,
+{
+    Arc::new(move |revision, ingress_sequence, foreground_pgid| {
+        let term = term.lock();
+        Some(extract_live_screen(
+            &*term,
+            target_id.clone(),
+            revision,
+            ingress_sequence,
+            foreground_pgid,
+        ))
+    })
+}
+
 // ── Reader thread ─────────────────────────────────────────────────────────────
 
 fn reader_thread(
     reader: BufReader<UnixStream>,
     terms: Arc<Mutex<HashMap<String, LocalTermState>>>,
     app: AppHandle,
+    coordinator: AgentDetectionCoordinator,
 ) {
     let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
     let mut osc_buf: Vec<u8> = Vec::with_capacity(512);
@@ -383,13 +446,17 @@ fn reader_thread(
         };
 
         match msg {
-            DaemonMsg::Output { id, data } => {
+            DaemonMsg::Output {
+                id,
+                data,
+                foreground_pgid,
+            } => {
                 let bytes = match base64::engine::general_purpose::STANDARD.decode(&data) {
                     Ok(b) => b,
                     Err(_) => continue,
                 };
 
-                let (term_arc, cwd_arc, title_arc, ports_arc) = {
+                let (term_arc, cwd_arc, title_arc, ports_arc, revision_arc) = {
                     let t = terms.lock();
                     match t.get(&id) {
                         Some(s) => (
@@ -397,6 +464,7 @@ fn reader_thread(
                             Arc::clone(&s.cwd),
                             Arc::clone(&s.title),
                             Arc::clone(&s.detected_ports),
+                            Arc::clone(&s.screen_revision),
                         ),
                         None => continue,
                     }
@@ -454,6 +522,12 @@ fn reader_thread(
                 };
 
                 let _ = app.emit(&format!("native-terminal-update-{}", id), snapshot);
+                let revision = revision_arc.fetch_add(1, Ordering::AcqRel) + 1;
+                coordinator.observe_screen_revision(
+                    &AgentTargetId::from(id),
+                    revision,
+                    foreground_pgid,
+                );
             }
 
             DaemonMsg::Spawned { id, pid } => {
@@ -461,10 +535,13 @@ fn reader_thread(
                 if let Some(state) = t.get(&id) {
                     *state.pid.lock().unwrap() = Some(pid);
                 }
+                drop(t);
+                coordinator.update_target_shell_pid(&AgentTargetId::from(id), pid);
             }
 
             DaemonMsg::Exited { id, .. } => {
                 terms.lock().remove(&id);
+                coordinator.unregister_target(&AgentTargetId::from(id.clone()));
                 let _ = app.emit(&format!("native-terminal-exited-{}", id), ());
                 let _ = app.emit(
                     "task-lifecycle",
@@ -481,6 +558,15 @@ fn reader_thread(
                 // handled synchronously in connect(); ignore here
             }
         }
+    }
+
+    let target_ids: Vec<AgentTargetId> = terms
+        .lock()
+        .drain()
+        .map(|(id, _)| AgentTargetId::from(id))
+        .collect();
+    for target_id in target_ids {
+        coordinator.unregister_target(&target_id);
     }
 }
 
@@ -608,7 +694,26 @@ mod tests {
     fn daemon_msg_output_deserializes() {
         let json = r#"{"type":"output","id":"t-1","data":"aGVsbG8="}"#;
         let msg: DaemonMsg = serde_json::from_str(json).unwrap();
-        assert!(matches!(msg, DaemonMsg::Output { .. }));
+        assert!(matches!(
+            msg,
+            DaemonMsg::Output {
+                foreground_pgid: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn daemon_msg_output_deserializes_foreground_process_group() {
+        let json = r#"{"type":"output","id":"t-1","data":"aGVsbG8=","foreground_pgid":4321}"#;
+        let msg: DaemonMsg = serde_json::from_str(json).unwrap();
+        assert!(matches!(
+            msg,
+            DaemonMsg::Output {
+                foreground_pgid: Some(4321),
+                ..
+            }
+        ));
     }
 
     #[test]

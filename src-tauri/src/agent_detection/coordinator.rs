@@ -266,6 +266,12 @@ impl AgentDetectionCoordinator {
         });
     }
 
+    pub fn update_target_shell_pid(&self, target_id: &AgentTargetId, shell_pid: u32) {
+        if let Some(record) = self.inner.state.lock().targets.get_mut(target_id.as_str()) {
+            record.shell_pid = Some(shell_pid);
+        }
+    }
+
     pub fn observe_screen_revision(
         &self,
         target_id: &AgentTargetId,

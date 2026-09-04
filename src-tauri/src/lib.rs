@@ -103,11 +103,11 @@ pub fn run() {
                 TauriStateUpdateSink::new(app.handle().clone()),
             ));
             app.manage(agent_detection.clone());
-            app.manage(NativeTerminalManager::new(agent_detection));
+            app.manage(NativeTerminalManager::new(agent_detection.clone()));
 
             // Start daemon and connect; fall back to in-process PTY if unavailable.
             let daemon_client_opt: Option<DaemonClient> = if ensure_daemon_running(app.handle()) {
-                match DaemonClient::connect(app.handle().clone()) {
+                match DaemonClient::connect(app.handle().clone(), agent_detection.clone()) {
                     Ok(dc) => {
                         // Startup reconcile: re-subscribe to every terminal in the DB.
                         // The daemon handles idempotency — live sessions resubscribe,

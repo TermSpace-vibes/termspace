@@ -51,11 +51,27 @@ enum AppMessage {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum DaemonMessage {
-    Output { id: String, data: String },
-    Spawned { id: String, pid: u32 },
-    Exited { id: String, code: Option<i32> },
-    Sessions { sessions: Vec<SessionInfo> },
-    Error { id: String, msg: String },
+    Output {
+        id: String,
+        data: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        foreground_pgid: Option<u32>,
+    },
+    Spawned {
+        id: String,
+        pid: u32,
+    },
+    Exited {
+        id: String,
+        code: Option<i32>,
+    },
+    Sessions {
+        sessions: Vec<SessionInfo>,
+    },
+    Error {
+        id: String,
+        msg: String,
+    },
     Pong,
 }
 
@@ -78,6 +94,14 @@ struct DaemonPtyHandle {
 }
 
 type Registry = Arc<Mutex<HashMap<String, DaemonPtyHandle>>>;
+
+fn daemon_terminal_environment(terminal_id: &str) -> HashMap<String, String> {
+    HashMap::from([
+        ("TERM".into(), "xterm-256color".into()),
+        ("TERM_PROGRAM".into(), "Apple_Terminal".into()),
+        ("TERMSPACE_TERMINAL_ID".into(), terminal_id.into()),
+    ])
+}
 
 // ── main ──────────────────────────────────────────────────────────────────────
 
@@ -163,7 +187,17 @@ fn dispatch(
             cols,
             rows,
             args,
-        } => handle_spawn(&id, &shell, args.as_deref(), &cwd, cols, rows, registry, conn_id, tx),
+        } => handle_spawn(
+            &id,
+            &shell,
+            args.as_deref(),
+            &cwd,
+            cols,
+            rows,
+            registry,
+            conn_id,
+            tx,
+        ),
         AppMessage::Input { id, data } => handle_input(&id, &data, registry),
         AppMessage::Resize { id, cols, rows } => handle_resize(&id, cols, rows, registry),
         AppMessage::Detach { id } => handle_detach(&id, registry, conn_id),
@@ -257,8 +291,9 @@ fn handle_spawn(
         }
     }
     cmd.cwd(&resolved_cwd);
-    cmd.env("TERM", "xterm-256color");
-    cmd.env("TERM_PROGRAM", "Apple_Terminal");
+    for (key, value) in daemon_terminal_environment(id) {
+        cmd.env(key, value);
+    }
 
     let child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
@@ -401,19 +436,36 @@ fn start_pty_reader(id: String, mut reader: Box<dyn Read + Send>, registry: Regi
                 }
                 Ok(n) => {
                     let encoded = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
-                    let msg = format!(
-                        "{{\"type\":\"output\",\"id\":\"{}\",\"data\":\"{}\"}}\n",
-                        id, encoded
-                    );
 
-                    // Clone (conn_id, sender) pairs OUT of lock, release, then send
-                    let conn_senders: Vec<(ConnId, std::sync::mpsc::Sender<String>)> = {
+                    // Query the foreground process group alongside each output
+                    // chunk. PTYs do not produce a separate OS event when it
+                    // changes, so piggybacking keeps detection prompt without
+                    // polling the full process table.
+                    let (foreground_pgid, conn_senders): (
+                        Option<u32>,
+                        Vec<(ConnId, std::sync::mpsc::Sender<String>)>,
+                    ) = {
                         let reg = registry.lock().unwrap();
                         match reg.get(&id) {
-                            Some(h) => h.subscribers.iter().map(|(k, v)| (*k, v.clone())).collect(),
+                            Some(h) => (
+                                h.master
+                                    .process_group_leader()
+                                    .and_then(|pgid| u32::try_from(pgid).ok())
+                                    .filter(|pgid| *pgid > 0),
+                                h.subscribers.iter().map(|(k, v)| (*k, v.clone())).collect(),
+                            ),
                             None => break,
                         }
                     };
+                    let mut msg = match serde_json::to_string(&DaemonMessage::Output {
+                        id: id.clone(),
+                        data: encoded,
+                        foreground_pgid,
+                    }) {
+                        Ok(msg) => msg,
+                        Err(_) => continue,
+                    };
+                    msg.push('\n');
 
                     let mut dead: Vec<ConnId> = Vec::new();
                     for (conn_id, sender) in &conn_senders {
@@ -458,6 +510,34 @@ mod tests {
         let s = serde_json::to_string(&msg).unwrap();
         assert!(s.contains("\"pid\":1234"));
         assert!(s.contains("\"type\":\"spawned\""));
+    }
+
+    #[test]
+    fn output_serializes_optional_foreground_process_group() {
+        let msg = DaemonMessage::Output {
+            id: "t-1".into(),
+            data: "aGVsbG8=".into(),
+            foreground_pgid: Some(4321),
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"foreground_pgid\":4321"));
+
+        let legacy = DaemonMessage::Output {
+            id: "t-1".into(),
+            data: "aGVsbG8=".into(),
+            foreground_pgid: None,
+        };
+        let s = serde_json::to_string(&legacy).unwrap();
+        assert!(!s.contains("foreground_pgid"));
+    }
+
+    #[test]
+    fn daemon_terminal_environment_includes_correlation_id() {
+        let environment = daemon_terminal_environment("t-1");
+        assert_eq!(
+            environment.get("TERMSPACE_TERMINAL_ID"),
+            Some(&"t-1".into())
+        );
     }
 
     #[test]
