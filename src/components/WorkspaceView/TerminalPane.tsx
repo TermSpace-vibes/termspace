@@ -12,6 +12,10 @@ import '@xterm/xterm/css/xterm.css'
 import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager'
 import { AnimatePresence } from 'framer-motion'
 import { ConfirmModal } from '../ConfirmModal/ConfirmModal'
+import { UploadCloud } from 'lucide-react'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { open } from '@tauri-apps/plugin-dialog'
+import { ScpUploadOverlay, type UploadFileItem } from './ScpUploadOverlay'
 
 interface Props {
   terminalId: string
@@ -152,8 +156,102 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editTitleValue, setEditTitleValue] = useState('')
   const [gitBranch, setGitBranch] = useState<string | null>(null)
+  const workspace = useAppStore(React.useCallback(s => s.workspaces?.find(w => w.id === workspaceId), [workspaceId]))
   const [remoteStatus, setRemoteStatus] = useState<string | null>(null)
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false)
+  const [isUploadOverlayOpen, setIsUploadOverlayOpen] = useState(false)
+  const [pendingUploadFiles, setPendingUploadFiles] = useState<UploadFileItem[]>([])
 
+  const handleDragOver = React.useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+      e.preventDefault()
+      e.stopPropagation()
+      if (workspace?.sshHost && !isDraggingFiles) {
+        setIsDraggingFiles(true)
+      }
+    }
+  }, [workspace?.sshHost, isDraggingFiles])
+
+  const handleDragLeave = React.useCallback((e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDraggingFiles(false)
+    }
+  }, [])
+
+  const handleDrop = React.useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDraggingFiles(false)
+
+      if (workspace?.sshHost) {
+        const files: UploadFileItem[] = []
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          for (let i = 0; i < e.dataTransfer.files.length; i++) {
+            const file = e.dataTransfer.files[i]
+            const filePath = ('path' in file && typeof file.path === 'string') ? file.path : file.name
+            files.push({
+              path: filePath,
+              name: file.name,
+              size: file.size,
+            })
+          }
+        }
+        if (files.length > 0) {
+          setPendingUploadFiles(files)
+          setIsUploadOverlayOpen(true)
+        }
+      }
+    }
+  }, [workspace?.sshHost])
+
+  useEffect(() => {
+    if (!workspace?.sshHost) return
+    let unlisten: (() => void) | null = null
+
+    getCurrentWebview()
+      .onDragDropEvent((event) => {
+        if (event.payload.type === 'drop') {
+          const rect = containerRef.current?.getBoundingClientRect()
+          if (!rect) return
+          const { x, y } = event.payload.position
+          const scale = window.devicePixelRatio || 1
+          const lx = x / scale
+          const ly = y / scale
+          if (lx >= rect.left && lx <= rect.right && ly >= rect.top && ly <= rect.bottom) {
+            if (event.payload.paths.length > 0) {
+              const fileItems: UploadFileItem[] = event.payload.paths.map((p) => ({
+                path: p,
+                name: p.split(/[/\\]/).pop() || p,
+              }))
+              setPendingUploadFiles(fileItems)
+              setIsUploadOverlayOpen(true)
+              setIsDraggingFiles(false)
+            }
+          }
+        } else if (event.payload.type === 'over') {
+          const rect = containerRef.current?.getBoundingClientRect()
+          if (rect) {
+            const { x, y } = event.payload.position
+            const scale = window.devicePixelRatio || 1
+            const lx = x / scale
+            const ly = y / scale
+            const isInside = lx >= rect.left && lx <= rect.right && ly >= rect.top && ly <= rect.bottom
+            setIsDraggingFiles(isInside)
+          }
+        } else if (event.payload.type === 'leave') {
+          setIsDraggingFiles(false)
+        }
+      })
+      .then((u) => {
+        unlisten = u
+      })
+      .catch(() => {})
+
+    return () => {
+      unlisten?.()
+    }
+  }, [workspace?.sshHost])
   useEffect(() => {
     const interval = setInterval(() => {
       invoke<string | null>('get_terminal_remote_status', { id: terminalId })
@@ -591,7 +689,9 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
   return (
     <div
       onClick={() => onFocus(terminalId)}
-
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       onContextMenu={(e) => {
         // Only trigger our context menu if clicking near the top/edges, not inside the actual terminal text area
         // to preserve native copy/paste context menus. Or we just allow it on the container.
@@ -648,6 +748,26 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>,
             onClick: () => onToggleMaximize(terminalId)
           },
+          ...(workspace?.sshHost ? [
+            { separator: true, label: '', onClick: () => {} },
+            {
+              label: 'Upload Files via SCP...',
+              icon: <UploadCloud size={14} />,
+              onClick: async () => {
+                const selected = await open({ multiple: true })
+                if (selected) {
+                  const paths = Array.isArray(selected) ? selected : [selected]
+                  const fileItems: UploadFileItem[] = paths.map((p) => ({
+                    path: p,
+                    name: p.split(/[/\\]/).pop() || p,
+                  }))
+                  setPendingUploadFiles(fileItems)
+                  setIsUploadOverlayOpen(true)
+                }
+              },
+            }
+          ] : []),
+          { separator: true, label: '', onClick: () => {} },
           {
             label: 'Close Terminal',
             danger: true,
@@ -884,6 +1004,62 @@ export const TerminalPane = React.memo(function TerminalPane({ terminalId, works
           />
         )}
       </AnimatePresence>
+
+      {isDraggingFiles && workspace?.sshHost && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 40,
+            background: 'rgba(232, 160, 69, 0.12)',
+            border: '2px dashed var(--accent, #e8a045)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            pointerEvents: 'none',
+          }}
+        >
+          <div
+            style={{
+              width: 52,
+              height: 52,
+              borderRadius: '50%',
+              background: 'var(--accent, #e8a045)',
+              color: 'var(--bg-main, #1a1612)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 8px 24px rgba(232, 160, 69, 0.4)',
+            }}
+          >
+            <UploadCloud size={28} />
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-active)' }}>
+              Drop files to upload via SCP
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>
+              Destination: <span style={{ color: '#ef4444', fontWeight: 600 }}>{workspace.sshHost}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {workspace?.sshHost && (
+        <ScpUploadOverlay
+          isOpen={isUploadOverlayOpen}
+          sshHost={workspace.sshHost}
+          defaultRemoteDir={workspace.defaultPath || '~'}
+          files={pendingUploadFiles}
+          onClose={() => {
+            setIsUploadOverlayOpen(false)
+            setPendingUploadFiles([])
+          }}
+        />
+      )}
     </div>
   )
 })

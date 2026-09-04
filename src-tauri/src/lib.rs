@@ -268,6 +268,7 @@ pub fn run() {
             commands::set_workspace_default_path,
             commands::set_workspace_ssh_host,
             commands::get_ssh_hosts,
+            commands::upload_files_scp,
             commands::touch_workspace_last_opened,
             commands::delete_workspace,
             commands::delete_tab,
@@ -354,6 +355,7 @@ pub fn run() {
             commands::write_claude_session,
             commands::stop_claude_session,
             commands::close_claude_session,
+            commands::get_claude_agents,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

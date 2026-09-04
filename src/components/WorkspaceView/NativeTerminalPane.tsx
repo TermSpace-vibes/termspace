@@ -17,6 +17,10 @@ import {
 import { useKeybindingHandler } from '../../hooks/useGlobalKeybindings'
 import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager'
 import { useTerminalWorker } from './useTerminalWorker'
+import { UploadCloud } from 'lucide-react'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { open } from '@tauri-apps/plugin-dialog'
+import { ScpUploadOverlay, type UploadFileItem } from './ScpUploadOverlay'
 import type { WorkerMetadata } from './useTerminalWorker'
 
 const writeTerminalChunked = async (terminalId: string, data: string) => {
@@ -170,6 +174,101 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   const renameTerminal = useAppStore(s => s.renameTerminal)
   const setTerminalNotification = useAppStore(s => s.setTerminalNotification)
 
+  const workspace = useAppStore(useCallback(s => s.workspaces?.find(w => w.id === workspaceId), [workspaceId]))
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false)
+  const [isUploadOverlayOpen, setIsUploadOverlayOpen] = useState(false)
+  const [pendingUploadFiles, setPendingUploadFiles] = useState<UploadFileItem[]>([])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+      e.preventDefault()
+      e.stopPropagation()
+      if (workspace?.sshHost && !isDraggingFiles) {
+        setIsDraggingFiles(true)
+      }
+    }
+  }, [workspace?.sshHost, isDraggingFiles])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDraggingFiles(false)
+    }
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDraggingFiles(false)
+
+      if (workspace?.sshHost) {
+        const files: UploadFileItem[] = []
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          for (let i = 0; i < e.dataTransfer.files.length; i++) {
+            const file = e.dataTransfer.files[i]
+            const filePath = ('path' in file && typeof file.path === 'string') ? file.path : file.name
+            files.push({
+              path: filePath,
+              name: file.name,
+              size: file.size,
+            })
+          }
+        }
+        if (files.length > 0) {
+          setPendingUploadFiles(files)
+          setIsUploadOverlayOpen(true)
+        }
+      }
+    }
+  }, [workspace?.sshHost])
+
+  useEffect(() => {
+    if (!workspace?.sshHost) return
+    let unlisten: (() => void) | null = null
+
+    getCurrentWebview()
+      .onDragDropEvent((event) => {
+        if (event.payload.type === 'drop') {
+          const rect = containerRef.current?.getBoundingClientRect()
+          if (!rect) return
+          const { x, y } = event.payload.position
+          const scale = window.devicePixelRatio || 1
+          const lx = x / scale
+          const ly = y / scale
+          if (lx >= rect.left && lx <= rect.right && ly >= rect.top && ly <= rect.bottom) {
+            if (event.payload.paths.length > 0) {
+              const fileItems: UploadFileItem[] = event.payload.paths.map((p) => ({
+                path: p,
+                name: p.split(/[/\\]/).pop() || p,
+              }))
+              setPendingUploadFiles(fileItems)
+              setIsUploadOverlayOpen(true)
+              setIsDraggingFiles(false)
+            }
+          }
+        } else if (event.payload.type === 'over') {
+          const rect = containerRef.current?.getBoundingClientRect()
+          if (rect) {
+            const { x, y } = event.payload.position
+            const scale = window.devicePixelRatio || 1
+            const lx = x / scale
+            const ly = y / scale
+            const isInside = lx >= rect.left && lx <= rect.right && ly >= rect.top && ly <= rect.bottom
+            setIsDraggingFiles(isInside)
+          }
+        } else if (event.payload.type === 'leave') {
+          setIsDraggingFiles(false)
+        }
+      })
+      .then((u) => {
+        unlisten = u
+      })
+      .catch(() => {})
+
+    return () => {
+      unlisten?.()
+    }
+  }, [workspace?.sshHost])
   // Keep the keybinding handler in a ref so the keydown handler closure always
   // calls the latest version without needing to be recreated on every render.
   const keybindingHandler = useKeybindingHandler()
@@ -665,22 +764,15 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
           terminalId,
           workerActiveRef.current,
         ).then(text => {
-          if (!text) {
-            useAppStore.getState().addToast('Copy debug: selection resolved to empty text', 'error')
-            return
-          }
-          writeText(text).then(() => {
-            useAppStore.getState().addToast(`Copy debug: wrote ${text.length} chars to clipboard`, 'info')
-          }).catch((err: unknown) => {
+          if (!text) return
+          writeText(text).catch((err: unknown) => {
             console.error('writeText failed:', err)
-            useAppStore.getState().addToast('Copy debug: writeText failed: ' + String(err), 'error')
+            useAppStore.getState().addToast('Copy failed: ' + String(err), 'error')
           })
         }).catch((err: unknown) => {
           console.error('Copy failed:', err)
-          useAppStore.getState().addToast('Copy debug: getSelectedText failed: ' + String(err), 'error')
+          useAppStore.getState().addToast('Copy failed: ' + String(err), 'error')
         })
-      } else {
-        useAppStore.getState().addToast('Copy debug: no selection at Cmd+C', 'error')
       }
       return
     }
@@ -964,10 +1056,12 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
   return (
     <div
       onClick={() => onFocus(terminalId)}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
-        
         const menuItems: any[] = []
         
         if (selectionRef.current) {
@@ -992,17 +1086,12 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
                 terminalId,
                 workerActiveRef.current,
               ).then(text => {
-                if (!text) {
-                  useAppStore.getState().addToast('Copy debug: selection resolved to empty text', 'error')
-                  return
-                }
-                writeText(text).then(() => {
-                  useAppStore.getState().addToast(`Copy debug: wrote ${text.length} chars to clipboard`, 'info')
-                }).catch((err: unknown) => {
-                  useAppStore.getState().addToast('Copy debug: writeText failed: ' + String(err), 'error')
+                if (!text) return
+                writeText(text).catch((err: unknown) => {
+                  useAppStore.getState().addToast('Copy failed: ' + String(err), 'error')
                 })
               }).catch((err: unknown) => {
-                useAppStore.getState().addToast('Copy debug: getSelectedText failed: ' + String(err), 'error')
+                useAppStore.getState().addToast('Copy failed: ' + String(err), 'error')
               })
             }
           })
@@ -1054,6 +1143,25 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>,
             onClick: () => onClose(terminalId)
           },
+          ...(workspace?.sshHost ? [
+            { separator: true, label: '', onClick: () => {} },
+            {
+              label: 'Upload Files via SCP...',
+              icon: <UploadCloud size={14} />,
+              onClick: async () => {
+                const selected = await open({ multiple: true })
+                if (selected) {
+                  const paths = Array.isArray(selected) ? selected : [selected]
+                  const fileItems: UploadFileItem[] = paths.map((p) => ({
+                    path: p,
+                    name: p.split(/[/\\]/).pop() || p,
+                  }))
+                  setPendingUploadFiles(fileItems)
+                  setIsUploadOverlayOpen(true)
+                }
+              },
+            }
+          ] : []),
           {
             label: 'Kill Session',
             danger: true,
@@ -1419,21 +1527,7 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
               const vpSel = absSelToViewport(sel, displayOffsetRef.current, rowsRef.current, colsRef.current)
               if (vpSel) {
                 const { startRow: r1, startCol: c1, endRow: r2, endCol: c2 } = vpSel
-                const cells = cellsRef.current
-                const cols = colsRef.current
-                const lines: string[] = []
-                for (let r = r1; r <= r2; r++) {
-                  const sc = r === r1 ? c1 : 0
-                  const ec = r === r2 ? c2 : cols
-                  let line = ''
-                  for (let c = sc; c < ec; c++) {
-                    const ch = cells[(r * cols + c) * 4]
-                    line += ch && ch !== 32 ? String.fromCodePoint(ch) : ' '
-                  }
-                  if (r < r2 || ec === cols) line = line.replace(/\s+$/, '')
-                  lines.push(line)
-                }
-                const text = lines.join('\n')
+                const text = extractTextFromCells(cellsRef.current, colsRef.current, r1, c1, r2, c2)
                 if (text) {
                   e.clipboardData.setData('text/plain', text)
                 }
@@ -1485,6 +1579,61 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
           />
         )}
       </AnimatePresence>
+      {isDraggingFiles && workspace?.sshHost && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 40,
+            background: 'rgba(232, 160, 69, 0.12)',
+            border: '2px dashed var(--accent, #e8a045)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            pointerEvents: 'none',
+          }}
+        >
+          <div
+            style={{
+              width: 52,
+              height: 52,
+              borderRadius: '50%',
+              background: 'var(--accent, #e8a045)',
+              color: 'var(--bg-main, #1a1612)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 8px 24px rgba(232, 160, 69, 0.4)',
+            }}
+          >
+            <UploadCloud size={28} />
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-active)' }}>
+              Drop files to upload via SCP
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>
+              Destination: <span style={{ color: '#ef4444', fontWeight: 600 }}>{workspace.sshHost}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {workspace?.sshHost && (
+        <ScpUploadOverlay
+          isOpen={isUploadOverlayOpen}
+          sshHost={workspace.sshHost}
+          defaultRemoteDir={workspace.defaultPath || '~'}
+          files={pendingUploadFiles}
+          onClose={() => {
+            setIsUploadOverlayOpen(false)
+            setPendingUploadFiles([])
+          }}
+        />
+      )}
     </div>
   )
 })
@@ -1592,6 +1741,35 @@ function keyEventToData(e: React.KeyboardEvent): string | null {
 }
 
 /**
+ * Extracts text for a viewport-relative cell range directly from the raw cell
+ * buffer — synchronous, no IPC. Shared by getSelectedText's fast path and the
+ * onCopy DOM handler's fast path, which both need this exact extraction but
+ * one needs it synchronously (native clipboard events can't await).
+ */
+function extractTextFromCells(
+  cells: Uint32Array,
+  cols: number,
+  r1: number,
+  c1: number,
+  r2: number,
+  c2: number,
+): string {
+  const lines: string[] = []
+  for (let r = r1; r <= r2; r++) {
+    const sc = r === r1 ? c1 : 0
+    const ec = r === r2 ? c2 : cols
+    let line = ''
+    for (let c = sc; c < ec; c++) {
+      const ch = cells[(r * cols + c) * 4]
+      line += ch && ch !== 32 ? String.fromCodePoint(ch) : ' '
+    }
+    if (r < r2 || ec === cols) line = line.replace(/\s+$/, '')
+    lines.push(line)
+  }
+  return lines.join('\n')
+}
+
+/**
  * Extracts the text content from a selection using absolute coordinates.
  * Fast path: both selection ends are within the current viewport — uses cellsRef, no IPC.
  * Slow path: selection crosses viewport boundary — fetches full buffer from Rust via IPC.
@@ -1616,19 +1794,7 @@ async function getSelectedText(
     const vpSel = absSelToViewport(sel, displayOffset, rows, cols)
     if (!vpSel) return ''
     const { startRow: r1, startCol: c1, endRow: r2, endCol: c2 } = vpSel
-    const lines: string[] = []
-    for (let r = r1; r <= r2; r++) {
-      const sc = r === r1 ? c1 : 0
-      const ec = r === r2 ? c2 : cols
-      let line = ''
-      for (let c = sc; c < ec; c++) {
-        const ch = cells[(r * cols + c) * 4]
-        line += ch && ch !== 32 ? String.fromCodePoint(ch) : ' '
-      }
-      if (r < r2 || ec === cols) line = line.replace(/\s+$/, '')
-      lines.push(line)
-    }
-    return lines.join('\n')
+    return extractTextFromCells(cells, cols, r1, c1, r2, c2)
   }
 
   // Slow path: selection crosses viewport boundary — fetch full buffer from Rust.

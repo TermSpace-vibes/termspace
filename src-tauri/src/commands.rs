@@ -557,6 +557,125 @@ pub fn get_ssh_hosts() -> Result<Vec<String>, String> {
     Ok(hosts)
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScpUploadResult {
+    pub file_name: String,
+    pub remote_dest: String,
+    pub bytes: u64,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn upload_files_scp(
+    ssh_host: String,
+    local_paths: Vec<String>,
+    remote_dir: Option<String>,
+) -> Result<Vec<ScpUploadResult>, String> {
+    let clean_host = ssh_host.trim();
+    if clean_host.is_empty() {
+        return Err("SSH host cannot be empty".to_string());
+    }
+    if local_paths.is_empty() {
+        return Err("No files specified for upload".to_string());
+    }
+
+    let mut parsed_host = clean_host.to_string();
+    let mut port_arg: Option<String> = None;
+    let parts: Vec<&str> = clean_host.split_whitespace().collect();
+    if parts.len() >= 3 {
+        for (i, part) in parts.iter().enumerate() {
+            if (*part == "-p" || *part == "-P") && i + 1 < parts.len() {
+                port_arg = Some(parts[i + 1].to_string());
+            }
+        }
+        if let Some(first) = parts.first() {
+            if !first.starts_with('-') {
+                parsed_host = first.to_string();
+            }
+        }
+    }
+
+    let clean_dir = match remote_dir.as_deref().map(str::trim) {
+        Some(d) if !d.is_empty() => d,
+        _ => "~",
+    };
+
+    let mut results = Vec::new();
+
+    for local_path in &local_paths {
+        let path = std::path::Path::new(local_path);
+        if !path.exists() {
+            results.push(ScpUploadResult {
+                file_name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| local_path.clone()),
+                remote_dest: format!("{}:{}", parsed_host, clean_dir),
+                bytes: 0,
+                success: false,
+                error: Some(format!("Local file not found: {}", local_path)),
+            });
+            continue;
+        }
+
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        let target_dest = format!("{}:{}", parsed_host, clean_dir);
+
+        let mut cmd = std::process::Command::new("scp");
+        cmd.arg("-r");
+        cmd.arg("-p");
+        if let Some(ref port) = port_arg {
+            cmd.arg("-P");
+            cmd.arg(port);
+        }
+        cmd.arg(local_path);
+        cmd.arg(&target_dest);
+
+        match cmd.output() {
+            Ok(output) => {
+                if output.status.success() {
+                    results.push(ScpUploadResult {
+                        file_name,
+                        remote_dest: target_dest,
+                        bytes,
+                        success: true,
+                        error: None,
+                    });
+                } else {
+                    let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    let err_msg = if err.is_empty() {
+                        format!("scp exited with code {:?}", output.status.code())
+                    } else {
+                        err
+                    };
+                    results.push(ScpUploadResult {
+                        file_name,
+                        remote_dest: target_dest,
+                        bytes,
+                        success: false,
+                        error: Some(err_msg),
+                    });
+                }
+            }
+            Err(e) => {
+                results.push(ScpUploadResult {
+                    file_name,
+                    remote_dest: target_dest,
+                    bytes,
+                    success: false,
+                    error: Some(format!("Failed to execute scp: {e}")),
+                });
+            }
+        }
+    }
+
+    Ok(results)
+}
+
 #[tauri::command]
 pub fn rename_tab(id: String, name: String, db: tauri::State<'_, DbState>) -> Result<(), String> {
     let conn = db.0.lock();
@@ -710,22 +829,30 @@ pub async fn get_terminal_active_cwd(
 
 pub fn build_ssh_command(ssh_host: &str, remote_path: Option<&str>) -> String {
     let clean_host = ssh_host.trim();
-    let fallback_msg = "\\n\\033[33m[SSH connection failed. Press Enter to drop to local shell...]\\033[0m\\n";
 
-    if let Some(path) = remote_path {
+    let ssh_target = if let Some(path) = remote_path {
         let trimmed_path = path.trim();
-        if !trimmed_path.is_empty() {
+        // Ignore local macOS paths that accidentally get passed
+        if !trimmed_path.is_empty()
+            && !trimmed_path.starts_with("/Users/")
+            && !trimmed_path.starts_with("/Volumes/")
+        {
             let escaped_path = trimmed_path.replace('\'', "'\\''");
-            return format!(
-                "ssh -t {} 'cd \"{}\" 2>/dev/null || cd ~; exec $SHELL -l' || (printf \"{}\" && read -r && exec $SHELL -l)",
-                clean_host, escaped_path, fallback_msg
-            );
+            format!(
+                "ssh -t {} 'cd \"{}\" 2>/dev/null || cd ~; exec $SHELL -l'",
+                clean_host, escaped_path
+            )
+        } else {
+            format!("ssh -t {}", clean_host)
         }
-    }
+    } else {
+        format!("ssh -t {}", clean_host)
+    };
 
+    // Keep the terminal in an SSH reconnect loop rather than dropping to local shell
     format!(
-        "ssh -t {} || (printf \"{}\" && read -r && exec $SHELL -l)",
-        clean_host, fallback_msg
+        "while true; do {}; printf \"\\n\\033[31m[SSH connection closed]\\033[0m Press Enter to reconnect or Ctrl+C to close...\\n\"; read -r || break; clear; done",
+        ssh_target
     )
 }
 
@@ -1978,22 +2105,41 @@ mod tests {
     #[test]
     fn test_build_ssh_command_without_path() {
         let cmd = build_ssh_command("user@example.com", None);
-        assert!(cmd.starts_with("ssh -t user@example.com"));
-        assert!(cmd.contains("exec $SHELL -l"));
-        assert!(cmd.contains("SSH connection failed"));
+        assert!(cmd.contains("ssh -t user@example.com"));
+        assert!(cmd.contains("SSH connection closed"));
     }
 
     #[test]
     fn test_build_ssh_command_with_path() {
         let cmd = build_ssh_command("root@192.168.1.100", Some("/var/www/app"));
-        assert!(cmd.starts_with("ssh -t root@192.168.1.100 'cd \"/var/www/app\""));
-        assert!(cmd.contains("exec $SHELL -l"));
+        assert!(cmd.contains("ssh -t root@192.168.1.100 'cd \"/var/www/app\""));
     }
 
     #[test]
-    fn test_build_ssh_command_trims_whitespace() {
-        let cmd = build_ssh_command("   my-server   ", Some("   "));
-        assert!(cmd.starts_with("ssh -t my-server ||"));
+    fn test_build_ssh_command_ignores_local_macos_paths() {
+        let cmd = build_ssh_command("root@192.168.1.100", Some("/Users/samirkumal/Documents"));
+        assert!(cmd.contains("ssh -t root@192.168.1.100;"));
+    }
+
+    #[test]
+    fn test_upload_files_scp_validates_inputs() {
+        // Empty host
+        let res1 = upload_files_scp("".into(), vec!["/tmp/test".into()], None);
+        assert!(res1.is_err());
+        assert!(res1.unwrap_err().contains("SSH host cannot be empty"));
+
+        // Empty files
+        let res2 = upload_files_scp("root@host".into(), vec![], None);
+        assert!(res2.is_err());
+        assert!(res2.unwrap_err().contains("No files specified"));
+
+        // Non-existent file
+        let res3 = upload_files_scp("root@host".into(), vec!["/tmp/definitely-nonexistent-file-12345.xyz".into()], None);
+        assert!(res3.is_ok());
+        let results = res3.unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].success);
+        assert!(results[0].error.as_ref().unwrap().contains("Local file not found"));
     }
 }
 
@@ -2644,4 +2790,298 @@ pub fn close_claude_session(
     session_id: String,
 ) -> Result<(), String> {
     claude.close(&session_id)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ClaudeAgentItem {
+    pub id: String,
+    pub name: String,
+    pub project_name: String,
+    pub title: String,
+    pub description: String,
+    pub status: String,
+    pub status_detail: Option<String>,
+    pub progress_percent: Option<u8>,
+    pub tokens: Option<String>,
+    pub duration: Option<String>,
+    pub agent_type: String,
+    pub cwd: String,
+    pub pid: Option<u32>,
+    pub updated_at: i64,
+}
+
+fn clean_claude_project_name(raw: &str) -> String {
+    let trimmed = raw.trim_matches('-');
+    let segments: Vec<&str> = trimmed.split('-').filter(|s| !s.is_empty()).collect();
+    if segments.len() >= 3 {
+        segments[segments.len() - 3..].join("-")
+    } else if !segments.is_empty() {
+        segments.join("-")
+    } else {
+        raw.to_string()
+    }
+}
+
+fn is_path_in_workspace(session_cwd: &str, workspace_path: &str) -> bool {
+    let session_clean = session_cwd.trim_end_matches('/');
+    let workspace_clean = workspace_path.trim_end_matches('/');
+
+    if session_clean == workspace_clean {
+        return true;
+    }
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let home_clean = home.trim_end_matches('/');
+    if workspace_clean.is_empty() || workspace_clean == home_clean || workspace_clean == "/" {
+        return false;
+    }
+
+    if session_clean.starts_with(workspace_clean) {
+        let remainder = &session_clean[workspace_clean.len()..];
+        return remainder.starts_with('/');
+    }
+
+    if workspace_clean.starts_with(session_clean) {
+        let remainder = &workspace_clean[session_clean.len()..];
+        return remainder.starts_with('/');
+    }
+    false
+}
+
+fn detect_session_state(
+    session_status: &str,
+    session_jsonl: Option<&std::path::Path>,
+    started_at: i64,
+    now: std::time::SystemTime,
+) -> (String, Option<String>) {
+    let now_secs = now
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let age_secs = now_secs.saturating_sub(started_at / 1000);
+
+    // Inspect last bytes of session JSONL to detect question prompts or tool executions
+    if let Some(jsonl_path) = session_jsonl {
+        if let Ok(file) = std::fs::File::open(jsonl_path) {
+            use std::io::{Read, Seek, SeekFrom};
+            let mut file = file;
+            let file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
+            if file_len > 0 {
+                let read_len = file_len.min(4096);
+                let _ = file.seek(SeekFrom::End(-(read_len as i64)));
+                let mut buf = Vec::new();
+                if file.read_to_end(&mut buf).is_ok() {
+                    let text = String::from_utf8_lossy(&buf);
+                    let lower = text.to_lowercase();
+                    if lower.contains("(y/n)")
+                        || lower.contains("do you want to proceed")
+                        || lower.contains("allow this")
+                        || lower.contains("permission")
+                        || lower.contains("trust workspace")
+                        || lower.contains("doyoutrust")
+                        || lower.contains("select an option")
+                        || lower.contains("needs authentication")
+                    {
+                        return ("blocked".to_string(), Some("Needs input".to_string()));
+                    }
+                }
+            }
+        }
+    }
+
+    if session_status == "running" || session_status == "working" {
+        ("working".to_string(), Some("Working...".to_string()))
+    } else if age_secs < 120 {
+        ("done".to_string(), Some("Done".to_string()))
+    } else {
+        ("idle".to_string(), Some("Idle".to_string()))
+    }
+}
+
+#[tauri::command]
+pub fn get_claude_agents(project_path: Option<String>) -> Result<Vec<ClaudeAgentItem>, String> {
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| "HOME environment variable not found".to_string())?;
+    let sessions_dir = home.join(".claude").join("sessions");
+    let projects_dir = home.join(".claude").join("projects");
+
+    let mut live_sessions = Vec::new();
+
+    // 1. Scan live sessions from ~/.claude/sessions/*.json
+    if sessions_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                            let pid = val.get("pid").and_then(|p| p.as_u64()).map(|p| p as u32);
+                            let session_id = val
+                                .get("sessionId")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or_default()
+                                .to_string();
+                            let cwd = val
+                                .get("cwd")
+                                .and_then(|c| c.as_str())
+                                .unwrap_or_default()
+                                .to_string();
+                            let name = val
+                                .get("name")
+                                .and_then(|n| n.as_str())
+                                .unwrap_or("Claude")
+                                .to_string();
+                            let started_at = val.get("startedAt").and_then(|s| s.as_i64()).unwrap_or(0);
+                            let raw_status = val
+                                .get("status")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("idle")
+                                .to_string();
+
+                            if let Some(pid_val) = pid {
+                                #[cfg(unix)]
+                                let is_alive = unsafe { libc::kill(pid_val as libc::pid_t, 0) == 0 };
+                                #[cfg(not(unix))]
+                                let is_alive = true;
+
+                                if is_alive && !session_id.is_empty() {
+                                    live_sessions.push((pid_val, session_id, cwd, name, started_at, raw_status));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Filter strictly by workspace path if provided
+    let filtered_sessions: Vec<_> = if let Some(target) = &project_path {
+        let target_clean = target.trim();
+        if target_clean.is_empty() {
+            Vec::new()
+        } else {
+            live_sessions
+                .into_iter()
+                .filter(|(_, _, cwd, _, _, _)| is_path_in_workspace(cwd, target_clean))
+                .collect()
+        }
+    } else {
+        // If no target provided, take only the most recently started live session
+        live_sessions.sort_by(|a, b| b.4.cmp(&a.4));
+        live_sessions.into_iter().take(1).collect()
+    };
+
+    let mut items = Vec::new();
+    let now = std::time::SystemTime::now();
+
+    // 3. For each active session, discover subagents and build items
+    for (_pid, session_id, cwd, session_name, started_at, raw_status) in filtered_sessions {
+        let clean_proj = clean_claude_project_name(&crate::agent_runtime_manager::sanitize_project_dir(&cwd));
+        let sanitized = crate::agent_runtime_manager::sanitize_project_dir(&cwd);
+        let proj_path = projects_dir.join(&sanitized);
+        let subagent_dir = proj_path.join(&session_id).join("subagents");
+        let session_jsonl = proj_path.join(format!("{}.jsonl", &session_id));
+
+        let (status, status_detail) = detect_session_state(
+            &raw_status,
+            if session_jsonl.exists() { Some(&session_jsonl) } else { None },
+            started_at,
+            now,
+        );
+
+        let mut subagent_items = Vec::new();
+
+        if subagent_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&subagent_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .map(|n| n.ends_with(".meta.json"))
+                        .unwrap_or(false)
+                    {
+                        // Check recency: only include subagents actively running within the last 180s
+                        let subagent_mtime = entry
+                            .metadata()
+                            .and_then(|m| m.modified())
+                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                        let subagent_age = now
+                            .duration_since(subagent_mtime)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(86400 * 30);
+
+                        if subagent_age > 180 {
+                            continue;
+                        }
+
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&content) {
+                                let subagent_id = path
+                                    .file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("subagent")
+                                    .to_string();
+                                let desc = meta
+                                    .get("description")
+                                    .and_then(|d| d.as_str())
+                                    .unwrap_or("Subagent task")
+                                    .to_string();
+                                let agent_type = meta
+                                    .get("agentType")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("fork")
+                                    .to_string();
+
+                                subagent_items.push(ClaudeAgentItem {
+                                    id: format!("{}-{}", session_id, subagent_id),
+                                    name: clean_proj.clone(),
+                                    project_name: clean_proj.clone(),
+                                    title: if agent_type == "fork" {
+                                        "Claude Code Worker".into()
+                                    } else {
+                                        agent_type
+                                    },
+                                    description: desc,
+                                    status: "working".into(),
+                                    status_detail: Some("Working...".into()),
+                                    progress_percent: Some(45),
+                                    tokens: Some("Active".into()),
+                                    duration: Some("Live".into()),
+                                    agent_type: "subagent".into(),
+                                    cwd: cwd.clone(),
+                                    pid: Some(_pid),
+                                    updated_at: started_at,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add main Claude Code instance
+        items.push(ClaudeAgentItem {
+            id: session_id.clone(),
+            name: clean_proj.clone(),
+            project_name: clean_proj,
+            title: "Claude Code".into(),
+            description: format!("Session {} ({})", &session_id[..session_id.len().min(8)], session_name),
+            status,
+            status_detail,
+            progress_percent: Some(85),
+            tokens: Some("0 tok".into()),
+            duration: Some("Live".into()),
+            agent_type: "main".into(),
+            cwd: cwd.clone(),
+            pid: Some(_pid),
+            updated_at: started_at,
+        });
+
+        items.extend(subagent_items);
+    }
+
+    Ok(items)
 }
