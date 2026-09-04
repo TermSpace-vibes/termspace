@@ -2821,8 +2821,29 @@ pub fn spawn_claude_session(
     session_id: String,
     claude_session_uuid: String,
     cwd: String,
+    skip_permissions: Option<bool>,
+    cols: u16,
+    rows: u16,
 ) -> Result<(), String> {
-    claude.spawn(session_id, claude_session_uuid, app, &cwd)
+    claude.spawn(
+        session_id,
+        claude_session_uuid,
+        app,
+        &cwd,
+        skip_permissions.unwrap_or(false),
+        cols,
+        rows,
+    )
+}
+
+#[tauri::command]
+pub fn resize_claude_session(
+    claude: State<ClaudeSessionManager>,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    claude.resize(&session_id, cols, rows)
 }
 
 #[tauri::command]

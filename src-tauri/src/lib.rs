@@ -151,7 +151,7 @@ pub fn run() {
             app.manage(DaemonClientState(Arc::new(Mutex::new(daemon_client_opt))));
 
             app.manage(BrowserPaneManager::new());
-            app.manage(ClaudeSessionManager::new());
+            app.manage(ClaudeSessionManager::new(agent_detection.clone()));
             app.manage(AgentRuntimeManager::new());
             app.manage(audio::AudioPlayer::new());
             app.manage(commands::WatcherState(std::sync::Mutex::new(
@@ -362,6 +362,7 @@ pub fn run() {
             commands::write_lsp_message,
             commands::search_files,
             commands::spawn_claude_session,
+            commands::resize_claude_session,
             commands::write_claude_session,
             commands::stop_claude_session,
             commands::close_claude_session,

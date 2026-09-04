@@ -43,6 +43,7 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
   const fitAddonRef = useRef<FitAddon | null>(null)
   const permissionPromptActiveRef = useRef(false)
   const recentOutputRef = useRef('')
+  const lastSentDimensionsRef = useRef<{ cols: number; rows: number } | null>(null)
 
   const title = pane?.title || 'Claude Code'
   const status = pane?.status || 'ready'
@@ -69,7 +70,16 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
     setTranscript((prev) => appendClaudeStatus(prev, 'Starting Claude session...'))
     try {
       const claudeSessionUuid = crypto.randomUUID()
-      await invoke('spawn_claude_session', { sessionId: paneId, claudeSessionUuid, cwd: pane?.cwd || '' })
+      const cols = Math.max(1, xtermRef.current?.cols ?? 100)
+      const rows = Math.max(1, xtermRef.current?.rows ?? 30)
+      lastSentDimensionsRef.current = { cols, rows }
+      await invoke('spawn_claude_session', {
+        sessionId: paneId,
+        claudeSessionUuid,
+        cwd: pane?.cwd || '',
+        cols,
+        rows,
+      })
       useAppStore.getState().setSessionToPane(claudeSessionUuid, paneId)
       updateClaudePane(tabId, paneId, { status: 'ready', error: null })
     } catch (err) {
@@ -119,6 +129,7 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
     fitAddon.fit()
     xtermRef.current = xterm
     fitAddonRef.current = fitAddon
+    lastSentDimensionsRef.current = { cols: xterm.cols, rows: xterm.rows }
 
     const dataDisposable = xterm.onData((data) => {
       writeClaudeInput(data).catch(() => {})
@@ -126,6 +137,14 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
 
     const resizeObserver = new ResizeObserver(() => {
       fitAddon.fit()
+      const dimensions = { cols: Math.max(1, xterm.cols), rows: Math.max(1, xterm.rows) }
+      const last = lastSentDimensionsRef.current
+      if (last?.cols === dimensions.cols && last.rows === dimensions.rows) return
+      lastSentDimensionsRef.current = dimensions
+      invoke('resize_claude_session', {
+        sessionId: paneId,
+        ...dimensions,
+      }).catch(() => {})
     })
     resizeObserver.observe(terminalContainerRef.current)
     if (isActive) xterm.focus()

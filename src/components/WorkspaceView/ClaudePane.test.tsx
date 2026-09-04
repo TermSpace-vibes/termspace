@@ -13,7 +13,10 @@ const xtermMock = vi.hoisted(() => ({
   clear: vi.fn(),
   dispose: vi.fn(),
   fit: vi.fn(),
+  cols: 120,
+  rows: 36,
 }))
+const resizeObservers = vi.hoisted(() => [] as Array<ResizeObserverCallback>)
 const store = vi.hoisted(() => {
   const pane = { id: 'claude-1', tabId: 'tab-1', title: 'Claude 1', cwd: '/tmp', position: 0, createdAt: 1 } as {
     id: string
@@ -68,6 +71,8 @@ vi.mock('@xterm/xterm', () => ({
     this.focus = xtermMock.focus
     this.clear = xtermMock.clear
     this.dispose = xtermMock.dispose
+    Object.defineProperty(this, 'cols', { get: () => xtermMock.cols })
+    Object.defineProperty(this, 'rows', { get: () => xtermMock.rows })
   }),
 }))
 
@@ -83,6 +88,17 @@ describe('ClaudePaneComponent', () => {
     listeners.clear()
     xtermMock.writes = []
     xtermMock.onDataHandlers = []
+    xtermMock.cols = 120
+    xtermMock.rows = 36
+    resizeObservers.length = 0
+    global.ResizeObserver = class ResizeObserverMock {
+      constructor(callback: ResizeObserverCallback) {
+        resizeObservers.push(callback)
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
     store.pane.status = undefined
     store.pane.error = undefined
     vi.mocked(invoke).mockResolvedValue(undefined)
@@ -105,9 +121,40 @@ describe('ClaudePaneComponent', () => {
         sessionId: 'claude-1',
         cwd: '/tmp',
         claudeSessionUuid: expect.any(String),
+        cols: 120,
+        rows: 36,
       })
       expect(store.state.setSessionToPane).toHaveBeenCalledWith(expect.any(String), 'claude-1')
     })
+  })
+
+  it('resizes the backend only when fitted dimensions change', async () => {
+    render(
+      <ClaudePaneComponent
+        tabId="tab-1"
+        paneId="claude-1"
+        isActive
+        onFocus={() => {}}
+        onClose={() => {}}
+      />,
+    )
+
+    await waitFor(() => expect(resizeObservers).toHaveLength(1))
+    vi.mocked(invoke).mockClear()
+
+    xtermMock.cols = 140
+    xtermMock.rows = 42
+    act(() => resizeObservers[0]([], {} as ResizeObserver))
+
+    expect(invoke).toHaveBeenCalledWith('resize_claude_session', {
+      sessionId: 'claude-1',
+      cols: 140,
+      rows: 42,
+    })
+
+    vi.mocked(invoke).mockClear()
+    act(() => resizeObservers[0]([], {} as ResizeObserver))
+    expect(invoke).not.toHaveBeenCalledWith('resize_claude_session', expect.anything())
   })
 
   it('writes prompt to the live Claude session on Enter', async () => {
@@ -299,6 +346,8 @@ describe('ClaudePaneComponent', () => {
         sessionId: 'claude-1',
         cwd: '/tmp',
         claudeSessionUuid: expect.any(String),
+        cols: 120,
+        rows: 36,
       })
       expect(store.state.setSessionToPane).toHaveBeenCalledWith(expect.any(String), 'claude-1')
     })
@@ -320,6 +369,8 @@ describe('ClaudePaneComponent', () => {
         sessionId: 'claude-1',
         cwd: '/tmp',
         claudeSessionUuid: expect.any(String),
+        cols: 120,
+        rows: 36,
       })
       expect(store.state.setSessionToPane).toHaveBeenCalledWith(expect.any(String), 'claude-1')
     })
@@ -383,6 +434,8 @@ describe('ClaudePaneComponent', () => {
         sessionId: 'claude-1',
         cwd: '/tmp',
         claudeSessionUuid: expect.any(String),
+        cols: 120,
+        rows: 36,
       })
     })
   })
