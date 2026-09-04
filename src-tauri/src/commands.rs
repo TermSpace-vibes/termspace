@@ -2880,6 +2880,16 @@ pub fn close_claude_session(
     claude.close(&session_id)
 }
 
+#[tauri::command]
+pub fn set_agent_target_focus(
+    coordinator: State<AgentDetectionCoordinator>,
+    target_id: String,
+    focused: bool,
+) -> Result<(), String> {
+    coordinator.set_focus(&AgentTargetId::from(target_id), focused);
+    Ok(())
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ClaudeAgentItem {
     pub id: String,

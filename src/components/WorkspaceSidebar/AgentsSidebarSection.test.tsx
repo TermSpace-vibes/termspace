@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AgentsSidebarSection, type ClaudeAgentItem } from './AgentsSidebarSection'
 import { useAppStore } from '../../store/useAppStore'
@@ -6,6 +6,7 @@ import { useAppStore } from '../../store/useAppStore'
 const mockAgents: ClaudeAgentItem[] = [
   {
     id: 'agent-1',
+    targetId: 'term-1',
     name: 'New-Astoria-Le...',
     project_name: 'New-Astoria-Lead-Exchange',
     title: 'Claude Code Worker',
@@ -51,13 +52,19 @@ const mockAgents: ClaudeAgentItem[] = [
 
 const tauri = vi.hoisted(() => ({
   invoke: vi.fn(),
-  listen: vi.fn().mockResolvedValue(() => {}),
+  listeners: new Map<string, (event: { payload: unknown }) => void>(),
+  listen: vi.fn((event: string, handler: (event: { payload: unknown }) => void) => {
+    tauri.listeners.set(event, handler)
+    return Promise.resolve(() => tauri.listeners.delete(event))
+  }),
 }))
 
 vi.mock('@tauri-apps/api/core', () => tauri)
 vi.mock('@tauri-apps/api/event', () => tauri)
 
 beforeEach(() => {
+  vi.clearAllMocks()
+  tauri.listeners.clear()
   tauri.invoke.mockImplementation((cmd: string) => {
     if (cmd === 'get_claude_agents') return Promise.resolve(mockAgents)
     return Promise.resolve([])
@@ -122,5 +129,73 @@ describe('AgentsSidebarSection', () => {
       expect(screen.getByText('?')).toBeInTheDocument()
       expect(screen.getByText('✓')).toBeInTheDocument()
     })
+  })
+
+  it('applies correlated done state immediately and rejects stale global sequences', async () => {
+    render(<AgentsSidebarSection isCollapsed={false} />)
+    await waitFor(() => expect(tauri.listeners.has('agent-state-changed')).toBe(true))
+
+    act(() => {
+      tauri.listeners.get('agent-state-changed')?.({
+        payload: {
+          targetId: 'term-1',
+          providerSessionId: 'agent-1',
+          provider: 'claude',
+          state: 'idle',
+          presentation: 'done',
+          source: 'screen',
+          eventSequence: 12,
+          observedAtMs: 1000,
+          detail: 'Finished now',
+        },
+      })
+    })
+
+    await waitFor(() => expect(screen.getAllByText('DONE')).toHaveLength(2))
+
+    act(() => {
+      tauri.listeners.get('agent-state-changed')?.({
+        payload: {
+          targetId: 'another-terminal',
+          providerSessionId: 'agent-2',
+          provider: 'claude',
+          state: 'working',
+          presentation: 'normal',
+          source: 'claude-hook',
+          eventSequence: 11,
+          observedAtMs: 999,
+        },
+      })
+    })
+
+    expect(screen.getAllByText('DONE')).toHaveLength(2)
+    expect(screen.getAllByText('NEEDS INPUT')).toHaveLength(1)
+  })
+
+  it('matches provider session fallback and keeps coordinated state across JSONL reloads', async () => {
+    render(<AgentsSidebarSection isCollapsed={false} />)
+    await waitFor(() => expect(tauri.listeners.has('agent-state-changed')).toBe(true))
+
+    act(() => {
+      tauri.listeners.get('agent-state-changed')?.({
+        payload: {
+          targetId: 'unlisted-terminal',
+          providerSessionId: 'agent-2',
+          provider: 'claude',
+          state: 'idle',
+          presentation: 'done',
+          source: 'screen',
+          eventSequence: 20,
+          observedAtMs: 2000,
+          detail: 'Done through UUID',
+        },
+      })
+    })
+    await waitFor(() => expect(screen.getAllByText('DONE')).toHaveLength(2))
+
+    act(() => {
+      tauri.listeners.get('claude-session-update')?.({ payload: null })
+    })
+    await waitFor(() => expect(screen.getAllByText('DONE')).toHaveLength(2))
   })
 })

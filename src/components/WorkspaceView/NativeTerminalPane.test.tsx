@@ -191,6 +191,33 @@ describe('NativeTerminalPane copy/paste', () => {
 
     expect(invoke).not.toHaveBeenCalledWith('write_terminal', expect.anything())
   })
+
+  it('reports active and inactive focus state to the detector', async () => {
+    const props = {
+      terminalId: 't-1',
+      workspaceId: 'ws-1',
+      isMaximized: false,
+      onFocus: vi.fn(),
+      onToggleMaximize: vi.fn(),
+      onClose: vi.fn(),
+      onSplit: vi.fn(),
+    }
+    const { rerender } = render(<NativeTerminalPane {...props} isActive />)
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('set_agent_target_focus', {
+        targetId: 't-1',
+        focused: true,
+      })
+    })
+
+    rerender(<NativeTerminalPane {...props} isActive={false} />)
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('set_agent_target_focus', {
+        targetId: 't-1',
+        focused: false,
+      })
+    })
+  })
 })
 
 describe('NativeTerminalPane selection drag', () => {

@@ -613,6 +613,13 @@ export const NativeTerminalPane = React.memo(function NativeTerminalPane({
     }
   }, [isActive, terminalId])
 
+  useEffect(() => {
+    invoke('set_agent_target_focus', { targetId: terminalId, focused: isActive }).catch(() => {})
+    return () => {
+      invoke('set_agent_target_focus', { targetId: terminalId, focused: false }).catch(() => {})
+    }
+  }, [isActive, terminalId])
+
   // ── ResizeObserver — notify Rust of new terminal dimensions ───────────────
   useEffect(() => {
     if (!containerRef.current) return

@@ -163,6 +163,13 @@ export function ClaudePaneComponent({ tabId, paneId, isActive, onFocus, onClose 
   }, [isActive])
 
   useEffect(() => {
+    invoke('set_agent_target_focus', { targetId: paneId, focused: isActive }).catch(() => {})
+    return () => {
+      invoke('set_agent_target_focus', { targetId: paneId, focused: false }).catch(() => {})
+    }
+  }, [isActive, paneId])
+
+  useEffect(() => {
     let disposed = false
     let unlistenOutput: (() => void) | null = null
     let unlistenError: (() => void) | null = null

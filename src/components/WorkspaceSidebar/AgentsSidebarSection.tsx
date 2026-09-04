@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { useAppStore } from '../../store/useAppStore'
 
 export interface ClaudeAgentItem {
   id: string
+  targetId?: string
   name: string
   project_name: string
   title: string
@@ -18,6 +19,59 @@ export interface ClaudeAgentItem {
   cwd: string
   pid?: number
   updated_at: number
+}
+
+export interface AgentStateUpdate {
+  targetId: string
+  providerSessionId?: string
+  provider: string
+  state: 'unknown' | 'working' | 'blocked' | 'idle'
+  presentation: 'normal' | 'done'
+  source: 'screen' | 'claude-hook' | 'jsonl' | 'process'
+  eventSequence: number
+  observedAtMs: number
+  detail?: string
+}
+
+type CoordinatedAgentStates = Map<string, AgentStateUpdate>
+
+function updateMatchesAgent(item: ClaudeAgentItem, update: AgentStateUpdate): boolean {
+  return item.targetId === update.targetId || (
+    update.providerSessionId !== undefined && item.id === update.providerSessionId
+  )
+}
+
+export function applyCoordinatedAgentStates(
+  items: ClaudeAgentItem[],
+  updates: CoordinatedAgentStates,
+): ClaudeAgentItem[] {
+  return items.map((item) => {
+    const update = [...updates.values()]
+      .filter((candidate) => updateMatchesAgent(item, candidate))
+      .sort((left, right) => right.eventSequence - left.eventSequence)[0]
+    if (!update) return item
+    return {
+      ...item,
+      status: update.presentation === 'done' ? 'done' : update.state,
+      status_detail: update.detail ?? item.status_detail,
+    }
+  })
+}
+
+export function applyAgentStateUpdate(
+  items: ClaudeAgentItem[],
+  updates: CoordinatedAgentStates,
+  update: AgentStateUpdate,
+): { items: ClaudeAgentItem[]; updates: CoordinatedAgentStates } {
+  const lastGlobalSequence = Math.max(0, ...[...updates.values()].map((item) => item.eventSequence))
+  if (update.eventSequence <= lastGlobalSequence) return { items, updates }
+
+  const nextUpdates = new Map(updates)
+  nextUpdates.set(update.targetId, update)
+  return {
+    items: applyCoordinatedAgentStates(items, nextUpdates),
+    updates: nextUpdates,
+  }
 }
 
 interface Props {
@@ -183,6 +237,7 @@ export function AgentsSidebarSection({ isCollapsed, onSelectAgent }: Props) {
   const [agents, setAgents] = useState<ClaudeAgentItem[]>([])
   const [viewMode, setViewMode] = useState<'grouped' | 'all'>('grouped')
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const coordinatedStatesRef = useRef<CoordinatedAgentStates>(new Map())
 
   const loadAgents = useCallback(async () => {
     const state = useAppStore.getState()
@@ -208,6 +263,7 @@ export function AgentsSidebarSection({ isCollapsed, onSelectAgent }: Props) {
         for (const pane of claudePanes) {
           liveItems.push({
             id: `claude-${pane.id}`,
+            targetId: pane.id,
             name: 'Workspace',
             project_name: 'Current Workspace',
             title: 'Claude Code Session',
@@ -254,7 +310,7 @@ export function AgentsSidebarSection({ isCollapsed, onSelectAgent }: Props) {
             })
           : combined
 
-        setAgents(scoped)
+        setAgents(applyCoordinatedAgentStates(scoped, coordinatedStatesRef.current))
         setSelectedAgentId((prev) => prev || (scoped.length > 0 ? scoped[0].id : null))
       }
     } catch {
@@ -292,6 +348,21 @@ export function AgentsSidebarSection({ isCollapsed, onSelectAgent }: Props) {
     let unlistenHook: (() => void) | undefined
     let unlistenClaudeSession: (() => void) | undefined
     let unlistenPty: (() => void) | undefined
+    let unlistenAgentState: (() => void) | undefined
+
+    listen<AgentStateUpdate>('agent-state-changed', (event) => {
+      setAgents((current) => {
+        const result = applyAgentStateUpdate(
+          current,
+          coordinatedStatesRef.current,
+          event.payload,
+        )
+        coordinatedStatesRef.current = result.updates
+        return result.items
+      })
+    }).then((fn) => {
+      unlistenAgentState = fn
+    }).catch(() => {})
 
     listen('claude-session-update', () => loadAgents()).then((fn) => {
       unlistenClaudeSession = fn
@@ -314,6 +385,7 @@ export function AgentsSidebarSection({ isCollapsed, onSelectAgent }: Props) {
       unlistenHook?.()
       unlistenClaudeSession?.()
       unlistenPty?.()
+      unlistenAgentState?.()
     }
   }, [loadAgents])
 

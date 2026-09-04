@@ -157,6 +157,30 @@ describe('ClaudePaneComponent', () => {
     expect(invoke).not.toHaveBeenCalledWith('resize_claude_session', expect.anything())
   })
 
+  it('reports active and inactive focus state to the detector', async () => {
+    const props = {
+      tabId: 'tab-1',
+      paneId: 'claude-1',
+      onFocus: vi.fn(),
+      onClose: vi.fn(),
+    }
+    const { rerender } = render(<ClaudePaneComponent {...props} isActive />)
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('set_agent_target_focus', {
+        targetId: 'claude-1',
+        focused: true,
+      })
+    })
+
+    rerender(<ClaudePaneComponent {...props} isActive={false} />)
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('set_agent_target_focus', {
+        targetId: 'claude-1',
+        focused: false,
+      })
+    })
+  })
+
   it('writes prompt to the live Claude session on Enter', async () => {
     render(
       <ClaudePaneComponent

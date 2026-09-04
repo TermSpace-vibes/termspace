@@ -369,6 +369,7 @@ pub fn run() {
             commands::write_claude_session,
             commands::stop_claude_session,
             commands::close_claude_session,
+            commands::set_agent_target_focus,
             commands::get_claude_agents,
         ])
         .run(tauri::generate_context!())
