@@ -3,6 +3,7 @@ import { invoke, listen } from './utils/tauri'
 import { useAppStore } from './store/useAppStore'
 import { WorkspaceSidebar } from './components/WorkspaceSidebar/WorkspaceSidebar'
 import { HomeView } from './components/Home/HomeView'
+import { WorkspaceSetupView } from './components/WorkspaceSetup/WorkspaceSetupView'
 import { WorkspaceView } from './components/WorkspaceView/WorkspaceView'
 import { WorkspaceModal } from './components/WorkspaceModal/WorkspaceModal'
 import { SettingsModal } from './components/SettingsModal/SettingsModal'
@@ -18,7 +19,7 @@ import { useBrowserMediaBridge } from './hooks/useBrowserMediaBridge'
 import { useGlobalTranscription } from './hooks/useGlobalTranscription'
 import { useNotifications } from './hooks/useNotifications'
 import { buildDurableWorkspaceUiState, useSqliteUiStateSync, WORKSPACE_UI_STATE_KEY } from './hooks/useSqliteUiStateSync'
-import { Workspace, Terminal, EditorPane, BrowserPane } from './types'
+import { Workspace, Terminal, EditorPane, BrowserPane, LaunchSlot } from './types'
 import { getSqliteUiState, setSqliteUiState } from './utils/sqliteUiState'
 import type { DurableWorkspaceUiState } from './store/useAppStore'
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
@@ -62,7 +63,7 @@ export default function App() {
   const setActiveTerminalId = useAppStore((s) => s.setActiveTerminalId)
   const addEditorPane = useAppStore((s) => s.addEditorPane)
 
-  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [creatingWorkspaceId, setCreatingWorkspaceId] = useState<string | null>(null)
   const [showHome, setShowHome] = useState(true)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null)
@@ -81,7 +82,7 @@ export default function App() {
   const setUsername = useAppStore((s) => s.setUsername)
 
   const markdownModalFilePath = useAppStore((s) => s.markdownModalFilePath)
-  const isAnyModalOpen = showCreateModal || showSettingsModal || !!editingWorkspace || !!workspaceToDelete || showCommandPalette || username === null || markdownModalFilePath !== null || showHome
+  const isAnyModalOpen = showSettingsModal || !!editingWorkspace || !!workspaceToDelete || showCommandPalette || username === null || markdownModalFilePath !== null || showHome || !!creatingWorkspaceId
   
   useEffect(() => {
     setIsModalOpen(isAnyModalOpen)
@@ -354,6 +355,7 @@ export default function App() {
     setActiveWorkspaceId(id)
     setActiveTerminalId(null)
     setShowHome(false)
+    setCreatingWorkspaceId(null)
     useAppStore.getState().touchWorkspaceLastOpened(id)
 
     // Resolve the active tabId for this workspace so we can check the correct
@@ -376,15 +378,14 @@ export default function App() {
     }
   }
 
-  async function handleCreateWorkspace(values: { name: string; emoji: string; color: string; defaultPath: string | null; launchSlots: import('./types').LaunchSlot[] }) {
-    const ws = await invoke<Workspace>('create_workspace', values)
+  async function handleStartNewWorkspace() {
+    const ws = await invoke<Workspace>('create_workspace', { name: 'Untitled', emoji: 'TerminalSquare', color: '#e8a045' })
     addWorkspace(ws)
-    if (values.defaultPath !== null) {
-      useAppStore.getState().setWorkspaceDefaultPath(ws.id, values.defaultPath)
-    }
+    setCreatingWorkspaceId(ws.id)
+    setShowHome(false)
+  }
 
-    // Hide browser panes of old workspace before switching.
-    // Browser panes are keyed by tabId, so resolve via activeTabIds.
+  async function handleOpenCreatedWorkspace(id: string, launchSlots: LaunchSlot[]) {
     const prevId = prevActiveWorkspaceIdRef.current
     if (prevId) {
       const prevState = useAppStore.getState()
@@ -394,23 +395,19 @@ export default function App() {
         invoke('hide_browser_pane', { id: pane.id }).catch(() => {})
       }
     }
-    prevActiveWorkspaceIdRef.current = ws.id
+    prevActiveWorkspaceIdRef.current = id
+    setActiveWorkspaceId(id)
 
-    setActiveWorkspaceId(ws.id)
-
-    const hasAgentsToLaunch = values.launchSlots.some((slot) => slot.task.trim().length > 0)
+    const hasAgentsToLaunch = launchSlots.some((slot) => slot.task.trim().length > 0)
     if (hasAgentsToLaunch) {
-      // Bypass activateWorkspace's default-tab-seeding path (App.tsx:189) —
-      // it would otherwise create "Tab 1" + a lone default terminal, since
-      // its emptiness check doesn't account for agentStudioPanesByTab.
-      await useAppStore.getState().launchAgentSession(ws.id, values.launchSlots)
+      await useAppStore.getState().launchAgentSession(id, launchSlots)
     } else {
-      await activateWorkspace(ws.id)
+      await activateWorkspace(id)
     }
 
-    setShowCreateModal(false)
-    setShowHome(false)
-    useAppStore.getState().addToast('Workspace created', 'success')
+    useAppStore.getState().touchWorkspaceLastOpened(id)
+    setCreatingWorkspaceId(null)
+    useAppStore.getState().addToast('Workspace ready', 'success')
   }
 
   function confirmDeleteWorkspace(id: string) {
@@ -536,7 +533,7 @@ export default function App() {
       <ToastContainer />
       <DictationButton />
       <CommandPalette
-        onNewWorkspace={() => setShowCreateModal(true)}
+        onNewWorkspace={handleStartNewWorkspace}
         onOpenSettings={() => setShowSettingsModal(true)}
         onNewTerminal={async () => {
           if (activeWorkspaceId) {
@@ -635,7 +632,7 @@ export default function App() {
                 setTimeout(() => setIsAnimatingSidebar(false), 300)
               }
             }}
-            onAddWorkspace={() => setShowCreateModal(true)}
+            onAddWorkspace={handleStartNewWorkspace}
             onSelectWorkspace={handleSelectWorkspace}
             onDeleteWorkspace={confirmDeleteWorkspace}
             onEditWorkspace={(id) => {
@@ -644,7 +641,7 @@ export default function App() {
             }}
             onOpenSettings={() => setShowSettingsModal(true)}
             onDuplicateWorkspace={handleDuplicateWorkspace}
-            onGoHome={() => setShowHome(true)}
+            onGoHome={() => { setShowHome(true); setCreatingWorkspaceId(null) }}
           />
         </Panel>
         
@@ -718,12 +715,11 @@ export default function App() {
               <div style={{ fontSize: 48, opacity: 0.5 }}>🚀</div>
               <span style={{ color: 'var(--text-inactive)', fontSize: 16, fontWeight: 500, letterSpacing: 0.2 }}>Create a workspace to get started</span>
               <button 
-                onClick={() => setShowCreateModal(true)}
+                onClick={handleStartNewWorkspace}
                 style={{
                   marginTop: 8, padding: '10px 20px', background: 'var(--accent)',
                   border: 'none', borderRadius: 8, color: 'var(--bg-main)',
                   fontSize: 14, fontWeight: 600, cursor: 'pointer',
-                  transition: 'opacity 0.2s'
                 }}
                 onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
                 onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
@@ -738,17 +734,19 @@ export default function App() {
             <HomeView
               workspaces={workspaces}
               onSelectWorkspace={handleSelectWorkspace}
-              onNewWorkspace={() => setShowCreateModal(true)}
+              onNewWorkspace={handleStartNewWorkspace}
+            />
+          )}
+
+          {creatingWorkspaceId && (
+            <WorkspaceSetupView
+              workspaceId={creatingWorkspaceId}
+              onOpenWorkspace={handleOpenCreatedWorkspace}
             />
           )}
         </Panel>
       </Group>
 
-      <AnimatePresence>
-        {showCreateModal && (
-          <WorkspaceModal onSave={handleCreateWorkspace} onCancel={() => setShowCreateModal(false)} />
-        )}
-      </AnimatePresence>
       <AnimatePresence>
         {editingWorkspace && (
           <WorkspaceModal
